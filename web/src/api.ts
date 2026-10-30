@@ -163,7 +163,9 @@ export const api = {
 };
 
 export function art(path: string | undefined, size: "w185" | "w342" | "w500" | "w780" | "w1280" | "original") {
-  return path ? `/art/${size}${path}` : undefined;
+  if (!path) return undefined;
+  if (path.startsWith("plex:")) return `/art/plex/${size}?p=${encodeURIComponent(path.slice(5))}`;
+  return `/art/${size}${path}`;
 }
 
 export function fmtRuntime(min?: number) {
@@ -205,4 +207,23 @@ export function resolution(f: MediaFile) {
 export function episodeLabel(c: Card) {
   if (c.seasonNumber == null || c.episodeNumber == null) return "";
   return `S${c.seasonNumber} · E${c.episodeNumber}`;
+}
+
+export interface Marker {
+  type: "intro" | "credits";
+  start: number;
+  end: number;
+}
+
+export interface PlexStatus {
+  running: boolean;
+  phase: string;
+  section?: string;
+  items: number;
+  files: number;
+  watched: number;
+  markers: number;
+  started: string;
+  finished?: string;
+  error?: string;
 }

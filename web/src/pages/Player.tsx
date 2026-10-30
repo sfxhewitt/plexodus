@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, Card, Detail, episodeLabel, fmtTime, MediaFile, PlayInfo } from "../api";
+import { api, Card, Detail, episodeLabel, fmtTime, Marker, MediaFile, PlayInfo } from "../api";
 import { Back, Copy, External, Forward, Fullscreen, Mute, Pause, Play, Rewind, Volume } from "../components/Icons";
 
 // Plexodus never transcodes. We ask the browser whether it can decode the
@@ -80,6 +80,7 @@ export default function Player() {
   const [upNext, setUpNext] = useState<Card | null>(null);
   const [countdown, setCountdown] = useState(0);
   const lastReport = useRef(0);
+  const [markers, setMarkers] = useState<Marker[]>([]);
 
   // Load item + play info.
   useEffect(() => {
@@ -95,6 +96,8 @@ export default function Player() {
         const d = await api.get<Detail>(`/api/items/${id}`);
         if (cancelled) return;
         setItem(d);
+        setMarkers([]);
+        api.get<Marker[]>(`/api/items/${d.id}/markers`).then((m) => !cancelled && setMarkers(m), () => {});
         if (!d.files.length) throw new Error("No media file for this item.");
         const p = await api.get<PlayInfo>(`/api/play/${d.files[0].id}`);
         if (cancelled) return;
@@ -264,6 +267,18 @@ export default function Player() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  const activeMarker = markers.find((m) => time >= m.start && time < m.end - 1);
+  const skip = () => {
+    if (!activeMarker) return;
+    if (activeMarker.type === "credits" && item?.kind === "episode") {
+      video.current?.pause();
+      onEnded();
+    } else if (video.current) {
+      video.current.currentTime = activeMarker.end;
+    }
+  };
+  const endsAt = dur ? new Date(Date.now() + ((dur - time) * 1000) / (video.current?.playbackRate || 1)) : null;
+
   const title = item?.kind === "episode" ? item.showTitle || item.show?.title : item?.title;
   const subtitle = item?.kind === "episode" ? `${episodeLabel(item)} · ${item.title}` : item?.year ? String(item.year) : "";
 
@@ -336,6 +351,12 @@ export default function Player() {
         </div>
       )}
 
+      {activeMarker && !upNext && !unsupported && (activeMarker.type === "intro" || item?.kind === "episode") && (
+        <button className="btn glass skip-btn" onClick={skip}>
+          {activeMarker.type === "intro" ? "Skip intro" : "Next episode"}
+        </button>
+      )}
+
       {upNext && (
         <div className="up-next">
           <div className="muted small">Up next in {countdown}s</div>
@@ -371,6 +392,7 @@ export default function Player() {
             </div>
             <div className="time">{fmtTime(time)} <span className="muted">/ {fmtTime(dur)}</span></div>
             <div className="spacer" />
+            {endsAt && <span className="ends-at">Ends at {endsAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>}
             <button className="icon-btn" onClick={fullscreen} aria-label="Fullscreen"><Fullscreen /></button>
           </div>
         </div>

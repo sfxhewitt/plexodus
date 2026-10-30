@@ -518,11 +518,17 @@ func (s *Scanner) collect(ctx context.Context, lib *Library, files <-chan foundF
 			for _, f := range batch {
 				if k, ok := known[f.path]; ok {
 					// Same path, new size/mtime: file was replaced; re-probe it.
-					if _, err := tx.Exec(`UPDATE media_files SET size = ?, mtime = ?, probed_at = NULL, probe_error = NULL WHERE id = ?`,
-						f.size, f.mtime, k.id); err != nil {
+					// mtime 0 means an importer created the row; only a size
+					// change means the file itself was replaced.
+					if _, err := tx.Exec(`UPDATE media_files SET size = ?, mtime = ?,
+						probed_at = CASE WHEN size = ? AND mtime = 0 THEN probed_at END,
+						probe_error = CASE WHEN size = ? AND mtime = 0 THEN probe_error END WHERE id = ?`,
+						f.size, f.mtime, f.size, f.size, k.id); err != nil {
 						return err
 					}
-					atomic.AddInt64(&prog.Updated, 1)
+					if k.mtime != 0 || k.size != f.size {
+						atomic.AddInt64(&prog.Updated, 1)
+					}
 					continue
 				}
 				itemID, err := upsertItemFor(tx, lib, f)
@@ -568,6 +574,9 @@ func (s *Scanner) collect(ctx context.Context, lib *Library, files <-chan foundF
 	}
 }
 
+// AddedAt clamps a file mtime into a sensible "date added".
+func AddedAt(mtime int64) int64 { return addedAt(mtime) }
+
 func addedAt(mtime int64) int64 {
 	now := db.Now()
 	if mtime <= 0 || mtime > now {
@@ -576,8 +585,16 @@ func addedAt(mtime int64) int64 {
 	return mtime
 }
 
-// ensureItem inserts an item by guid if missing and returns its id.
-func ensureItem(tx *sql.Tx, guid string, libID int64, kind string, parent sql.NullInt64,
+// Item GUIDs are shared with importers so both create the same rows.
+func MovieGUID(libID int64, title string, year int) string {
+	return fmt.Sprintf("movie:%d:%s:%d", libID, strings.ToLower(title), year)
+}
+func ShowGUID(libID int64, showDir string) string { return fmt.Sprintf("show:%d:%s", libID, showDir) }
+func SeasonGUID(showID int64, n int) string       { return fmt.Sprintf("season:%d:%d", showID, n) }
+func EpisodeGUID(seasonID int64, n int) string    { return fmt.Sprintf("episode:%d:%d", seasonID, n) }
+
+// EnsureItem inserts an item by guid if missing and returns its id.
+func EnsureItem(tx *sql.Tx, guid string, libID int64, kind string, parent sql.NullInt64,
 	title string, year int, season, episode sql.NullInt64, added int64) (int64, error) {
 	var y sql.NullInt64
 	if year > 0 {
@@ -598,14 +615,14 @@ func upsertItemFor(tx *sql.Tx, lib *Library, f foundFile) (int64, error) {
 	switch lib.Kind {
 	case "movies":
 		title, year := MovieInfo(f.path, f.root)
-		guid := fmt.Sprintf("movie:%d:%s:%d", lib.ID, strings.ToLower(title), year)
-		return ensureItem(tx, guid, lib.ID, "movie", sql.NullInt64{}, title, year, sql.NullInt64{}, sql.NullInt64{}, added)
+		guid := MovieGUID(lib.ID, title, year)
+		return EnsureItem(tx, guid, lib.ID, "movie", sql.NullInt64{}, title, year, sql.NullInt64{}, sql.NullInt64{}, added)
 	case "shows":
 		ep, ok := EpisodeFromPath(f.path, f.root)
 		if !ok {
 			return 0, nil
 		}
-		showID, err := ensureItem(tx, fmt.Sprintf("show:%d:%s", lib.ID, ep.ShowDir), lib.ID, "show",
+		showID, err := EnsureItem(tx, ShowGUID(lib.ID, ep.ShowDir), lib.ID, "show",
 			sql.NullInt64{}, ep.ShowTitle, ep.ShowYear, sql.NullInt64{}, sql.NullInt64{}, added)
 		if err != nil {
 			return 0, err
@@ -614,13 +631,13 @@ func upsertItemFor(tx *sql.Tx, lib *Library, f foundFile) (int64, error) {
 		if ep.Season == 0 {
 			seasonTitle = "Specials"
 		}
-		seasonID, err := ensureItem(tx, fmt.Sprintf("season:%d:%d", showID, ep.Season), lib.ID, "season",
+		seasonID, err := EnsureItem(tx, SeasonGUID(showID, ep.Season), lib.ID, "season",
 			sql.NullInt64{Int64: showID, Valid: true}, seasonTitle, 0,
 			sql.NullInt64{Int64: int64(ep.Season), Valid: true}, sql.NullInt64{}, added)
 		if err != nil {
 			return 0, err
 		}
-		return ensureItem(tx, fmt.Sprintf("episode:%d:%d", seasonID, ep.Episode), lib.ID, "episode",
+		return EnsureItem(tx, EpisodeGUID(seasonID, ep.Episode), lib.ID, "episode",
 			sql.NullInt64{Int64: seasonID, Valid: true}, fmt.Sprintf("Episode %d", ep.Episode), 0,
 			sql.NullInt64{Int64: int64(ep.Season), Valid: true}, sql.NullInt64{Int64: int64(ep.Episode), Valid: true}, added)
 	}

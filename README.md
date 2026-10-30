@@ -28,6 +28,20 @@ docker run -d --name plexodus -p 8484:8484 \
 
 Open `http://<server>:8484`, create the admin account, then add libraries in **Settings**. Point each one at a folder such as `/mnt/gdrive/Movies`.
 
+## Importing from Plex
+
+If you already run Plex, Plexodus can import everything from it in one pass: libraries, titles, artwork, descriptions, ratings, file details, your watch history and progress, and Plex's intro and credit markers (used for **Skip intro**). Media files aren't read, so this takes minutes even for very large cloud libraries. Afterwards Plexodus keeps itself up to date with its own scans, and Plex is optional.
+
+Give it your server and token through the environment (recommended, so the token never goes through a browser):
+
+```sh
+PLEX_URL=http://127.0.0.1:32400 PLEX_TOKEN=xxxxxxxx ./plexodus
+```
+
+Then open **Settings → Import from Plex**, press **Save & check connection**, and **Import**. If Plex sees your files at different paths than Plexodus (for example Plex runs in Docker), set `PLEX_PATH_MAP=/data/media=/mnt/gdrive`. The check shows whether every Plex folder is visible.
+
+Artwork is fetched through your Plex server, resized by it, and cached on local disk. Markers missing from the bulk import are fetched the first time an episode is played.
+
 ## rclone mount settings (important)
 
 Plexodus finds new content by rescanning, every 15 minutes by default. That's cheap only if rclone answers folder listings from memory instead of calling the Drive API each time. Mount with a long directory cache, and let rclone's change polling keep that cache fresh:
@@ -57,6 +71,9 @@ Flags override environment variables.
 | `-scan-interval` | `PLEXODUS_SCAN_INTERVAL` | `15m` | Periodic rescan of all libraries, one at a time (`0` disables) |
 | `-scan-workers` | `PLEXODUS_SCAN_WORKERS` | `16` | Folders listed concurrently during a scan |
 | `-probe-workers` | `PLEXODUS_PROBE_WORKERS` | `0` | Background ffprobe jobs. `0` means a file is only analysed when it's first played, which avoids reading every file on cloud storage |
+| `-plex-url` | `PLEX_URL` | | Plex server to import from |
+| `-plex-token` | `PLEX_TOKEN` | | Plex token for importing |
+| `-plex-path-map` | `PLEX_PATH_MAP` | | Rewrite Plex paths: `plexPrefix=localPrefix[,...]` |
 | `-ffprobe` | `PLEXODUS_FFPROBE` | `ffprobe` | ffprobe binary (used to read codecs for the browser compatibility check) |
 
 ### Scanning a single folder
@@ -83,6 +100,7 @@ Layout:
 - `cmd/plexodus`: entry point and scan scheduler
 - `internal/scanner`: folder walker and filename parsing
 - `internal/metadata`: TMDB matching and artwork cache
+- `internal/plex`: Plex API client and importer
 - `internal/probe`: ffprobe
 - `internal/api`: HTTP API, streaming, auth handlers
 - `internal/db`: SQLite schema

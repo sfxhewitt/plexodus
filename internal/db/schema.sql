@@ -129,3 +129,20 @@ CREATE TRIGGER IF NOT EXISTS items_fts_au AFTER UPDATE OF title, original_title,
     INSERT INTO items_fts(rowid, title, original_title, overview)
     VALUES (new.id, new.title, new.original_title, new.overview);
 END;
+
+-- Intro/credits markers (imported from Plex or detected later).
+CREATE TABLE IF NOT EXISTS markers (
+    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    type    TEXT NOT NULL,                   -- intro | credits
+    start   REAL NOT NULL,                   -- seconds
+    "end"   REAL NOT NULL,
+    PRIMARY KEY (item_id, type, start)
+);
+
+-- Link to the source item on a Plex server, for imports and marker lookups.
+CREATE TABLE IF NOT EXISTS plex_links (
+    item_id    INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+    rating_key TEXT NOT NULL,
+    markers_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS plex_links_key ON plex_links(rating_key);

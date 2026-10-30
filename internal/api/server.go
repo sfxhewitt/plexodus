@@ -22,26 +22,29 @@ import (
 	"github.com/sfxhewitt/plexodus/internal/config"
 	"github.com/sfxhewitt/plexodus/internal/db"
 	"github.com/sfxhewitt/plexodus/internal/metadata"
+	"github.com/sfxhewitt/plexodus/internal/plex"
 	"github.com/sfxhewitt/plexodus/internal/probe"
 	"github.com/sfxhewitt/plexodus/internal/scanner"
 )
 
 type Server struct {
-	cfg     *config.Config
-	db      *db.DB
-	auth    *auth.Auth
-	scanner *scanner.Scanner
-	agent   *metadata.Agent
-	art     *metadata.ArtCache
-	prober  *probe.Worker
-	web     fs.FS
-	signKey []byte
-	baseCtx context.Context
+	cfg      *config.Config
+	db       *db.DB
+	auth     *auth.Auth
+	scanner  *scanner.Scanner
+	agent    *metadata.Agent
+	art      *metadata.ArtCache
+	prober   *probe.Worker
+	importer *plex.Importer
+	web      fs.FS
+	signKey  []byte
+	baseCtx  context.Context
 }
 
 func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner, agent *metadata.Agent,
 	art *metadata.ArtCache, prober *probe.Worker, web fs.FS) *Server {
-	s := &Server{cfg: cfg, db: d, auth: auth.New(d), scanner: sc, agent: agent, art: art, prober: prober, web: web, baseCtx: ctx}
+	s := &Server{cfg: cfg, db: d, auth: auth.New(d), scanner: sc, agent: agent, art: art, prober: prober,
+		importer: plex.NewImporter(d), web: web, baseCtx: ctx}
 	key := d.Setting(ctx, "stream_sign_key")
 	if key == "" {
 		key = randomHex(32)
@@ -69,6 +72,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/login", s.handleLogin)
 	mux.HandleFunc("POST /api/logout", s.handleLogout)
 	mux.HandleFunc("GET /art/{size}/{file}", s.handleArt)
+	mux.HandleFunc("GET /art/plex/{size}", s.handlePlexArt)
 	// Signed URLs, so <video> and external players need no cookie.
 	mux.HandleFunc("GET /api/stream/{id}/{name}", s.handleStream)
 	mux.HandleFunc("HEAD /api/stream/{id}/{name}", s.handleStream)
@@ -91,6 +95,7 @@ func (s *Server) Handler() http.Handler {
 	user("GET /api/play/{fileId}", s.handlePlay)
 	user("GET /api/search", s.handleSearch)
 	user("GET /api/scan/status", s.handleScanStatus)
+	user("GET /api/items/{id}/markers", s.handleMarkers)
 
 	admin("POST /api/libraries", s.handleCreateLibrary)
 	admin("PUT /api/libraries/{id}", s.handleUpdateLibrary)
@@ -106,6 +111,10 @@ func (s *Server) Handler() http.Handler {
 	admin("DELETE /api/users/{id}", s.handleDeleteUser)
 	admin("PUT /api/users/{id}/password", s.handleUserPassword)
 	admin("GET /api/fs", s.handleBrowseFS)
+	admin("GET /api/plex", s.handlePlexGet)
+	admin("PUT /api/plex", s.handlePlexPut)
+	admin("POST /api/plex/test", s.handlePlexTest)
+	admin("POST /api/plex/import", s.handlePlexImport)
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not found")

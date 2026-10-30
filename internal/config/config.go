@@ -20,6 +20,9 @@ type Config struct {
 	ArtworkDir   string
 	DBPath       string
 	DevProxy     string
+	PlexURL      string
+	PlexToken    string
+	PlexPathMap  string
 }
 
 func env(key, def string) string {
@@ -54,6 +57,9 @@ func Load() *Config {
 	flag.IntVar(&c.ScanWorkers, "scan-workers", envInt("PLEXODUS_SCAN_WORKERS", 16), "concurrent directory listings during a scan")
 	flag.DurationVar(&c.ScanInterval, "scan-interval", envDur("PLEXODUS_SCAN_INTERVAL", 15*time.Minute), "periodic scan interval (0 disables)")
 	flag.StringVar(&c.DevProxy, "dev-proxy", env("PLEXODUS_DEV_PROXY", ""), "proxy non-API requests to a Vite dev server (development only)")
+	flag.StringVar(&c.PlexURL, "plex-url", env("PLEX_URL", ""), "Plex server URL to import from, e.g. http://127.0.0.1:32400")
+	flag.StringVar(&c.PlexToken, "plex-token", env("PLEX_TOKEN", ""), "Plex token for importing")
+	flag.StringVar(&c.PlexPathMap, "plex-path-map", env("PLEX_PATH_MAP", ""), "rewrite Plex file paths: plexPrefix=localPrefix[,...]")
 	flag.Parse()
 
 	c.DBPath = filepath.Join(c.DataDir, "plexodus.db")

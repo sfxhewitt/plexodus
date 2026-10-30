@@ -361,6 +361,12 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
 .user-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
 .user-add input:not([type="checkbox"]) { flex: 1; min-width: 140px; }
 
+.plex-sections { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.plex-sec { padding: 12px; border-radius: 12px; background: rgba(0, 0, 0, 0.25); font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
+.plex-sec .small { word-break: break-all; }
+.skip-btn { position: absolute; right: clamp(16px, 3vw, 40px); bottom: 130px; z-index: 3; animation: rise 0.35s var(--ease); }
+.ends-at { color: var(--muted); font-size: 13px; margin-right: 6px; }
+
 /* ---------- responsive ---------- */
 @media (max-width: 900px) {
   .nav { gap: 14px; }

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, fmtSize, Library, ScanProgress, User } from "../api";
+import { api, fmtSize, Library, PlexStatus, ScanProgress, User } from "../api";
 import { Folder, Plus, Refresh, Trash, X } from "../components/Icons";
 import { useApi, useUser } from "../hooks";
 
@@ -185,6 +185,110 @@ function Libraries() {
   );
 }
 
+type PlexT = { url: string; tokenSet: boolean; tokenFromEnv: boolean; pathMap: string; status: PlexStatus };
+type PlexSection = { title: string; type: string; locations: { plex: string; local: string; exists: boolean }[] };
+
+function PlexImport() {
+  const { data, setData } = useApi<PlexT>("/api/plex");
+  const [url, setUrl] = useState<string>();
+  const [token, setToken] = useState("");
+  const [pathMap, setPathMap] = useState<string>();
+  const [sections, setSections] = useState<PlexSection[]>();
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const running = data?.status.running;
+
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(() => api.get<PlexT>("/api/plex").then((d) => {
+      setData(d);
+      if (!d.status.running) api.invalidate();
+    }), 1000);
+    return () => clearInterval(t);
+  }, [running, setData]);
+
+  const save = async () => {
+    const d = await api.put<PlexT>("/api/plex", { url: url ?? data?.url, token, pathMap: pathMap ?? data?.pathMap });
+    setData(d);
+    setToken("");
+    return d;
+  };
+  const test = async () => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await save();
+      setSections(await api.post<PlexSection[]>("/api/plex/test"));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const start = async () => {
+    setError(undefined);
+    try {
+      await api.post("/api/plex/import");
+      setData(await api.get<PlexT>("/api/plex"));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  const s = data?.status;
+  const allFound = sections?.every((x) => x.locations.every((l) => l.exists));
+
+  return (
+    <section className="settings-section">
+      <h2>Import from Plex</h2>
+      <div className="card form">
+        <p className="muted small" style={{ margin: 0 }}>
+          Brings over your Plex libraries, artwork, descriptions, watch history and intro/credit markers in one pass. Your files aren't read, so it's fast even on Google Drive. Afterwards Plexodus keeps itself up to date and Plex is optional.
+        </p>
+        <div className="form-row">
+          <label>Plex server URL
+            <input value={url ?? data?.url ?? ""} onChange={(e) => setUrl(e.target.value)} placeholder="http://127.0.0.1:32400" />
+          </label>
+          <label>Token
+            <input type="password" value={token} onChange={(e) => setToken(e.target.value)}
+              placeholder={data?.tokenSet ? (data.tokenFromEnv ? "set from PLEX_TOKEN" : "saved") : "X-Plex-Token"} />
+          </label>
+        </div>
+        <label>Path mapping <span className="muted small">(only if Plex sees your files at different paths than Plexodus)</span>
+          <input value={pathMap ?? data?.pathMap ?? ""} onChange={(e) => setPathMap(e.target.value)} placeholder="/data/media=/mnt/gdrive" />
+        </label>
+        {sections && (
+          <div className="plex-sections">
+            {sections.map((x) => (
+              <div key={x.title} className="plex-sec">
+                <div><b>{x.title}</b> <span className="chip">{x.type === "movie" ? "Movies" : "TV"}</span></div>
+                {x.locations.map((l) => (
+                  <div key={l.plex} className={`small ${l.exists ? "ok" : "err"}`}>
+                    {l.exists ? "✓" : "✗ not found:"} {l.local}
+                  </div>
+                ))}
+              </div>
+            ))}
+            {!allFound && <div className="err">Some folders aren't visible here. Add a path mapping so Plex paths point at this machine's mount.</div>}
+          </div>
+        )}
+        {error && <div className="err">{error}</div>}
+        {s && (s.running || (s.finished && !s.finished.startsWith("0001"))) && (
+          <div className={s.running ? "scan-live" : "muted small"}>
+            {s.running && <div className="spinner sm" />}
+            {s.phase}{s.section ? ` · ${s.section}` : ""}: {s.items.toLocaleString()} items, {s.files.toLocaleString()} files,{" "}
+            {s.watched.toLocaleString()} watch records, {s.markers.toLocaleString()} markers
+            {s.error && <span className="err-inline"> · {s.error}</span>}
+          </div>
+        )}
+        <div className="form-actions">
+          <button className="btn glass" onClick={test} disabled={busy || running}>{busy ? "Checking…" : "Save & check connection"}</button>
+          <button className="btn primary" onClick={start} disabled={running || !sections || !allFound}>Import</button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 type SettingsT = { tmdbKeySet: boolean; tmdbKeyMasked: string; tmdbKeyFromEnv: boolean; apiKey: string };
 
 function Metadata() {
@@ -295,6 +399,7 @@ export default function Settings() {
     <div className="settings page">
       <h1>Settings</h1>
       <Libraries />
+      <PlexImport />
       <Metadata />
       <Users />
     </div>
