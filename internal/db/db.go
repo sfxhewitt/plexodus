@@ -45,6 +45,10 @@ func Open(path string) (*DB, error) {
 		w.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
+	if err := migrate(w); err != nil {
+		w.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	r, err := sql.Open("sqlite", dsn(path, true))
 	if err != nil {
 		w.Close()
@@ -53,6 +57,25 @@ func Open(path string) (*DB, error) {
 	r.SetMaxOpenConns(8)
 	r.SetConnMaxIdleTime(5 * time.Minute)
 	return &DB{W: w, R: r}, nil
+}
+
+// migrate applies column additions that CREATE TABLE IF NOT EXISTS can't.
+func migrate(w *sql.DB) error {
+	columns := []struct{ table, column, def string }{
+		{"users", "all_libraries", "INTEGER NOT NULL DEFAULT 1"},
+	}
+	for _, c := range columns {
+		var n int
+		if err := w.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, c.table, c.column).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err := w.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", c.table, c.column, c.def)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (d *DB) Close() error {

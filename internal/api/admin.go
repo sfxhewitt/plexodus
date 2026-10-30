@@ -341,6 +341,10 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&u.ID, &u.Username, &u.IsAdmin)
 		out = append(out, u)
 	}
+	rows.Close()
+	for i := range out {
+		auth.LoadAccess(r.Context(), s.db.R, &out[i])
+	}
 	writeJSON(w, out)
 }
 

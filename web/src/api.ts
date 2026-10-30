@@ -89,6 +89,18 @@ export interface User {
   id: number;
   username: string;
   isAdmin: boolean;
+  allLibraries: boolean;
+  libraries: number[];
+}
+
+export interface Invite {
+  token: string;
+  note?: string;
+  allLibraries: boolean;
+  libraries: number[];
+  createdAt: number;
+  expiresAt: number;
+  usedBy?: string;
 }
 
 export interface Row {

@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, fmtSize, Library, PlexStatus, ScanProgress, User } from "../api";
-import { Folder, Plus, Refresh, Trash, X } from "../components/Icons";
+import { api, fmtSize, Invite, Library, PlexStatus, ScanProgress, User } from "../api";
+import { Copy, Folder, Plus, Refresh, Trash, X } from "../components/Icons";
 import { useApi, useUser } from "../hooks";
 
 function ago(ts?: number | string) {
@@ -339,13 +339,110 @@ function Metadata() {
   );
 }
 
+function LibraryPicker({ all, libs, onChange }: { all: boolean; libs: number[]; onChange: (all: boolean, libs: number[]) => void }) {
+  const { data: libraries } = useApi<Library[]>("/api/libraries");
+  const toggle = (id: number) => onChange(false, libs.includes(id) ? libs.filter((x) => x !== id) : [...libs, id]);
+  return (
+    <div className="lib-picker">
+      <button type="button" className={`pick ${all ? "on" : ""}`} onClick={() => onChange(!all, libs)}>All libraries, including future ones</button>
+      {libraries?.map((l) => (
+        <button type="button" key={l.id} className={`pick ${!all && libs.includes(l.id) ? "on" : ""}`} disabled={all} onClick={() => toggle(l.id)}>
+          {l.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function AccessModal({ u, onClose, onSaved }: { u: User; onClose: () => void; onSaved: () => void }) {
+  const [all, setAll] = useState(u.allLibraries);
+  const [libs, setLibs] = useState(u.libraries);
+  const save = async () => {
+    await api.put(`/api/users/${u.id}/access`, { allLibraries: all, libraries: libs });
+    onSaved();
+  };
+  return (
+    <div className="modal-back" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h2>Libraries {u.username} can see</h2>
+          <button className="icon-btn" onClick={onClose} aria-label="Close"><X /></button>
+        </div>
+        <LibraryPicker all={all} libs={libs} onChange={(a, l) => { setAll(a); setLibs(l); }} />
+        <div className="modal-foot"><button className="btn primary" onClick={save} disabled={!all && libs.length === 0}>Save</button></div>
+      </div>
+    </div>
+  );
+}
+
+function Invites() {
+  const { data: invites, reload } = useApi<Invite[]>("/api/invites");
+  const { data: libraries } = useApi<Library[]>("/api/libraries");
+  const [all, setAll] = useState(false);
+  const [libs, setLibs] = useState<number[]>([]);
+  const [note, setNote] = useState("");
+  const [link, setLink] = useState<string>();
+  const [error, setError] = useState<string>();
+  const create = async () => {
+    setError(undefined);
+    try {
+      const r = await api.post<{ url: string }>("/api/invites", { allLibraries: all, libraries: libs, note });
+      setLink(r.url);
+      setNote("");
+      reload();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  const revoke = async (t: string) => {
+    await api.del(`/api/invites/${t}`);
+    reload();
+  };
+  const names = (inv: Invite) => inv.allLibraries ? "All libraries" : inv.libraries.map((id) => libraries?.find((l) => l.id === id)?.name).filter(Boolean).join(", ");
+  return (
+    <section className="settings-section">
+      <h2>Share libraries</h2>
+      <div className="card form">
+        <p className="muted small" style={{ margin: 0 }}>Create an invite link and send it to a friend. They choose their own username and password, see only the libraries you pick, and get their own watch history. Links work once and expire after 7 days.</p>
+        <LibraryPicker all={all} libs={libs} onChange={(a, l) => { setAll(a); setLibs(l); }} />
+        <div className="path-row">
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Who is it for? (optional note)" />
+          <button className="btn primary" onClick={create} disabled={!all && libs.length === 0}>Create invite link</button>
+        </div>
+        {error && <div className="err">{error}</div>}
+        {link && (
+          <div className="path-row">
+            <input readOnly value={link} onFocus={(e) => e.target.select()} />
+            <button className="btn glass sm" onClick={() => navigator.clipboard?.writeText(link)}><Copy size={16} /> Copy</button>
+          </div>
+        )}
+        {invites && invites.length > 0 && (
+          <div className="invite-list">
+            {invites.map((inv) => (
+              <div key={inv.token} className="invite-row">
+                <div>
+                  <div className="t">{inv.note || "Invite"} <span className="muted small">· {names(inv)}</span></div>
+                  <div className="muted small">{inv.usedBy ? `Accepted by ${inv.usedBy}` : `Expires ${new Date(inv.expiresAt * 1000).toLocaleDateString()}`}</div>
+                </div>
+                {!inv.usedBy && <button className="btn glass sm" onClick={() => revoke(inv.token)}>Revoke</button>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function Users() {
   const { user } = useUser();
   const { data: users, reload } = useApi<User[]>("/api/users");
+  const { data: libraries } = useApi<Library[]>("/api/libraries");
   const [name, setName] = useState("");
   const [pass, setPass] = useState("");
   const [admin, setAdmin] = useState(false);
   const [error, setError] = useState<string>();
+  const [editing, setEditing] = useState<User>();
   const add = async (e: FormEvent) => {
     e.preventDefault();
     setError(undefined);
@@ -368,6 +465,11 @@ function Users() {
     const p = prompt(`New password for ${u.username}`);
     if (p) await api.put(`/api/users/${u.id}/password`, { password: p }).catch((e) => alert(e.message));
   };
+  const access = (u: User) => {
+    if (u.isAdmin || u.allLibraries) return "All libraries";
+    if (!u.libraries.length) return "No libraries";
+    return u.libraries.map((id) => libraries?.find((l) => l.id === id)?.name).filter(Boolean).join(", ");
+  };
   return (
     <section className="settings-section">
       <h2>Users</h2>
@@ -375,9 +477,12 @@ function Users() {
         {users?.map((u) => (
           <div key={u.id} className="user-row">
             <span className="avatar static"><span>{u.username[0].toUpperCase()}</span></span>
-            <span className="t">{u.username}</span>
-            {u.isAdmin && <span className="chip">admin</span>}
+            <div className="user-main">
+              <span className="t">{u.username} {u.isAdmin && <span className="chip">admin</span>}</span>
+              <span className="muted small">{access(u)}</span>
+            </div>
             <span className="spacer" />
+            {!u.isAdmin && <button className="btn glass sm" onClick={() => setEditing(u)}>Libraries</button>}
             <button className="btn glass sm" onClick={() => reset(u)}>Reset password</button>
             {u.id !== user?.id && <button className="icon-btn glass" onClick={() => del(u)}><Trash size={18} /></button>}
           </div>
@@ -390,6 +495,7 @@ function Users() {
         </form>
         {error && <div className="err">{error}</div>}
       </div>
+      {editing && <AccessModal u={editing} onClose={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); reload(); }} />}
     </section>
   );
 }
@@ -401,6 +507,7 @@ export default function Settings() {
       <Libraries />
       <PlexImport />
       <Metadata />
+      <Invites />
       <Users />
     </div>
   );

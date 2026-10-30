@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
+	"github.com/sfxhewitt/plexodus/internal/auth"
 	"github.com/sfxhewitt/plexodus/internal/db"
 )
 
@@ -80,11 +82,32 @@ func scanCards(rows *sql.Rows) ([]Card, error) {
 
 func (s *Server) cards(r *http.Request, where string, args ...any) ([]Card, error) {
 	all := append([]any{currentUser(r).ID}, args...)
-	rows, err := s.db.R.QueryContext(r.Context(), "SELECT "+cardCols+" "+cardFrom+" "+where, all...)
+	from := strings.Replace(cardFrom, "FROM items i", "FROM items i"+aclJoin(currentUser(r), "i"), 1)
+	rows, err := s.db.R.QueryContext(r.Context(), "SELECT "+cardCols+" "+from+" "+where, all...)
 	if err != nil {
 		return nil, err
 	}
 	return scanCards(rows)
+}
+
+// aclJoin restricts alias to the libraries a user can see. Library ids are
+// integers from the database, so building them into the SQL is safe.
+func aclJoin(u auth.User, alias string) string {
+	if u.IsAdmin || u.AllLibraries {
+		return ""
+	}
+	return " JOIN (SELECT 1) acl ON " + alias + ".library_id IN (" + idList(u.Libraries) + ")"
+}
+
+func idList(ids []int64) string {
+	if len(ids) == 0 {
+		return "NULL"
+	}
+	parts := make([]string, len(ids))
+	for i, id := range ids {
+		parts[i] = strconv.FormatInt(id, 10)
+	}
+	return strings.Join(parts, ",")
 }
 
 // ---- libraries ----
@@ -113,7 +136,7 @@ func (s *Server) handleLibraries(w http.ResponseWriter, r *http.Request) {
 		(SELECT COALESCE(SUM(size), 0) FROM media_files m WHERE m.library_id = l.id),
 		COALESCE((SELECT backdrop FROM items i WHERE i.library_id = l.id AND i.kind IN ('movie', 'show') AND i.backdrop IS NOT NULL
 			ORDER BY i.added_at DESC LIMIT 1), '')
-		FROM libraries l ORDER BY l.name`)
+		FROM libraries l`+libACL(currentUser(r))+` ORDER BY l.name`)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -138,10 +161,26 @@ var sortColumns = map[string]string{
 	"release": "i.release_date",
 }
 
+// itemVisible reports whether the current user may see an item.
+func (s *Server) itemVisible(r *http.Request, id int64) bool {
+	var lib int64
+	if s.db.R.QueryRowContext(r.Context(), `SELECT library_id FROM items WHERE id = ?`, id).Scan(&lib) != nil {
+		return false
+	}
+	return currentUser(r).CanSee(lib)
+}
+
+func libACL(u auth.User) string {
+	if u.IsAdmin || u.AllLibraries {
+		return ""
+	}
+	return " WHERE l.id IN (" + idList(u.Libraries) + ")"
+}
+
 func (s *Server) handleLibraryItems(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r, "id")
-	if !ok {
-		writeErr(w, 400, "bad id")
+	if !ok || !currentUser(r).CanSee(id) {
+		writeErr(w, 404, "not found")
 		return
 	}
 	q := r.URL.Query()
@@ -185,6 +224,10 @@ func (s *Server) handleLibraryItems(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLibraryGenres(w http.ResponseWriter, r *http.Request) {
 	id, _ := pathID(r, "id")
+	if !currentUser(r).CanSee(id) {
+		writeErr(w, 404, "not found")
+		return
+	}
 	rows, err := s.db.R.QueryContext(r.Context(), `SELECT j.value, COUNT(*) FROM items i, json_each(i.genres) j
 		WHERE i.library_id = ? AND i.kind IN ('movie', 'show') AND i.genres IS NOT NULL GROUP BY j.value ORDER BY j.value`, id)
 	if err != nil {
@@ -227,7 +270,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		rows = append(rows, Row{Title: "Continue Watching", Kind: "landscape", Items: cont})
 	}
 
-	libs, err := s.db.R.QueryContext(ctx, `SELECT id, name, kind FROM libraries ORDER BY name`)
+	libs, err := s.db.R.QueryContext(ctx, `SELECT l.id, l.name, l.kind FROM libraries l`+libACL(currentUser(r))+` ORDER BY l.name`)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -503,7 +546,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r, "id")
-	if !ok {
+	if !ok || !s.itemVisible(r, id) {
 		writeErr(w, 400, "bad id")
 		return
 	}
@@ -543,7 +586,7 @@ func boolInt(b bool) int {
 
 func (s *Server) handleWatched(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r, "id")
-	if !ok {
+	if !ok || !s.itemVisible(r, id) {
 		writeErr(w, 400, "bad id")
 		return
 	}

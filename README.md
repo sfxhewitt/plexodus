@@ -59,6 +59,24 @@ With these flags, a rescan of tens of thousands of folders is served from rclone
 
 For playback, `--vfs-read-chunk-size 64M --vfs-read-chunk-size-limit 2G --buffer-size 64M` gives smooth seeking on high-bitrate files.
 
+## Sharing with friends and family
+
+In **Settings → Share libraries**, pick which libraries to share and create an invite link. The person opens it, chooses a username and password, and sees only those libraries, with their own watch history. Links work once and expire after 7 days. You can change what an existing user can see at any time under **Users → Libraries**. Revoking a library also stops stream links already handed out.
+
+Friends connect directly to your server (there's no relay), so put Plexodus behind HTTPS. The simplest options:
+
+**Caddy** (automatic Let's Encrypt certificates; needs a domain pointing at the seedbox and ports 80/443):
+
+```
+media.example.com {
+    reverse_proxy 127.0.0.1:8484
+}
+```
+
+**Cloudflare Tunnel** (no open ports): `cloudflared tunnel --url http://127.0.0.1:8484`, or a named tunnel on your own domain. Cloudflare's terms restrict serving large amounts of video through its proxy, so prefer Caddy if you can open ports.
+
+Sign-in is rate-limited per IP (10 failed attempts per 10 minutes). When a local reverse proxy is in front, the real client IP is taken from `X-Forwarded-For`.
+
 ## Configuration
 
 Flags override environment variables.

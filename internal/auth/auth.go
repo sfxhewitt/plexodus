@@ -4,6 +4,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"net/http"
@@ -26,6 +27,62 @@ type User struct {
 	ID       int64  `json:"id"`
 	Username string `json:"username"`
 	IsAdmin  bool   `json:"isAdmin"`
+	// AllLibraries users (and admins) see everything; others only Libraries.
+	AllLibraries bool    `json:"allLibraries"`
+	Libraries    []int64 `json:"libraries"`
+}
+
+// CanSee reports whether the user may access a library.
+func (u User) CanSee(libraryID int64) bool {
+	if u.IsAdmin || u.AllLibraries {
+		return true
+	}
+	for _, id := range u.Libraries {
+		if id == libraryID {
+			return true
+		}
+	}
+	return false
+}
+
+// LoadAccess fills AllLibraries and Libraries for a user.
+func LoadAccess(ctx context.Context, d *sql.DB, u *User) error {
+	if err := d.QueryRowContext(ctx, `SELECT all_libraries FROM users WHERE id = ?`, u.ID).Scan(&u.AllLibraries); err != nil {
+		return err
+	}
+	u.Libraries = []int64{}
+	rows, err := d.QueryContext(ctx, `SELECT library_id FROM user_libraries WHERE user_id = ? ORDER BY library_id`, u.ID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		rows.Scan(&id)
+		u.Libraries = append(u.Libraries, id)
+	}
+	return rows.Err()
+}
+
+// SetAccess replaces which libraries a user can see.
+func (a *Auth) SetAccess(ctx context.Context, userID int64, all bool, libraries []int64) error {
+	err := a.db.Tx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`UPDATE users SET all_libraries = ? WHERE id = ?`, all, userID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM user_libraries WHERE user_id = ?`, userID); err != nil {
+			return err
+		}
+		for _, id := range libraries {
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO user_libraries(user_id, library_id)
+				SELECT ?, id FROM libraries WHERE id = ?`, userID, id); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	a.Forget()
+	return err
 }
 
 type Auth struct {
@@ -76,7 +133,7 @@ func (a *Auth) CreateUser(ctx context.Context, username, password string, admin 
 		return User{}, err
 	}
 	id, _ := res.LastInsertId()
-	return User{ID: id, Username: username, IsAdmin: admin}, nil
+	return User{ID: id, Username: username, IsAdmin: admin, AllLibraries: true, Libraries: []int64{}}, nil
 }
 
 func (a *Auth) SetPassword(ctx context.Context, userID int64, password string) error {
@@ -103,6 +160,9 @@ func (a *Auth) Login(ctx context.Context, username, password string) (string, Us
 	}
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
 		return "", User{}, ErrInvalid
+	}
+	if err := LoadAccess(ctx, a.db.R, &u); err != nil {
+		return "", User{}, err
 	}
 	tok, err := a.newSession(ctx, u.ID)
 	return tok, u, err
@@ -149,6 +209,9 @@ func (a *Auth) Lookup(ctx context.Context, token string) (User, bool) {
 	err := a.db.R.QueryRowContext(ctx, `SELECT u.id, u.username, u.is_admin, s.expires_at FROM sessions s
 		JOIN users u ON u.id = s.user_id WHERE s.token = ?`, token).Scan(&u.ID, &u.Username, &u.IsAdmin, &exp)
 	if err != nil || time.Now().Unix() > exp {
+		return User{}, false
+	}
+	if err := LoadAccess(ctx, a.db.R, &u); err != nil {
 		return User{}, false
 	}
 	a.mu.Lock()

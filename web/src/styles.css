@@ -194,7 +194,7 @@ a.row-title:hover svg { opacity: 1; transform: none; }
 .hero-dots button.on { width: 28px; background: var(--text); }
 
 /* ---------- empty / welcome ---------- */
-.empty-state { position: relative; min-height: calc(100vh - 68px); display: grid; place-content: center; justify-items: center; text-align: center; gap: 14px; padding: var(--gutter); overflow: hidden; }
+.empty-state { position: relative; isolation: isolate; min-height: calc(100vh - 68px); display: grid; place-content: center; justify-items: center; text-align: center; gap: 14px; padding: var(--gutter); overflow: hidden; }
 .empty-state p { color: var(--muted); max-width: 440px; margin: 0 0 8px; }
 .empty-glow, .login-aurora { position: absolute; inset: -20%; z-index: -1; background: radial-gradient(40% 40% at 30% 40%, rgba(94, 234, 212, 0.18), transparent), radial-gradient(40% 40% at 70% 60%, rgba(244, 114, 182, 0.15), transparent), radial-gradient(50% 50% at 50% 50%, rgba(129, 140, 248, 0.2), transparent); animation: drift 18s ease-in-out infinite alternate; }
 @keyframes drift { to { transform: rotate(8deg) scale(1.1); } }
@@ -323,7 +323,7 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
 .row-btns { display: flex; gap: 8px; }
 
 /* ---------- login ---------- */
-.login { position: relative; min-height: 100vh; display: grid; place-items: center; padding: 16px; overflow: hidden; }
+.login { position: relative; isolation: isolate; min-height: 100vh; display: grid; place-items: center; padding: 16px; overflow: hidden; }
 .login-card { width: min(380px, 100%); display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 36px 28px; border-radius: 24px; background: rgba(14, 16, 24, 0.7); border: 1px solid var(--border); backdrop-filter: blur(30px); box-shadow: 0 40px 100px -30px rgba(0, 0, 0, 0.9); animation: rise 0.7s var(--ease); }
 .login-card h1 { font-size: 30px; }
 .login-card h1 b { background: var(--accent); -webkit-background-clip: text; background-clip: text; color: transparent; }
@@ -356,7 +356,7 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
 .lib-row-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
 .scan-live { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 14px; color: var(--teal); }
 .code { font: 12.5px ui-monospace, monospace; padding: 12px 14px; border-radius: 10px; background: rgba(0, 0, 0, 0.35); border: 1px solid var(--border); overflow-x: auto; margin: 0; }
-.user-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.user-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .user-row .t { font-weight: 600; }
 .user-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
 .user-add input:not([type="checkbox"]) { flex: 1; min-width: 140px; }
@@ -366,6 +366,17 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
 .plex-sec .small { word-break: break-all; }
 .skip-btn { position: absolute; right: clamp(16px, 3vw, 40px); bottom: 130px; z-index: 3; animation: rise 0.35s var(--ease); }
 .ends-at { color: var(--muted); font-size: 13px; margin-right: 6px; }
+
+.lib-picker { display: flex; flex-wrap: wrap; gap: 8px; }
+.pick { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-weight: 500; font-size: 14px; transition: 0.2s; }
+.pick:hover:not(:disabled) { color: var(--text); border-color: rgba(255, 255, 255, 0.2); }
+.pick.on { color: #0b0c12; background: var(--accent); border-color: transparent; }
+.pick:disabled { opacity: 0.35; cursor: default; }
+.invite-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+.invite-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.invite-row .t { font-weight: 600; font-size: 14px; }
+.user-main { display: flex; flex-direction: column; min-width: 0; }
+.user-main .small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------- responsive ---------- */
 @media (max-width: 900px) {

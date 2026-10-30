@@ -63,7 +63,7 @@ function App() {
           <Shell />
         </BrowserRouter>
       ) : (
-        <Login setup={state.setup} />
+        <Login setup={state.setup} invite={window.location.pathname.match(/^\/invite\/([a-f0-9]+)$/)?.[1]} />
       )}
     </UserContext.Provider>
   );

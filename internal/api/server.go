@@ -71,6 +71,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/setup", s.handleSetup)
 	mux.HandleFunc("POST /api/login", s.handleLogin)
 	mux.HandleFunc("POST /api/logout", s.handleLogout)
+	mux.HandleFunc("GET /api/invites/{token}", s.handleGetInvite)
+	mux.HandleFunc("POST /api/invites/{token}/accept", s.handleAcceptInvite)
 	mux.HandleFunc("GET /art/{size}/{file}", s.handleArt)
 	mux.HandleFunc("GET /art/plex/{size}", s.handlePlexArt)
 	// Signed URLs, so <video> and external players need no cookie.
@@ -110,6 +112,10 @@ func (s *Server) Handler() http.Handler {
 	admin("POST /api/users", s.handleCreateUser)
 	admin("DELETE /api/users/{id}", s.handleDeleteUser)
 	admin("PUT /api/users/{id}/password", s.handleUserPassword)
+	admin("PUT /api/users/{id}/access", s.handleUserAccess)
+	admin("GET /api/invites", s.handleListInvites)
+	admin("POST /api/invites", s.handleCreateInvite)
+	admin("DELETE /api/invites/{token}", s.handleDeleteInvite)
 	admin("GET /api/fs", s.handleBrowseFS)
 	admin("GET /api/plex", s.handlePlexGet)
 	admin("PUT /api/plex", s.handlePlexPut)
@@ -284,8 +290,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLoginWith(w http.ResponseWriter, r *http.Request, c credentials) {
+	ip := clientIP(r)
+	if limiter.blocked(ip) {
+		writeErr(w, http.StatusTooManyRequests, "too many attempts, try again in a few minutes")
+		return
+	}
 	tok, u, err := s.auth.Login(r.Context(), c.Username, c.Password)
 	if err != nil {
+		limiter.fail(ip)
 		writeErr(w, http.StatusUnauthorized, err.Error())
 		return
 	}

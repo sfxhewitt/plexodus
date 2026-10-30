@@ -193,6 +193,10 @@ type Marker struct {
 // first time an imported item is played if the bulk import didn't include them.
 func (s *Server) handleMarkers(w http.ResponseWriter, r *http.Request) {
 	id, _ := pathID(r, "id")
+	if !s.itemVisible(r, id) {
+		writeErr(w, 404, "not found")
+		return
+	}
 	var key string
 	var fetched sql.NullInt64
 	err := s.db.R.QueryRowContext(r.Context(), `SELECT rating_key, markers_at FROM plex_links WHERE item_id = ?`, id).Scan(&key, &fetched)

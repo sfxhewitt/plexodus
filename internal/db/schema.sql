@@ -146,3 +146,22 @@ CREATE TABLE IF NOT EXISTS plex_links (
     markers_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS plex_links_key ON plex_links(rating_key);
+
+-- Library sharing: users without all_libraries only see the libraries listed here.
+CREATE TABLE IF NOT EXISTS user_libraries (
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    library_id INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, library_id)
+);
+
+CREATE TABLE IF NOT EXISTS invites (
+    token         TEXT PRIMARY KEY,
+    created_by    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    note          TEXT,
+    all_libraries INTEGER NOT NULL DEFAULT 0,
+    libraries     TEXT NOT NULL DEFAULT '[]', -- JSON array of library ids
+    created_at    INTEGER NOT NULL,
+    expires_at    INTEGER NOT NULL,
+    used_by       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    used_at       INTEGER
+);
