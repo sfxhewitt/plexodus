@@ -54,7 +54,7 @@ func main() {
 			}
 		}
 	}()
-	go scheduleScans(ctx, d, srv, cfg.ScanInterval)
+	go scheduleScans(ctx, d, sc, cfg.ScanInterval)
 
 	httpSrv := &http.Server{
 		Addr:              cfg.Addr,
@@ -76,10 +76,11 @@ func main() {
 	}
 }
 
-// scheduleScans runs a scan of every library at startup and then on an
-// interval. Scans are cheap when nothing changed, since only directory
-// listings are compared against the database.
-func scheduleScans(ctx context.Context, d *db.DB, srv *api.Server, every time.Duration) {
+// scheduleScans scans every library at startup and then on an interval,
+// one library at a time so the mount isn't flooded. Scans are cheap when
+// nothing changed: only directory listings are compared with the database,
+// and with rclone's dir cache those listings come from memory.
+func scheduleScans(ctx context.Context, d *db.DB, sc *scanner.Scanner, every time.Duration) {
 	run := func() {
 		rows, err := d.R.QueryContext(ctx, `SELECT id FROM libraries`)
 		if err != nil {
@@ -93,7 +94,10 @@ func scheduleScans(ctx context.Context, d *db.DB, srv *api.Server, every time.Du
 		}
 		rows.Close()
 		for _, id := range ids {
-			srv.StartScan(id, scanner.Options{})
+			if ctx.Err() != nil {
+				return
+			}
+			sc.Scan(ctx, id, scanner.Options{})
 		}
 	}
 	run()

@@ -100,6 +100,8 @@ type Library struct {
 	FileCount     int      `json:"fileCount"`
 	Unprobed      int      `json:"unprobed"`
 	Pending       int      `json:"pendingMetadata"`
+	TotalSize     int64    `json:"totalSize"`
+	Backdrop      string   `json:"backdrop,omitempty"`
 }
 
 func (s *Server) handleLibraries(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +109,10 @@ func (s *Server) handleLibraries(w http.ResponseWriter, r *http.Request) {
 		(SELECT COUNT(*) FROM items i WHERE i.library_id = l.id AND i.kind IN ('movie', 'show')),
 		(SELECT COUNT(*) FROM media_files m WHERE m.library_id = l.id),
 		(SELECT COUNT(*) FROM media_files m WHERE m.library_id = l.id AND m.probed_at IS NULL),
-		(SELECT COUNT(*) FROM items i WHERE i.library_id = l.id AND i.kind IN ('movie', 'show') AND i.meta_state = 'pending')
+		(SELECT COUNT(*) FROM items i WHERE i.library_id = l.id AND i.kind IN ('movie', 'show') AND i.meta_state = 'pending'),
+		(SELECT COALESCE(SUM(size), 0) FROM media_files m WHERE m.library_id = l.id),
+		COALESCE((SELECT backdrop FROM items i WHERE i.library_id = l.id AND i.kind IN ('movie', 'show') AND i.backdrop IS NOT NULL
+			ORDER BY i.added_at DESC LIMIT 1), '')
 		FROM libraries l ORDER BY l.name`)
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -118,7 +123,7 @@ func (s *Server) handleLibraries(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var l Library
 		var paths string
-		rows.Scan(&l.ID, &l.Name, &l.Kind, &paths, &l.TrustDirMtime, &l.LastScanAt, &l.Count, &l.FileCount, &l.Unprobed, &l.Pending)
+		rows.Scan(&l.ID, &l.Name, &l.Kind, &paths, &l.TrustDirMtime, &l.LastScanAt, &l.Count, &l.FileCount, &l.Unprobed, &l.Pending, &l.TotalSize, &l.Backdrop)
 		json.Unmarshal([]byte(paths), &l.Paths)
 		out = append(out, l)
 	}
