@@ -235,7 +235,9 @@ function PlexImport() {
     }
   };
   const s = data?.status;
-  const allFound = sections?.every((x) => x.locations.every((l) => l.exists));
+  const locs = sections?.flatMap((x) => x.locations) ?? [];
+  const missing = locs.filter((l) => !l.exists).length;
+  const noneFound = locs.length > 0 && missing === locs.length;
 
   return (
     <section className="settings-section">
@@ -268,7 +270,11 @@ function PlexImport() {
                 ))}
               </div>
             ))}
-            {!allFound && <div className="err">Some folders aren't visible here. Add a path mapping so Plex paths point at this machine's mount.</div>}
+            {noneFound ? (
+              <div className="err">None of these folders are visible here. Add a path mapping so Plex paths point at this machine's mount.</div>
+            ) : missing > 0 && (
+              <div className="muted small">{missing === 1 ? "1 folder isn't" : `${missing} folders aren't`} visible here. You can still import; items in {missing === 1 ? "it" : "them"} won't play until the folder is back.</div>
+            )}
           </div>
         )}
         {error && <div className="err">{error}</div>}
@@ -282,7 +288,7 @@ function PlexImport() {
         )}
         <div className="form-actions">
           <button className="btn glass" onClick={test} disabled={busy || running}>{busy ? "Checking…" : "Save & check connection"}</button>
-          <button className="btn primary" onClick={start} disabled={running || !sections || !allFound}>Import</button>
+          <button className="btn primary" onClick={start} disabled={running || !sections || noneFound}>Import</button>
         </div>
       </div>
     </section>
