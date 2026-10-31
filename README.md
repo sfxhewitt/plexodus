@@ -8,34 +8,70 @@ A fast, self-hosted media server with a cinematic web UI, built for very large l
 - **Instant browsing.** Everything you browse comes from indexed SQLite queries. Artwork is cached locally after first view.
 - Movies and TV (show → season → episode), TMDB metadata with logos and episode stills, full-text search, watch state, Continue Watching and Up Next, Fix Match, multiple users.
 
-## Quick start
+## Install on a seedbox (recommended)
+
+Plexodus is a single static Linux binary with no dependencies, so it runs anywhere, including unprivileged LXC containers where Docker doesn't work. On the server, as the account that can read your rclone mount:
 
 ```sh
-make build            # builds web/dist and the ./plexodus binary (needs Go 1.24+ and Node 20+)
-./plexodus -data ./data
+curl -fsSL https://github.com/sfxhewitt/plexodus/releases/download/latest/install.sh | sudo bash
 ```
 
-Or with Docker:
+The script:
+
+- downloads the binary for your CPU (amd64 or arm64), verifies its checksum and installs it to `/usr/local/bin/plexodus`
+- runs it as a systemd service (`plexodus`) under the account that ran `sudo`, so it can read the same rclone mount as Plex
+- keeps its database and artwork cache in `/var/lib/plexodus`
+- creates `/etc/plexodus.env` for settings (Plex URL and token, TMDB key, port)
+
+Then open `http://<server>:8484`, create the admin account, and either **Import from Plex** or add libraries in **Settings**.
+
+Useful commands:
+
+```sh
+sudo nano /etc/plexodus.env && sudo systemctl restart plexodus   # change settings
+journalctl -u plexodus -f                                         # logs
+curl -fsSL https://github.com/sfxhewitt/plexodus/releases/download/latest/install.sh | sudo bash   # update
+```
+
+Install `ffmpeg` (`sudo apt install ffmpeg`) so Plexodus can check a file's codecs before playing it. It's optional, and files imported from Plex already have codec info.
+
+Without systemd or sudo, download the binary and run it directly:
+
+```sh
+curl -fsSL -o plexodus https://github.com/sfxhewitt/plexodus/releases/download/latest/plexodus-linux-amd64
+chmod +x plexodus
+./plexodus -data ~/plexodus-data
+```
+
+### Docker (alternative)
 
 ```sh
 docker build -t plexodus .
 docker run -d --name plexodus -p 8484:8484 \
   -v /srv/plexodus:/data \
   -v /mnt/gdrive:/mnt/gdrive:ro \
-  -e TMDB_API_KEY=... \
   plexodus
 ```
 
-Open `http://<server>:8484`, create the admin account, then add libraries in **Settings**. Point each one at a folder such as `/mnt/gdrive/Movies`.
+### Building from source
+
+```sh
+make build            # builds web/dist and the ./plexodus binary (needs Go 1.24+ and Node 20+)
+./plexodus -data ./data
+```
+
+Every push to `main` builds fresh binaries into the rolling [`latest` release](https://github.com/sfxhewitt/plexodus/releases/tag/latest). Tagging `v*` publishes a versioned release.
 
 ## Importing from Plex
 
 If you already run Plex, Plexodus can import everything from it in one pass: libraries, titles, artwork, descriptions, ratings, file details, your watch history and progress, and Plex's intro and credit markers (used for **Skip intro**). Media files aren't read, so this takes minutes even for very large cloud libraries. Afterwards Plexodus keeps itself up to date with its own scans, and Plex is optional.
 
-Give it your server and token through the environment (recommended, so the token never goes through a browser):
+Put your server address and token in `/etc/plexodus.env`, then `sudo systemctl restart plexodus`. That way the token never passes through a browser:
 
 ```sh
-PLEX_URL=http://127.0.0.1:32400 PLEX_TOKEN=xxxxxxxx ./plexodus
+# /etc/plexodus.env
+PLEX_URL=http://127.0.0.1:32400
+PLEX_TOKEN=xxxxxxxx
 ```
 
 Then open **Settings → Import from Plex**, press **Save & check connection**, and **Import**. If Plex sees your files at different paths than Plexodus (for example Plex runs in Docker), set `PLEX_PATH_MAP=/data/media=/mnt/gdrive`. The check shows whether every Plex folder is visible.

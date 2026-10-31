@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -20,7 +21,16 @@ import (
 	"github.com/sfxhewitt/plexodus/web"
 )
 
+// version is set at build time with -ldflags "-X main.version=...".
+var version = "dev"
+
 func main() {
+	for _, a := range os.Args[1:] {
+		if a == "-version" || a == "--version" {
+			fmt.Println(version)
+			return
+		}
+	}
 	cfg := config.Load()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -70,7 +80,7 @@ func main() {
 	if !agent.Enabled() {
 		log.Printf("no TMDB API key: titles come from filenames only (add one in Settings)")
 	}
-	log.Printf("Plexodus listening on %s (data: %s)", cfg.Addr, cfg.DataDir)
+	log.Printf("Plexodus %s listening on %s (data: %s)", version, cfg.Addr, cfg.DataDir)
 	if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
