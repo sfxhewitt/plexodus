@@ -1,0 +1,22 @@
+[Unit]
+Description=Plexodus media server
+# Start after the rclone mount so libraries are visible on boot.
+After=network-online.target rclone.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=plexodus
+Group=plexodus
+# Must be able to read the rclone mount. The installer uses the account that
+# ran sudo, which is normally the one that owns the mount and Plex.
+EnvironmentFile=-/etc/plexodus.env
+ExecStart=/usr/local/bin/plexodus -data /var/lib/plexodus
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+# No mount-namespace sandboxing (ProtectSystem etc.): it fails inside
+# unprivileged LXC containers, which many seedboxes use.
+
+[Install]
+WantedBy=multi-user.target
