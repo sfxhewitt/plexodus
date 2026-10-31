@@ -23,21 +23,26 @@ android {
         }
     }
 
-    // A committed key so updates install over each other. It only vouches that
-    // the APK came from this repo's CI; see android/README.md to use your own.
+    // CI supplies the release key through the environment (see the workflow and
+    // android/README.md). Without one, release builds use the debug key so they
+    // still install.
+    val keystore = System.getenv("PLEXODUS_KEYSTORE")
+    val keystorePassword = System.getenv("PLEXODUS_KEYSTORE_PASSWORD") ?: ""
     signingConfigs {
         create("release") {
-            storeFile = rootProject.file("keystore/plexodus.jks")
-            storePassword = "plexodus"
-            keyAlias = "plexodus"
-            keyPassword = "plexodus"
+            if (keystore != null) {
+                storeFile = file(keystore)
+                storePassword = keystorePassword
+                keyAlias = "plexodus"
+                keyPassword = keystorePassword
+            }
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.getByName(if (keystore != null) "release" else "debug")
         }
         debug {
             applicationIdSuffix = ".debug"

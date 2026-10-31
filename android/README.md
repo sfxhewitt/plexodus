@@ -43,8 +43,18 @@ gradle assembleRelease
 
 ## Signing
 
-`keystore/plexodus.jks` is committed (password `plexodus`) so that CI builds
-install over each other. It proves nothing beyond "built from this repo". To
-sign with your own key, replace the file and the passwords in
-`app/build.gradle.kts`; existing installs will then need to be uninstalled
-once, because Android refuses updates signed with a different key.
+CI signs the APK with the key in the repository secrets `ANDROID_KEYSTORE_B64`
+(a base64-encoded Java keystore with a key alias `plexodus`) and
+`ANDROID_KEYSTORE_PASSWORD`. With those set, every build is signed with the
+same key, so a new APK installs over the old one. Without them CI makes a
+one-off key for each build, and updating means uninstalling first.
+
+To create a key:
+
+```
+keytool -genkeypair -keystore plexodus.jks -alias plexodus -keyalg RSA -keysize 2048 \
+  -validity 36500 -storepass CHOOSE_A_PASSWORD -keypass CHOOSE_A_PASSWORD -dname "CN=Plexodus"
+base64 -w0 plexodus.jks   # paste into ANDROID_KEYSTORE_B64
+```
+
+Local builds without `PLEXODUS_KEYSTORE` use the debug key.

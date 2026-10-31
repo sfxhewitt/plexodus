@@ -63,6 +63,26 @@ jobs:
         with:
           gradle-version: "8.11.1"
 
+      # With the ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD secrets set,
+      # every build is signed with the same key and updates install over each
+      # other. Without them a one-off key is used and updating means reinstalling.
+      - name: Signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/plexodus.jks"
+            echo "PLEXODUS_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No ANDROID_KEYSTORE_B64 secret; signing the APK with a one-off key."
+            PW=$(openssl rand -hex 16)
+            keytool -genkeypair -keystore "$RUNNER_TEMP/plexodus.jks" -alias plexodus -keyalg RSA -keysize 2048 \
+              -validity 36500 -storepass "$PW" -keypass "$PW" -dname "CN=Plexodus"
+            echo "PLEXODUS_KEYSTORE_PASSWORD=$PW" >> "$GITHUB_ENV"
+          fi
+          echo "PLEXODUS_KEYSTORE=$RUNNER_TEMP/plexodus.jks" >> "$GITHUB_ENV"
+
       - name: Build APK
         working-directory: android
         env:
