@@ -349,7 +349,8 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
 .form-actions { display: flex; gap: 10px; }
 .lib-list { display: flex; flex-direction: column; gap: 12px; }
 .lib-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; }
-.lib-row-main { min-width: 0; flex: 1; }
+.lib-row-main { min-width: 0; flex: 1 1 320px; }
+.lib-row-main .muted.small { overflow-wrap: anywhere; }
 .lib-row .t { font-weight: 700; font-size: 17px; display: flex; gap: 8px; align-items: center; }
 .lib-row .stats { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 14px; color: var(--muted); margin-top: 8px; }
 .lib-row .stats b { color: var(--text); }
