@@ -122,29 +122,36 @@ type Marker struct {
 }
 
 type Metadata struct {
-	RatingKey             string  `json:"ratingKey"`
-	ParentRatingKey       string  `json:"parentRatingKey"`
-	GrandparentRatingKey  string  `json:"grandparentRatingKey"`
-	Type                  string  `json:"type"`
-	Title                 string  `json:"title"`
-	OriginalTitle         string  `json:"originalTitle"`
-	TitleSort             string  `json:"titleSort"`
-	Summary               string  `json:"summary"`
-	Tagline               string  `json:"tagline"`
-	Year                  int     `json:"year"`
-	Index                 int     `json:"index"`
-	ParentIndex           int     `json:"parentIndex"`
-	Rating                float64 `json:"rating"`
-	AudienceRating        float64 `json:"audienceRating"`
-	Duration              int64   `json:"duration"`
-	OriginallyAvailableAt string  `json:"originallyAvailableAt"`
-	AddedAt               int64   `json:"addedAt"`
-	Thumb                 string  `json:"thumb"`
-	Art                   string  `json:"art"`
-	ViewCount             int     `json:"viewCount"`
-	ViewOffset            int64   `json:"viewOffset"`
-	LastViewedAt          int64   `json:"lastViewedAt"`
-	Guid                  []struct {
+	RatingKey            string  `json:"ratingKey"`
+	ParentRatingKey      string  `json:"parentRatingKey"`
+	GrandparentRatingKey string  `json:"grandparentRatingKey"`
+	Type                 string  `json:"type"`
+	Title                string  `json:"title"`
+	OriginalTitle        string  `json:"originalTitle"`
+	TitleSort            string  `json:"titleSort"`
+	Summary              string  `json:"summary"`
+	Tagline              string  `json:"tagline"`
+	Year                 int     `json:"year"`
+	Index                int     `json:"index"`
+	ParentIndex          int     `json:"parentIndex"`
+	Rating               float64 `json:"rating"`
+	// Newer servers also send a "Rating" array; declared so it doesn't
+	// case-insensitively land in the float above.
+	Ratings               []json.RawMessage `json:"Rating"`
+	AudienceRating        float64           `json:"audienceRating"`
+	Duration              int64             `json:"duration"`
+	OriginallyAvailableAt string            `json:"originallyAvailableAt"`
+	AddedAt               int64             `json:"addedAt"`
+	Thumb                 string            `json:"thumb"`
+	Art                   string            `json:"art"`
+	ViewCount             int               `json:"viewCount"`
+	ViewOffset            int64             `json:"viewOffset"`
+	LastViewedAt          int64             `json:"lastViewedAt"`
+	// PlexGUID is the lowercase "guid" string. It must be declared so that
+	// encoding/json's case-insensitive matching doesn't try to decode it into
+	// the Guid array below.
+	PlexGUID string `json:"guid"`
+	Guid     []struct {
 		ID string `json:"id"`
 	} `json:"Guid"`
 	Genre  []Tag    `json:"Genre"`
@@ -153,13 +160,31 @@ type Metadata struct {
 	Marker []Marker `json:"Marker"`
 }
 
+// legacyAgents maps old Plex agent GUID schemes to external ID prefixes.
+var legacyAgents = map[string]string{
+	"com.plexapp.agents.imdb":       "imdb",
+	"com.plexapp.agents.themoviedb": "tmdb",
+	"com.plexapp.agents.thetvdb":    "tvdb",
+}
+
 func (m *Metadata) ExternalID(prefix string) string {
 	for _, g := range m.Guid {
 		if strings.HasPrefix(g.ID, prefix+"://") {
 			return strings.TrimPrefix(g.ID, prefix+"://")
 		}
 	}
-	return ""
+	// Items matched by the legacy agents only carry a guid string such as
+	// com.plexapp.agents.imdb://tt0111161?lang=en.
+	scheme, rest, ok := strings.Cut(m.PlexGUID, "://")
+	if !ok || legacyAgents[scheme] != prefix {
+		return ""
+	}
+	rest, _, _ = strings.Cut(rest, "?")
+	if strings.Contains(rest, "/") {
+		// Seasons and episodes append /season/episode to the show's ID.
+		return ""
+	}
+	return rest
 }
 
 func (m *Metadata) ImageOf(kind string) string {
