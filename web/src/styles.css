@@ -410,3 +410,8 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Native app (Android) */
+.up-next.static { position: static; max-width: none; animation: none; }
+.link-btn { background: none; border: 0; cursor: pointer; padding: 6px; color: var(--muted); font: inherit; }
+.link-btn:hover { color: var(--text); }

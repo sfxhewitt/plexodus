@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, User } from "../api";
 import { useUser } from "../hooks";
+import { native } from "../native";
 
 export default function Login({ setup, invite }: { setup: boolean; invite?: string }) {
   const { setUser } = useUser();
@@ -49,6 +50,11 @@ export default function Login({ setup, invite }: { setup: boolean; invite?: stri
         <button className="btn primary wide" disabled={busy || !username || !password || (!!invite && !inviter)}>
           {busy ? <div className="spinner sm" /> : setup || invite ? "Create account" : "Sign in"}
         </button>
+        {native && (
+          <button type="button" className="link-btn muted small" onClick={() => native?.changeServer()}>
+            Connected to {window.location.host} · Change server
+          </button>
+        )}
       </form>
     </div>
   );

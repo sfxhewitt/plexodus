@@ -8,3 +8,9 @@ web/dist/*
 *.db-shm
 *.db-wal
 *.tsbuildinfo
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/.kotlin/
