@@ -62,6 +62,14 @@ make build            # builds web/dist and the ./plexodus binary (needs Go 1.24
 
 Every push to `main` builds fresh binaries into the rolling [`latest` release](https://github.com/sfxhewitt/plexodus/releases/tag/latest). Tagging `v*` publishes a versioned release.
 
+## Android app
+
+The same UI as the browser, plus a built-in player that direct-plays
+everything (MKV, HEVC, AC3, DTS…) phones can't play in a browser. Download
+[plexodus.apk](https://github.com/sfxhewitt/plexodus/releases/download/latest/plexodus.apk)
+on the phone, tablet, Android TV or Fire TV, install it, and enter your server
+address. See [android/README.md](android/README.md).
+
 ## Importing from Plex
 
 If you already run Plex, Plexodus can import everything from it in one pass: libraries, titles, artwork, descriptions, ratings, file details, your watch history and progress, and Plex's intro and credit markers (used for **Skip intro**). Media files aren't read, so this takes minutes even for very large cloud libraries. Afterwards Plexodus keeps itself up to date with its own scans, and Plex is optional.

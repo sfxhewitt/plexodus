@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, Card, Detail, episodeLabel, fmtTime, Marker, MediaFile, PlayInfo } from "../api";
 import { Back, Copy, External, Forward, Fullscreen, Mute, Pause, Play, Rewind, Volume } from "../components/Icons";
+import { native, NativeEnded, nativePlay } from "../native";
 
 // Plexodus never transcodes. We ask the browser whether it can decode the
 // file's codecs and, if it can't, offer external players instead.
@@ -81,6 +82,7 @@ export default function Player() {
   const [countdown, setCountdown] = useState(0);
   const lastReport = useRef(0);
   const [markers, setMarkers] = useState<Marker[]>([]);
+  const nativeMode = !!native;
 
   // Load item + play info.
   useEffect(() => {
@@ -101,6 +103,22 @@ export default function Player() {
         if (!d.files.length) throw new Error("No media file for this item.");
         const p = await api.get<PlayInfo>(`/api/play/${d.files[0].id}`);
         if (cancelled) return;
+        if (native) {
+          // The app's player handles decoding, so skip the browser checks.
+          const m = await api.get<Marker[]>(`/api/items/${d.id}/markers`).catch(() => [] as Marker[]);
+          if (cancelled) return;
+          const from = params.get("from");
+          const t = d.kind === "episode" ? d.showTitle || d.show?.title || d.title : d.title;
+          const st = d.kind === "episode" ? `${episodeLabel(d)} · ${d.title}` : d.year ? String(d.year) : "";
+          setInfo(p);
+          nativePlay({
+            itemId: d.id, kind: d.kind, url: p.externalUrl, title: t, subtitle: st,
+            startSeconds: from != null ? Number(from) : p.position || 0,
+            durationSeconds: p.file.duration || 0,
+            markers: m.map((x) => ({ type: x.type, start: x.start, end: x.end })),
+          });
+          return;
+        }
         const c = compat(p.file);
         if (!c.video) setUnsupported(c.reason);
         else if (!c.audio) setAudioWarn(c.reason);
@@ -169,6 +187,21 @@ export default function Player() {
       setCountdown(10);
     }
   };
+
+  // The app's player reports back when it closes.
+  useEffect(() => {
+    if (!native) return;
+    const onNative = (e: Event) => {
+      const d = (e as CustomEvent<NativeEnded>).detail;
+      if (!item || d.itemId !== item.id) return;
+      api.invalidate("/api/home");
+      api.invalidate("/api/items");
+      if (d.ended && item.kind === "episode" && item.showId) onEnded();
+      else nav(-1);
+    };
+    window.addEventListener("plexodus:native-ended", onNative);
+    return () => window.removeEventListener("plexodus:native-ended", onNative);
+  });
 
   useEffect(() => {
     if (!upNext) return;
@@ -287,6 +320,26 @@ export default function Player() {
       <div className="player-msg">
         <p>{error}</p>
         <button className="btn glass" onClick={() => nav(-1)}>Go back</button>
+      </div>
+    );
+  }
+
+  if (nativeMode) {
+    return (
+      <div className="player-msg">
+        {!info && <div className="spinner" />}
+        <p>{info ? "Playing in the Plexodus player…" : "Preparing…"}</p>
+        {upNext && (
+          <div className="up-next static">
+            <div className="muted small">Up next in {countdown}s</div>
+            <div className="t">{episodeLabel(upNext)} · {upNext.title}</div>
+            <div className="row-btns">
+              <button className="btn primary sm" onClick={() => nav(`/play/${upNext.id}`, { replace: true })}><Play size={16} /> Play now</button>
+              <button className="btn glass sm" onClick={() => { setUpNext(null); nav(-1); }}>Cancel</button>
+            </div>
+          </div>
+        )}
+        {!upNext && <button className="btn glass" onClick={() => nav(-1)}>Back</button>}
       </div>
     );
   }
