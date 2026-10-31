@@ -9,7 +9,7 @@ val versionNameEnv = System.getenv("PLEXODUS_VERSION_NAME") ?: "dev"
 
 android {
     namespace = "app.plexodus"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "app.plexodus"
