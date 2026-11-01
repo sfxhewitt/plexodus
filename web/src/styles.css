@@ -295,8 +295,8 @@ a.row-title:hover svg { opacity: 1; transform: none; }
 .player-top .pt { font: 700 20px "Space Grotesk", sans-serif; }
 .player-top .ps { color: #c5c9d6; font-size: 14px; }
 .player-controls { bottom: 0; background: linear-gradient(0deg, rgba(0, 0, 0, 0.85), transparent); padding-top: 60px; }
-.player.idle .player-top { opacity: 0; transform: translateY(-10px); }
-.player.idle .player-controls { opacity: 0; transform: translateY(10px); }
+.player.idle .player-top { opacity: 0; transform: translateY(-10px); pointer-events: none; }
+.player.idle .player-controls { opacity: 0; transform: translateY(10px); pointer-events: none; }
 .ctrl-row { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
 .ctrl-row .icon-btn { width: 46px; height: 46px; }
 .time { font-variant-numeric: tabular-nums; margin-left: 10px; font-size: 14px; }
