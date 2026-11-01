@@ -72,6 +72,13 @@ when the browser can't decode the original. Nothing is re-encoded, it starts
 in a second or two and uses almost no CPU. The Android app and external
 players always get the original file.
 
+For MKV files the server reads the file's keyframe index first and hands the
+player a complete playlist with exact segment times before any remuxing has
+happened, so the duration, the scrubber and seeking anywhere work like a
+plain file. Segments are made on demand: seeking into a part that hasn't
+been produced restarts ffmpeg from that keyframe. Other containers use a
+growing playlist from the start position instead.
+
 This needs `ffmpeg` on the server (`sudo apt install ffmpeg`). Without it the
 player offers VLC/Infuse links instead. Segments are written under the data
 directory (`stream/`) and removed a few minutes after playback stops.
