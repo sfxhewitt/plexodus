@@ -18,7 +18,7 @@ function Hero({ items }: { items: Card[] }) {
     <section className="hero">
       {items.map((h, n) => (
         <div key={h.id} className={`hero-bg ${n === i ? "on" : ""}`}
-          style={{ backgroundImage: `url(${art(h.backdrop, "w1280")})` }} />
+          style={{ backgroundImage: `url(${art(h.backdrop, window.innerWidth < 900 ? "w780" : "w1280")})` }} />
       ))}
       <div className="hero-shade" />
       <div className="hero-content" key={c.id}>

@@ -316,7 +316,8 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Top rated row for variety.
-	top, _ := s.cards(r, `WHERE i.kind IN ('movie', 'show') AND i.rating >= 7.5 AND i.poster IS NOT NULL ORDER BY RANDOM() LIMIT 24`)
+	top, _ := s.cards(r, `WHERE i.id IN (SELECT id FROM items WHERE kind IN ('movie', 'show') AND rating >= 7.5 AND poster IS NOT NULL
+		ORDER BY RANDOM() LIMIT 24)`)
 	if len(top) >= 6 {
 		rows = append(rows, Row{Title: "Critically Acclaimed", Kind: "poster", Items: top})
 	}
