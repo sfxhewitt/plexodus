@@ -1,13 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg">#0B0D14</color>
-    <color name="surface">#141726</color>
-    <color name="border">#2A2F45</color>
-    <color name="text">#F1F3F8</color>
-    <color name="muted">#9AA1B5</color>
-    <color name="teal">#5EEAD4</color>
-    <color name="indigo">#818CF8</color>
-    <color name="pink">#F472B6</color>
+    <!-- Noir: black, bone white and one red. -->
+    <color name="bg">#050505</color>
+    <color name="surface">#121212</color>
+    <color name="border">#2A2A2A</color>
+    <color name="text">#EEE9E0</color>
+    <color name="muted">#8E8A83</color>
+    <color name="red">#D4213D</color>
+    <!-- Older names kept so existing layouts and drawables resolve. -->
+    <color name="teal">#D4213D</color>
+    <color name="indigo">#D4213D</color>
+    <color name="pink">#FF6B7F</color>
     <color name="scrim">#B3000000</color>
     <color name="glass">#33FFFFFF</color>
 </resources>

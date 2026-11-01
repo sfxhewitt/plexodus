@@ -299,6 +299,13 @@ class PlayerActivity : Activity() {
 
     // ---- keyboard / remote control ----
 
+    // Any button press while the controls are up keeps them up, so they don't
+    // vanish while you're moving between buttons with the remote.
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN && controlsVisible) scheduleHide()
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_SPACE -> togglePlay()
@@ -308,11 +315,17 @@ class PlayerActivity : Activity() {
             KeyEvent.KEYCODE_MEDIA_REWIND -> seekBy(-30_000)
             KeyEvent.KEYCODE_DPAD_RIGHT -> if (controlsVisible) return super.onKeyDown(keyCode, event) else seekBy(10_000)
             KeyEvent.KEYCODE_DPAD_LEFT -> if (controlsVisible) return super.onKeyDown(keyCode, event) else seekBy(-10_000)
-            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN ->
-                if (controlsVisible) return super.onKeyDown(keyCode, event) else {
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                if (controlsVisible) return super.onKeyDown(keyCode, event)
+                val ok = keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER
+                if (ok && skipButton.visibility == View.VISIBLE) {
+                    // "Skip intro" is on screen: OK presses it, like Plex.
+                    skipMarker()
+                } else {
                     setControls(true)
                     playPause.requestFocus()
                 }
+            }
             KeyEvent.KEYCODE_BACK -> if (controlsVisible && playing) setControls(false) else finishPlayback(false)
             else -> return super.onKeyDown(keyCode, event)
         }

@@ -11,7 +11,10 @@
         android:layout_gravity="center"
         android:gravity="center_horizontal"
         android:orientation="vertical"
-        android:padding="32dp">
+        android:paddingStart="@dimen/connect_side"
+        android:paddingTop="32dp"
+        android:paddingEnd="@dimen/connect_side"
+        android:paddingBottom="32dp">
 
         <ImageView
             android:layout_width="72dp"
@@ -79,7 +82,7 @@
             android:stateListAnimator="@null"
             android:text="@string/connect_button"
             android:textAllCaps="false"
-            android:textColor="@color/bg"
+            android:textColor="@color/primary_fg"
             android:textSize="16sp"
             android:textStyle="bold" />
 
@@ -88,7 +91,7 @@
             android:layout_width="28dp"
             android:layout_height="28dp"
             android:layout_marginTop="18dp"
-            android:indeterminateTint="@color/teal"
+            android:indeterminateTint="@color/red"
             android:visibility="gone" />
     </LinearLayout>
 </ScrollView>

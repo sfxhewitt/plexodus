@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Keep the connect form a sensible width on a TV instead of edge to edge. -->
+    <dimen name="connect_side">260dp</dimen>
+</resources>
