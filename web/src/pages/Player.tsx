@@ -156,6 +156,11 @@ export default function Player() {
   const sessionRef = useRef<HlsSession>();
   sessionRef.current = session;
   const inHls = !!session;
+  // Temporary: alternative packagings of the converted stream, to find out
+  // which one Safari plays with sound. Picked from the chips next to the
+  // "Converted for this browser" label.
+  const [variant, setVariant] = useState("");
+  const variantRef = useRef("");
 
   const stopSession = useCallback((s?: HlsSession) => {
     hlsRef.current?.destroy();
@@ -170,7 +175,7 @@ export default function Player() {
     stopSession(sessionRef.current);
     setWaiting(true);
     setPreparing(true);
-    const s = await api.post<HlsSession>("/api/hls", { fileId, start, audioMode: p.audioMode, audioIndex: p.audioIndex });
+    const s = await api.post<HlsSession>("/api/hls", { fileId, start, audioMode: p.audioMode, audioIndex: p.audioIndex, variant: variantRef.current });
     setSession(s);
     setTime(s.start);
     setBuffered(s.start);
@@ -682,6 +687,17 @@ export default function Player() {
             <div className="time">{fmtTime(time)} <span className="muted">/ {fmtTime(dur)}</span></div>
             <div className="spacer" />
             {inHls && <span className="ends-at muted">Converted for this browser</span>}
+            {inHls && hlsPlan && item && (
+              <span className="variant-chips">
+                {[["", "A"], ["zero", "B"], ["hlsmux", "C"], ["event", "D"]].map(([v, label]) => (
+                  <button key={label} className={"chip" + (variant === v ? " on" : "")} onClick={() => {
+                    setVariant(v);
+                    variantRef.current = v;
+                    startSession(hlsPlan, item.files[0].id, 0).catch((e) => setError((e as Error).message));
+                  }}>{label}</button>
+                ))}
+              </span>
+            )}
             {endsAt && <span className="ends-at">Ends at {endsAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>}
             <button className="icon-btn" onClick={fullscreen} aria-label="Fullscreen"><Fullscreen /></button>
           </div>

@@ -13,8 +13,9 @@ import (
 // ties it back to the keyframe index of the source file.
 
 type frag struct {
-	off, size int64 // byte range in the run file
-	ptsMs     int64 // first video sample, in source-file time
+	off, size int64  // byte range in the run file
+	ptsMs     int64  // first video sample, in source-file time
+	path      string // a whole file of its own instead (hls muxer runs)
 }
 
 type fmp4Scan struct {
@@ -23,6 +24,8 @@ type fmp4Scan struct {
 	timescale int64 // video track timescale from mdhd
 	videoID   uint32
 	offsetMs  int64 // output_ts_offset we gave ffmpeg, removed from times
+	auto      bool  // offsetMs unknown: derive it from the first fragment
+	baseMs    int64 // the source time the first fragment stands for, when auto
 	frags     []frag
 	err       error
 }
@@ -103,9 +106,13 @@ func (sc *fmp4Scan) scan(f *os.File) {
 			if _, err := f.ReadAt(b, sc.pos); err != nil {
 				return
 			}
-			pts, ok := sc.parseMoof(b[hlen:])
+			raw, ok := sc.parseMoof(b[hlen:])
 			if ok {
-				sc.frags = append(sc.frags, frag{off: sc.pos, size: bsize + msize, ptsMs: pts})
+				if sc.auto {
+					sc.offsetMs = raw - sc.baseMs
+					sc.auto = false
+				}
+				sc.frags = append(sc.frags, frag{off: sc.pos, size: bsize + msize, ptsMs: raw - sc.offsetMs})
 			}
 			bsize += msize
 		}
@@ -175,8 +182,8 @@ func (sc *fmp4Scan) parseMoov(b []byte) {
 	})
 }
 
-// parseMoof returns the presentation time (ms, source-file time) of the
-// first video sample in the fragment.
+// parseMoof returns the presentation time (ms, in the output's own
+// timeline) of the first video sample in the fragment.
 func (sc *fmp4Scan) parseMoof(b []byte) (int64, bool) {
 	var found bool
 	var pts int64
@@ -241,5 +248,5 @@ func (sc *fmp4Scan) parseMoof(b []byte) (int64, bool) {
 	if !found || sc.timescale <= 0 {
 		return 0, false
 	}
-	return pts*1000/sc.timescale - sc.offsetMs, true
+	return pts * 1000 / sc.timescale, true
 }
