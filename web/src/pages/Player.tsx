@@ -29,11 +29,11 @@ const audioCodecs: Record<string, string> = {
   truehd: 'audio/mp4; codecs="mlpa"',
 };
 // Audio that can ride along unchanged inside fragmented MP4 (HLS). Safari
-// claims it can play AC-3/E-AC-3 but iPhones have been silent with those
-// copied into the stream, so WebKit only gets the formats every device
-// decodes; everything else is converted to AAC, which costs almost nothing.
+// on iPhone has stayed silent with audio copied from MKV files, even plain
+// AAC, so WebKit always gets a freshly encoded AAC track; it costs almost
+// nothing and every Apple device decodes it.
 const hlsAudioCopy = new Set(["aac", "mp3", "ac3", "eac3", "flac"]);
-const hlsAudioCopyWebKit = new Set(["aac", "mp3"]);
+const hlsAudioCopyWebKit = new Set<string>();
 // Video that can be copied into fragmented MP4. VP8/VP9 belong in WebM.
 const hlsVideoCopy = new Set(["h264", "hevc", "av1"]);
 const badContainers = ["avi", "asf", "flv", "mpeg", "mpegts"];
