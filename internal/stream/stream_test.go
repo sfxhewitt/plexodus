@@ -229,3 +229,100 @@ func TestEventSession(t *testing.T) {
 	m.Stop(s2.ID, 1)
 	<-s2.cur.done
 }
+
+// TestVariants plays the alternative VOD packagings from the start: each
+// must give a playlist, an init segment and segments that ffprobe decodes
+// with both audio and video from time zero.
+func TestVariants(t *testing.T) {
+	needFFmpeg(t)
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.mkv")
+	makeMKV(t, src, 30, "0,6,8,12,14,20,23,27")
+	m := New("ffmpeg", filepath.Join(dir, "stream"))
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	for _, variant := range []string{"zero", "hlsmux"} {
+		s, err := m.Start(ctx, 1, 1, Options{Path: src, AudioIndex: 1, AudioMode: "aac", VideoCodec: "h264", Variant: variant})
+		if err != nil {
+			t.Fatal(variant, err)
+		}
+		pl, _ := s.Playlist(ctx, time.Second)
+		nseg := strings.Count(string(pl), ".m4s")
+		want := 5
+		if variant == "hlsmux" {
+			want = 8 // one per keyframe
+		}
+		if nseg != want {
+			t.Errorf("%s: %d segments, want %d:\n%s", variant, nseg, want, pl)
+		}
+		read := func(name string) []byte {
+			t.Helper()
+			c, err := s.File(ctx, name, 30*time.Second)
+			if err != nil {
+				t.Fatalf("%s %s: %v", variant, name, err)
+			}
+			f, err := os.Open(c.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			var r io.Reader = f
+			if c.Size > 0 {
+				r = io.NewSectionReader(f, c.Off, c.Size)
+			}
+			b, err := io.ReadAll(r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return b
+		}
+		all := read("init.mp4")
+		if string(all[4:8]) != "ftyp" {
+			t.Fatalf("%s: init doesn't start with ftyp", variant)
+		}
+		for k := 0; k < nseg; k++ {
+			all = append(all, read(fmt.Sprintf("seg%05d.m4s", k))...)
+		}
+		out := filepath.Join(dir, variant+".mp4")
+		os.WriteFile(out, all, 0o644)
+		pb, err := exec.Command("ffprobe", "-v", "error", "-show_entries", "stream=codec_type:packet=stream_index,pts_time,flags", "-of", "csv", out).Output()
+		if err != nil {
+			t.Fatal(variant, "ffprobe:", err)
+		}
+		txt := string(pb)
+		if !strings.Contains(txt, "stream,audio") || !strings.Contains(txt, "stream,video") {
+			t.Errorf("%s: served stream lacks a track:\n%s", variant, txt[:min(len(txt), 400)])
+		}
+		var firstV, firstA, lastV string
+		nAudio := 0
+		for _, l := range strings.Split(txt, "\n") {
+			f := strings.Split(l, ",")
+			if len(f) < 3 || f[0] != "packet" {
+				continue
+			}
+			if f[1] == "0" {
+				if firstV == "" {
+					firstV = f[2]
+				}
+				lastV = f[2]
+			} else {
+				nAudio++
+				if firstA == "" {
+					firstA = f[2]
+				}
+			}
+		}
+		t.Logf("%s: first video %s, first audio %s, last video %s, %d audio packets", variant, firstV, firstA, lastV, nAudio)
+		fv, _ := strconv.ParseFloat(firstV, 64)
+		fa, _ := strconv.ParseFloat(firstA, 64)
+		if fv < -0.1 || fv > 0.5 || fa < -0.1 || fa > 0.5 {
+			t.Errorf("%s: stream doesn't start near zero (video %s, audio %s)", variant, firstV, firstA)
+		}
+		if nAudio < 1300 { // ~30 s of AAC at 48 kHz is ~1400 frames
+			t.Errorf("%s: only %d audio packets", variant, nAudio)
+		}
+		if lv, _ := strconv.ParseFloat(lastV, 64); lv < 29 {
+			t.Errorf("%s: video ends at %s", variant, lastV)
+		}
+	}
+}

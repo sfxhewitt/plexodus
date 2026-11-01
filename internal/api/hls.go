@@ -25,6 +25,7 @@ func (s *Server) handleHLSStart(w http.ResponseWriter, r *http.Request) {
 		Start      float64 `json:"start"`
 		AudioIndex *int    `json:"audioIndex"`
 		AudioMode  string  `json:"audioMode"`
+		Variant    string  `json:"variant"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		writeErr(w, 400, "bad request")
@@ -55,7 +56,7 @@ func (s *Server) handleHLSStart(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sess, err := s.streams.Start(r.Context(), currentUser(r).ID, b.FileID, stream.Options{
-		Path: path, Start: b.Start, AudioIndex: audio, AudioMode: b.AudioMode, VideoCodec: vcodec,
+		Path: path, Start: b.Start, AudioIndex: audio, AudioMode: b.AudioMode, VideoCodec: vcodec, Variant: b.Variant,
 	})
 	if err != nil {
 		writeErr(w, 500, err.Error())

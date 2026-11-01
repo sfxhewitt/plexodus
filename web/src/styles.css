@@ -415,3 +415,8 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
 .up-next.static { position: static; max-width: none; animation: none; }
 .link-btn { background: none; border: 0; cursor: pointer; padding: 6px; color: var(--muted); font: inherit; }
 .link-btn:hover { color: var(--text); }
+
+/* Temporary stream packaging test chips in the player. */
+.variant-chips { display: inline-flex; gap: 4px; margin-right: 8px; }
+.variant-chips .chip { padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(255,255,255,.4); background: transparent; color: #fff; font-size: 12px; }
+.variant-chips .chip.on { background: #fff; color: #000; }

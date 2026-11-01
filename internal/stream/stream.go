@@ -53,6 +53,13 @@ type Options struct {
 	AudioIndex int     // absolute stream index of the audio track, -1 for none
 	AudioMode  string  // "copy" or "aac"
 	VideoCodec string  // from the probe; hevc gets the hvc1 tag Safari needs
+	// Variant picks an alternative packaging of the VOD stream while the
+	// silent-audio-on-Safari problem is being pinned down:
+	//   ""       fragmented MP4 with absolute timestamps (the default)
+	//   "zero"   the same with timestamps starting at zero
+	//   "hlsmux" ffmpeg's hls muxer, one segment per keyframe, edit lists
+	//   "event"  the growing event playlist used for non-MKV files
+	Variant string
 }
 
 // Chunk is a served file, or a byte range of one when Size > 0.
@@ -65,6 +72,8 @@ type Chunk struct {
 type run struct {
 	target  int64 // ms; the keyframe it was asked to start from
 	path    string
+	dir     string // hls muxer runs: one file per fragment in here
+	kf      int    // hls muxer runs: keyframe index of the first file
 	cmd     *exec.Cmd
 	done    chan struct{}
 	err     error
@@ -107,6 +116,7 @@ type Session struct {
 	Dir    string
 
 	vod       bool
+	hlsmux    bool    // VOD through the hls muxer (Options.Variant)
 	segStarts []int64 // ms; VOD only
 	durMs     int64
 
@@ -188,10 +198,14 @@ func (m *Manager) Start(ctx context.Context, userID, fileID int64, o Options) (*
 	}
 	s := &Session{ID: id, UserID: userID, FileID: fileID, Opts: o, Dir: dir, lastUsed: time.Now()}
 
-	if kf := m.keyframes(o.Path); kf != nil {
+	if kf := m.keyframes(o.Path); kf != nil && o.Variant != "event" {
 		s.vod = true
 		s.segStarts = kf.Segments(segmentSeconds)
 		s.durMs = kf.DurationMs
+		if o.Variant == "hlsmux" {
+			s.hlsmux = true
+			s.segStarts = append([]int64(nil), kf.TimesMs...)
+		}
 		k := s.segmentAt(int64(o.Start * 1000))
 		if _, err := s.startRun(m.ffmpeg, s.segStarts[k], s.segStarts[k] == s.segStarts[0]); err != nil {
 			os.RemoveAll(dir)
@@ -253,7 +267,7 @@ func (s *Session) args(startMs int64, seek bool) []string {
 		// fragments before the wanted keyframe are ignored by the scanner.
 		args = append(args, "-ss", strconv.FormatFloat(float64(startMs)/1000, 'f', 3, 64))
 	}
-	if s.vod {
+	if s.vod && !s.hlsmux && !(s.Opts.Variant == "zero" && !seek) {
 		args = append(args, "-copyts")
 	}
 	args = append(args, "-i", o.Path, "-map", "0:v:0")
@@ -296,6 +310,9 @@ func (s *Session) launch(ffmpeg string, args []string, target int64) (*run, erro
 			// Final scan so the last fragment is seen.
 			r.scan.scan(r.f)
 		}
+		if r.dir != "" {
+			s.scanDir(r)
+		}
 		s.mu.Unlock()
 		close(r.done)
 		if err != nil && !strings.Contains(err.Error(), "signal: killed") {
@@ -314,18 +331,55 @@ func (s *Session) startRun(ffmpeg string, targetMs int64, fromStart bool) (*run,
 		s.cur.kill()
 	}
 	s.mu.Unlock()
-	path := filepath.Join(s.Dir, fmt.Sprintf("run%03d.mp4", n))
-	args := append(s.args(targetMs, !fromStart),
-		"-output_ts_offset", strconv.Itoa(tsOffsetMs/1000),
-		"-avoid_negative_ts", "disabled",
-		"-f", "mp4",
-		"-movflags", "empty_moov+frag_keyframe+default_base_moof+frag_discont+skip_trailer",
-		path)
-	r, err := s.launch(ffmpeg, args, targetMs)
-	if err != nil {
-		return nil, err
+	var r *run
+	var err error
+	switch {
+	case s.hlsmux:
+		dir := filepath.Join(s.Dir, fmt.Sprintf("run%03d", n))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, err
+		}
+		args := append(s.args(targetMs, !fromStart),
+			"-f", "hls",
+			"-hls_time", "0",
+			"-hls_list_size", "0",
+			"-hls_segment_type", "fmp4",
+			"-hls_flags", "independent_segments+temp_file",
+			"-hls_fmp4_init_filename", "init.mp4",
+			"-hls_segment_filename", filepath.Join(dir, "f%06d.m4s"),
+			filepath.Join(dir, "index.m3u8"))
+		if r, err = s.launch(ffmpeg, args, targetMs); err != nil {
+			return nil, err
+		}
+		r.dir = dir
+		r.kf = s.segmentAt(targetMs)
+	case s.Opts.Variant == "zero" && fromStart:
+		path := filepath.Join(s.Dir, fmt.Sprintf("run%03d.mp4", n))
+		args := append(s.args(targetMs, false),
+			"-avoid_negative_ts", "make_zero",
+			"-f", "mp4",
+			"-movflags", "empty_moov+frag_keyframe+default_base_moof+frag_discont+skip_trailer",
+			path)
+		if r, err = s.launch(ffmpeg, args, targetMs); err != nil {
+			return nil, err
+		}
+		r.path = path
+		r.scan.offsetMs = 0
+		r.scan.auto = true
+		r.scan.baseMs = s.segStarts[0]
+	default:
+		path := filepath.Join(s.Dir, fmt.Sprintf("run%03d.mp4", n))
+		args := append(s.args(targetMs, !fromStart),
+			"-output_ts_offset", strconv.Itoa(tsOffsetMs/1000),
+			"-avoid_negative_ts", "disabled",
+			"-f", "mp4",
+			"-movflags", "empty_moov+frag_keyframe+default_base_moof+frag_discont+skip_trailer",
+			path)
+		if r, err = s.launch(ffmpeg, args, targetMs); err != nil {
+			return nil, err
+		}
+		r.path = path
 	}
-	r.path = path
 	s.mu.Lock()
 	s.runs = append(s.runs, r)
 	s.cur = r
@@ -560,6 +614,15 @@ func (s *Session) vodFile(ctx context.Context, name string, wait time.Duration) 
 
 // scanRun reads newly written fragments of a run. Caller holds s.mu.
 func (s *Session) scanRun(r *run) {
+	if r.dir != "" {
+		before := len(r.scan.frags)
+		s.scanDir(r)
+		if before == 0 && len(r.scan.frags) > 0 && !r.logged {
+			r.logged = true
+			log.Printf("stream %s (%s): first segment ready %s after start (from %ds)", s.ID, filepath.Base(s.Opts.Path), time.Since(r.started).Round(100*time.Millisecond), r.target/1000)
+		}
+		return
+	}
 	if r.f == nil {
 		f, err := os.Open(r.path)
 		if err != nil {
@@ -575,6 +638,32 @@ func (s *Session) scanRun(r *run) {
 	}
 }
 
+// scanDir picks up the files an hls muxer run has completed: ffmpeg writes
+// each to a temporary name and renames it when it is whole, and the init
+// segment is complete once the first fragment file exists. File j holds
+// keyframe r.kf+j. Caller holds s.mu.
+func (s *Session) scanDir(r *run) {
+	for {
+		j := len(r.scan.frags)
+		p := filepath.Join(r.dir, fmt.Sprintf("f%06d.m4s", j))
+		if _, err := os.Stat(p); err != nil {
+			return
+		}
+		if r.scan.initSize == 0 {
+			ip := filepath.Join(r.dir, "init.mp4")
+			st, err := os.Stat(ip)
+			if err != nil || st.Size() == 0 {
+				return
+			}
+			r.scan.initSize = st.Size()
+		}
+		if r.kf+j >= len(s.segStarts) {
+			return
+		}
+		r.scan.frags = append(r.scan.frags, frag{path: p, ptsMs: s.segStarts[r.kf+j]})
+	}
+}
+
 func (s *Session) ffmpegPath() string {
 	return s.runs[0].cmd.Path
 }
@@ -584,6 +673,9 @@ func (s *Session) ffmpegPath() string {
 func (s *Session) initChunk() (Chunk, bool) {
 	for _, r := range s.runs {
 		if r.scan.initSize > 0 {
+			if r.dir != "" {
+				return Chunk{Path: filepath.Join(r.dir, "init.mp4")}, true
+			}
 			return Chunk{Path: r.path, Off: 0, Size: r.scan.initSize}, true
 		}
 	}
@@ -620,6 +712,10 @@ func (s *Session) segmentChunk(k int) (Chunk, bool) {
 		}
 		if first < 0 {
 			continue
+		}
+		if r.dir != "" {
+			// One whole file per keyframe, complete once it exists.
+			return Chunk{Path: r.scan.frags[first].path}, true
 		}
 		if !complete && !(!r.running() && r.err == nil) {
 			continue // the run is still inside this segment
