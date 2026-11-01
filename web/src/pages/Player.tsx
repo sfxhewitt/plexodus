@@ -28,8 +28,12 @@ const audioCodecs: Record<string, string> = {
   dts: 'audio/mp4; codecs="dtsc"',
   truehd: 'audio/mp4; codecs="mlpa"',
 };
-// Audio that can ride along unchanged inside fragmented MP4 (HLS).
+// Audio that can ride along unchanged inside fragmented MP4 (HLS). Safari
+// claims it can play AC-3/E-AC-3 but iPhones have been silent with those
+// copied into the stream, so WebKit only gets the formats every device
+// decodes; everything else is converted to AAC, which costs almost nothing.
 const hlsAudioCopy = new Set(["aac", "mp3", "ac3", "eac3", "flac"]);
+const hlsAudioCopyWebKit = new Set(["aac", "mp3"]);
 // Video that can be copied into fragmented MP4. VP8/VP9 belong in WebM.
 const hlsVideoCopy = new Set(["h264", "hevc", "av1"]);
 const badContainers = ["avi", "asf", "flv", "mpeg", "mpegts"];
@@ -79,7 +83,7 @@ function plan(f: MediaFile, name: string, hlsAvailable: boolean): Plan {
     const audio = (f.streams || []).filter((s) => s.type === "audio");
     const track = audio.find((s) => s.default) || audio[0];
     const codec = track?.codec || f.audioCodec || "";
-    const copy = hlsAudioCopy.has(codec) && can(audioCodecs[codec]);
+    const copy = (webkitOnly ? hlsAudioCopyWebKit : hlsAudioCopy).has(codec) && can(audioCodecs[codec]);
     return { mode: "hls", audioMode: copy ? "copy" : "aac", audioIndex: track?.index };
   }
   if (!v) return { mode: "none", reason: `This browser can't decode ${f.videoCodec?.toUpperCase()} video` };
