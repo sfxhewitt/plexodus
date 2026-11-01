@@ -4,10 +4,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sfxhewitt/plexodus/internal/auth"
 	"github.com/sfxhewitt/plexodus/internal/db"
@@ -48,8 +50,8 @@ const cardCols = `i.id, i.library_id, i.kind, i.title, COALESCE(i.year, 0), COAL
 	COALESCE(i.parent_id, 0), COALESCE(sh.id, 0), COALESCE(sh.title, ''), COALESCE(sh.poster, ''), COALESCE(sh.backdrop, ''),
 	i.added_at, COALESCE(w.position, 0), COALESCE(w.duration, 0), COALESCE(w.watched, 0),
 	CASE WHEN i.kind = 'show' THEN (SELECT COUNT(*) FROM items s JOIN items e ON e.parent_id = s.id WHERE s.parent_id = i.id) ELSE 0 END,
-	CASE WHEN i.kind = 'show' THEN (SELECT COUNT(*) FROM items s JOIN items e ON e.parent_id = s.id
-		JOIN watch_state ws ON ws.item_id = e.id AND ws.user_id = ?1 AND ws.watched = 1 WHERE s.parent_id = i.id) ELSE 0 END,
+	CASE WHEN i.kind = 'show' THEN (SELECT COUNT(*) FROM items s JOIN items e ON e.parent_id = s.id WHERE s.parent_id = i.id
+		AND EXISTS (SELECT 1 FROM watch_state ws WHERE ws.user_id = ?1 AND ws.item_id = e.id AND ws.watched = 1)) ELSE 0 END,
 	CASE WHEN i.kind = 'episode' THEN COALESCE(i.overview, '') ELSE '' END`
 
 const cardFrom = `FROM items i
@@ -261,12 +263,14 @@ type Row struct {
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var rows []Row
+	t0 := time.Now()
 
 	cont, err := s.continueWatching(r)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	tCont := time.Since(t0)
 	if len(cont) > 0 {
 		rows = append(rows, Row{Title: "Continue Watching", Kind: "landscape", Items: cont})
 	}
@@ -303,6 +307,8 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	tLibs := time.Since(t0) - tCont
+
 	// Hero: recent, well-rated titles that have artwork worth showing.
 	hero, err := s.cards(r, `WHERE i.kind IN ('movie', 'show') AND i.backdrop IS NOT NULL AND i.overview IS NOT NULL
 		AND i.id IN (SELECT id FROM items WHERE kind IN ('movie', 'show') AND backdrop IS NOT NULL ORDER BY added_at DESC LIMIT 60)
@@ -323,6 +329,9 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 	if rows == nil {
 		rows = []Row{}
+	}
+	if took := time.Since(t0); took > 500*time.Millisecond {
+		log.Printf("home: %s (continue %s, libraries %s)", took.Round(time.Millisecond), tCont.Round(time.Millisecond), tLibs.Round(time.Millisecond))
 	}
 	writeJSON(w, map[string]any{"hero": hero, "rows": rows})
 }
@@ -379,12 +388,15 @@ func (s *Server) continueWatching(r *http.Request) ([]Card, error) {
 
 // nextEpisode returns the first unwatched episode after the last watched one.
 func (s *Server) nextEpisode(r *http.Request, showID int64) (*Card, error) {
-	cards, err := s.cards(r, `WHERE i.kind = 'episode' AND sh.id = ?2 AND COALESCE(w.watched, 0) = 0
+	// Drive from the show's seasons (items_parent index) rather than every
+	// episode in the database: with a large library the latter took
+	// seconds per show.
+	cards, err := s.cards(r, `WHERE +i.kind = 'episode' AND i.parent_id IN (SELECT id FROM items WHERE parent_id = ?2 AND kind = 'season')
+		AND COALESCE(w.watched, 0) = 0
 		AND (i.season_number * 10000 + i.episode_number) > COALESCE((
-			SELECT MAX(e2.season_number * 10000 + e2.episode_number) FROM items e2
-			JOIN items s2 ON s2.id = e2.parent_id
-			JOIN watch_state w2 ON w2.item_id = e2.id AND w2.user_id = ?1 AND w2.watched = 1
-			WHERE s2.parent_id = ?2 AND e2.season_number > 0), -1)
+			SELECT MAX(e2.season_number * 10000 + e2.episode_number) FROM items s2 JOIN items e2 ON e2.parent_id = s2.id
+			WHERE s2.parent_id = ?2 AND e2.season_number > 0
+			AND EXISTS (SELECT 1 FROM watch_state w2 WHERE w2.user_id = ?1 AND w2.item_id = e2.id AND w2.watched = 1)), -1)
 		AND i.season_number > 0
 		ORDER BY i.season_number, i.episode_number LIMIT 1`, showID)
 	if err != nil || len(cards) == 0 {
