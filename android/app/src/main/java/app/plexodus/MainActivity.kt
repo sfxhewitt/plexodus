@@ -1,6 +1,9 @@
 package app.plexodus
 
 import android.app.Activity
+import android.app.UiModeManager
+import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
@@ -30,6 +33,14 @@ class MainActivity : Activity() {
     private lateinit var errorView: View
     private lateinit var server: String
 
+    /** Fire TV, Android TV, Shield: the page shows its 10-foot interface. */
+    private val isTv: Boolean by lazy {
+        val ui = getSystemService(UI_MODE_SERVICE) as UiModeManager
+        ui.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
+            packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+            packageManager.hasSystemFeature("amazon.hardware.fire_tv")
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val saved = Prefs.server(this)
@@ -51,7 +62,16 @@ class MainActivity : Activity() {
             useWideViewPort = true
             loadWithOverviewMode = true
             cacheMode = WebSettings.LOAD_DEFAULT
-            userAgentString = "$userAgentString Plexodus/${BuildConfig.VERSION_NAME} Android"
+            userAgentString = "$userAgentString Plexodus/${BuildConfig.VERSION_NAME} Android${if (isTv) " TV" else ""}"
+            // The TV interface sizes itself to the screen; the system font
+            // scale (often raised on TVs) would otherwise blow every word up.
+            if (isTv) textZoom = 100
+        }
+        if (isTv) {
+            web.isVerticalScrollBarEnabled = false
+            web.isHorizontalScrollBarEnabled = false
+            web.overScrollMode = View.OVER_SCROLL_NEVER
+            web.requestFocus()
         }
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
@@ -120,6 +140,20 @@ class MainActivity : Activity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK && isTv && ::web.isInitialized && errorView.visibility != View.VISIBLE) {
+            if (event.repeatCount > 0) return true
+            // The TV page decides: close a dialog, go back a page, or leave the app.
+            web.evaluateJavascript(
+                "(function(){try{return window.__plexodusBack?window.__plexodusBack():'none'}catch(e){return 'none'}})()",
+            ) { result ->
+                when (result?.trim('"')) {
+                    "handled" -> {}
+                    "exit" -> finish()
+                    else -> if (web.canGoBack()) web.goBack() else finish()
+                }
+            }
+            return true
+        }
         if (keyCode == KeyEvent.KEYCODE_BACK && ::web.isInitialized && errorView.visibility != View.VISIBLE && web.canGoBack()) {
             web.goBack()
             return true
@@ -179,10 +213,18 @@ class MainActivity : Activity() {
 
         @JavascriptInterface
         fun platform(): String = "android"
+
+        @JavascriptInterface
+        fun isTv(): Boolean = this@MainActivity.isTv
+
+        @JavascriptInterface
+        fun exit() {
+            runOnUiThread { finish() }
+        }
     }
 
     companion object {
         private const val REQ_PLAY = 1
-        const val BG = 0xFF0B0D14.toInt()
+        const val BG = 0xFF050505.toInt()
     }
 }

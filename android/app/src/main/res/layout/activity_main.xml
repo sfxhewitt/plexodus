@@ -45,7 +45,7 @@
             android:stateListAnimator="@null"
             android:text="@string/retry"
             android:textAllCaps="false"
-            android:textColor="@color/bg"
+            android:textColor="@color/primary_fg"
             android:textStyle="bold" />
 
         <Button
@@ -53,10 +53,12 @@
             android:layout_width="wrap_content"
             android:layout_height="44dp"
             android:layout_marginTop="8dp"
-            android:background="@android:color/transparent"
+            android:background="@drawable/bg_pill_button"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
             android:stateListAnimator="@null"
             android:text="@string/change_server"
             android:textAllCaps="false"
-            android:textColor="@color/muted" />
+            android:textColor="@color/control_fg" />
     </LinearLayout>
 </FrameLayout>

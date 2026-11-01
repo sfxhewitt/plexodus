@@ -5,23 +5,11 @@
         <shape android:shape="rectangle">
             <gradient
                 android:type="radial"
-                android:gradientRadius="520dp"
-                android:centerX="0.2"
-                android:centerY="0.1"
-                android:startColor="#335EEAD4"
-                android:endColor="#000B0D14" />
-        </shape>
-    </item>
-    <item>
-        <shape android:shape="rectangle">
-            <gradient
-                android:type="radial"
-                android:gradientRadius="480dp"
-                android:centerX="0.9"
-                android:centerY="0.9"
-                android:startColor="#38F472B6"
-                android:centerColor="#22818CF8"
-                android:endColor="#000B0D14" />
+                android:gradientRadius="560dp"
+                android:centerX="0.8"
+                android:centerY="0.0"
+                android:startColor="#29D4213D"
+                android:endColor="#00050505" />
         </shape>
     </item>
 </layer-list>
