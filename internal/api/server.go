@@ -16,6 +16,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sfxhewitt/plexodus/internal/auth"
@@ -41,12 +42,15 @@ type Server struct {
 	web      fs.FS
 	signKey  []byte
 	baseCtx  context.Context
+
+	plexArtMu       sync.Mutex
+	plexArtInflight map[string]*artFetch
 }
 
 func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner, agent *metadata.Agent,
 	art *metadata.ArtCache, prober *probe.Worker, streams *stream.Manager, web fs.FS) *Server {
 	s := &Server{cfg: cfg, db: d, auth: auth.New(d), scanner: sc, agent: agent, art: art, prober: prober, streams: streams,
-		importer: plex.NewImporter(d), web: web, baseCtx: ctx}
+		importer: plex.NewImporter(d), web: web, baseCtx: ctx, plexArtInflight: map[string]*artFetch{}}
 	key := d.Setting(ctx, "stream_sign_key")
 	if key == "" {
 		key = randomHex(32)
@@ -181,8 +185,9 @@ func logRequests(h http.Handler) http.Handler {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, code: 200}
 		h.ServeHTTP(sw, r)
-		if strings.HasPrefix(r.URL.Path, "/api/") && os.Getenv("PLEXODUS_LOG_REQUESTS") != "" {
-			log.Printf("%s %s %d %s", r.Method, r.URL.Path, sw.code, time.Since(start).Round(time.Microsecond))
+		took := time.Since(start)
+		if strings.HasPrefix(r.URL.Path, "/api/") && (os.Getenv("PLEXODUS_LOG_REQUESTS") != "" || took > time.Second) {
+			log.Printf("%s %s %d %s", r.Method, r.URL.Path, sw.code, took.Round(time.Millisecond))
 		}
 	})
 }

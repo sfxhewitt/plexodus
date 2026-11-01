@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -133,51 +134,82 @@ var plexArtSizes = map[string][2]int{
 	"w185": {185, 278}, "w342": {342, 513}, "w500": {500, 750}, "w780": {780, 780}, "w1280": {1280, 1280}, "original": {1920, 1920},
 }
 
-// handlePlexArt serves artwork from the Plex server, resized by Plex and
-// cached on local disk.
-func (s *Server) handlePlexArt(w http.ResponseWriter, r *http.Request) {
-	size := r.PathValue("size")
+// plexArt returns the local cached file for a Plex image, fetching it
+// (resized by Plex) the first time. Concurrent requests for the same image
+// share one download.
+func (s *Server) plexArt(ctx context.Context, size, p string) (string, error) {
 	dims, ok := plexArtSizes[size]
-	p := r.URL.Query().Get("p")
 	if !ok || !strings.HasPrefix(p, "/library/") {
-		http.Error(w, "bad image", http.StatusBadRequest)
-		return
+		return "", errors.New("bad image")
 	}
 	sum := sha1.Sum([]byte(p))
 	h := hex.EncodeToString(sum[:])
 	local := filepath.Join(s.cfg.ArtworkDir, "plex", size, h[:2], h+".jpg")
-	if _, err := os.Stat(local); err != nil {
-		c, _ := s.plexClient(r.Context())
-		if !c.Configured() {
-			http.Error(w, "plex not configured", http.StatusNotFound)
-			return
+	if _, err := os.Stat(local); err == nil {
+		return local, nil
+	}
+	s.plexArtMu.Lock()
+	if f, ok := s.plexArtInflight[local]; ok {
+		s.plexArtMu.Unlock()
+		select {
+		case <-f.done:
+			return local, f.err
+		case <-ctx.Done():
+			return "", ctx.Err()
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-		defer cancel()
-		resp, err := c.Image(ctx, p, dims[0], dims[1])
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != 200 {
-			http.Error(w, resp.Status, http.StatusNotFound)
-			return
-		}
-		os.MkdirAll(filepath.Dir(local), 0o755)
-		tmp, err := os.CreateTemp(filepath.Dir(local), ".dl-*")
-		if err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
-		_, err = io.Copy(tmp, io.LimitReader(resp.Body, 32<<20))
-		tmp.Close()
-		if err != nil {
-			os.Remove(tmp.Name())
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		os.Rename(tmp.Name(), local)
+	}
+	f := &artFetch{done: make(chan struct{})}
+	s.plexArtInflight[local] = f
+	s.plexArtMu.Unlock()
+	f.err = s.plexArtDownload(ctx, p, dims, local)
+	close(f.done)
+	s.plexArtMu.Lock()
+	delete(s.plexArtInflight, local)
+	s.plexArtMu.Unlock()
+	return local, f.err
+}
+
+type artFetch struct {
+	done chan struct{}
+	err  error
+}
+
+func (s *Server) plexArtDownload(ctx context.Context, p string, dims [2]int, local string) error {
+	c, _ := s.plexClient(ctx)
+	if !c.Configured() {
+		return errors.New("plex not configured")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	resp, err := c.Image(ctx, p, dims[0], dims[1])
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return errors.New(resp.Status)
+	}
+	os.MkdirAll(filepath.Dir(local), 0o755)
+	tmp, err := os.CreateTemp(filepath.Dir(local), ".dl-*")
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(tmp, io.LimitReader(resp.Body, 32<<20))
+	tmp.Close()
+	if err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	return os.Rename(tmp.Name(), local)
+}
+
+// handlePlexArt serves artwork from the Plex server, resized by Plex and
+// cached on local disk.
+func (s *Server) handlePlexArt(w http.ResponseWriter, r *http.Request) {
+	local, err := s.plexArt(r.Context(), r.PathValue("size"), r.URL.Query().Get("p"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
 	}
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	http.ServeFile(w, r, local)
