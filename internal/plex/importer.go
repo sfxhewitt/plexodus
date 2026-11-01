@@ -146,29 +146,44 @@ func (im *Importer) run(ctx context.Context, c *Client, pm PathMap, userID int64
 	return nil
 }
 
-// ensureLibrary reuses a library that shares a folder with the section, or
-// creates one named after it.
+// ensureLibrary reuses a library that shares a folder with the section (or,
+// failing that, one with the same name and kind), so re-running the import
+// never creates a second copy of a library. Otherwise it creates one named
+// after the section.
 func (im *Importer) ensureLibrary(ctx context.Context, s section) (int64, error) {
-	rows, err := im.db.R.QueryContext(ctx, `SELECT id, kind, paths FROM libraries`)
+	for i, r := range s.roots {
+		s.roots[i] = filepath.Clean(r)
+	}
+	rows, err := im.db.R.QueryContext(ctx, `SELECT id, name, kind, paths FROM libraries ORDER BY id`)
 	if err != nil {
 		return 0, err
 	}
 	defer rows.Close()
+	byName := int64(0)
 	for rows.Next() {
 		var id int64
-		var kind, paths string
-		rows.Scan(&id, &kind, &paths)
+		var name, kind, paths string
+		rows.Scan(&id, &name, &kind, &paths)
+		if kind != s.kind {
+			continue
+		}
 		var ps []string
 		json.Unmarshal([]byte(paths), &ps)
 		for _, p := range ps {
 			for _, r := range s.roots {
-				if filepath.Clean(p) == r && kind == s.kind {
+				if filepath.Clean(p) == r {
 					return id, nil
 				}
 			}
 		}
+		if byName == 0 && strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(s.Title)) {
+			byName = id
+		}
 	}
 	rows.Close()
+	if byName != 0 {
+		return byName, nil
+	}
 	paths, _ := json.Marshal(s.roots)
 	res, err := im.db.W.ExecContext(ctx, `INSERT INTO libraries(name, kind, paths, created_at) VALUES(?, ?, ?, ?)`,
 		s.Title, s.kind, string(paths), db.Now())

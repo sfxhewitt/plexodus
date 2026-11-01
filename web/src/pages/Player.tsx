@@ -26,6 +26,27 @@ const audioCodecs: Record<string, string> = {
 };
 const badContainers = ["avi", "asf", "flv", "mpeg", "mpegts"];
 
+// WebKit (Safari, and every browser on iOS) has no Matroska demuxer, so an
+// .mkv can never play there regardless of its codecs. Deciding this from the
+// file name avoids probing the file and waiting for the <video> element to
+// fail, which on cold network storage can take minutes.
+const webkitOnly = /AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|Edg\//.test(navigator.userAgent);
+const neverPlays: Record<string, string> = {
+  mkv: "MKV files can't play in Safari",
+  avi: "AVI files can't play in a browser",
+  wmv: "WMV files can't play in a browser",
+  flv: "FLV files can't play in a browser",
+  ts: "MPEG-TS files can't play in a browser",
+  m2ts: "MPEG-TS files can't play in a browser",
+  mpg: "MPEG files can't play in a browser",
+  mpeg: "MPEG files can't play in a browser",
+};
+function unplayableByName(name: string): string | undefined {
+  const ext = name.toLowerCase().split(".").pop() || "";
+  if (ext === "mkv") return webkitOnly ? neverPlays.mkv : undefined;
+  return neverPlays[ext];
+}
+
 function compat(f: MediaFile): { video: boolean; audio: boolean; reason?: string } {
   const probe = document.createElement("video");
   const can = (t?: string) => !!t && probe.canPlayType(t) !== "";
@@ -101,8 +122,14 @@ export default function Player() {
         setMarkers([]);
         api.get<Marker[]>(`/api/items/${d.id}/markers`).then((m) => !cancelled && setMarkers(m), () => {});
         if (!d.files.length) throw new Error("No media file for this item.");
-        const p = await api.get<PlayInfo>(`/api/play/${d.files[0].id}`);
+        const byName = native ? undefined : unplayableByName(d.files[0].name || "");
+        const p = await api.get<PlayInfo>(`/api/play/${d.files[0].id}${byName ? "?probe=0" : ""}`);
         if (cancelled) return;
+        if (byName) {
+          setInfo(p);
+          setUnsupported(byName);
+          return;
+        }
         if (native) {
           // The app's player handles decoding, so skip the browser checks.
           const m = await api.get<Marker[]>(`/api/items/${d.id}/markers`).catch(() => [] as Marker[]);
