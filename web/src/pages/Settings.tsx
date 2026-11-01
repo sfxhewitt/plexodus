@@ -125,6 +125,15 @@ function Libraries() {
     await api.post(`/api/libraries/${id}/scan${full ? "?full=1" : ""}`);
     setTimeout(() => api.get<ScanProgress[]>("/api/scan/status").then(setScans), 300);
   };
+  const scanAll = async (full: boolean) => {
+    await api.post(`/api/libraries/scan${full ? "?full=1" : ""}`);
+    setTimeout(() => api.get<ScanProgress[]>("/api/scan/status").then(setScans), 300);
+  };
+  const anyRunning = scans.some((x) => x.running);
+  const refreshMeta = async (l: Library) => {
+    if (!confirm(`Re-fetch posters, descriptions and episode details for everything in "${l.name}" from TMDB? This runs in the background and can take a while for a big library.`)) return;
+    await api.post(`/api/libraries/${l.id}/refresh`);
+  };
   const remove = async (l: Library) => {
     if (!confirm(`Remove the library "${l.name}"? Your files are not touched.`)) return;
     await api.del(`/api/libraries/${l.id}`);
@@ -136,7 +145,17 @@ function Libraries() {
     <section className="settings-section">
       <div className="section-head">
         <h2>Libraries</h2>
-        {!editing && <button className="btn primary sm" onClick={() => setEditing("new")}><Plus size={16} /> Add library</button>}
+        {!editing && (
+          <div className="row-btns">
+            {(libs?.length ?? 0) > 1 && (
+              <>
+                <button className="btn glass sm" onClick={() => scanAll(false)} disabled={anyRunning} title="Scan every library, one after another"><Refresh size={16} /> Scan all</button>
+                <button className="btn glass sm" onClick={() => scanAll(true)} disabled={anyRunning} title="Full scan of every library, one after another">Full scan all</button>
+              </>
+            )}
+            <button className="btn primary sm" onClick={() => setEditing("new")}><Plus size={16} /> Add library</button>
+          </div>
+        )}
       </div>
       {editing && (
         <LibraryForm initial={editing === "new" ? undefined : editing} onCancel={() => setEditing(null)}
@@ -174,6 +193,7 @@ function Libraries() {
               <div className="lib-row-actions">
                 <button className="btn glass sm" onClick={() => scan(l.id, false)} disabled={s?.running}><Refresh size={16} /> Scan</button>
                 <button className="btn glass sm" onClick={() => scan(l.id, true)} disabled={s?.running} title="List every folder, ignoring remembered folder times">Full scan</button>
+                <button className="btn glass sm" onClick={() => refreshMeta(l)} title="Re-fetch metadata for every title in this library">Refresh metadata</button>
                 <button className="btn glass sm" onClick={() => setEditing(l)}>Edit</button>
                 <button className="icon-btn glass" onClick={() => remove(l)} title="Remove library"><Trash size={18} /></button>
               </div>

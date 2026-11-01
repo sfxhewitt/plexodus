@@ -25,6 +25,7 @@ import (
 	"github.com/sfxhewitt/plexodus/internal/plex"
 	"github.com/sfxhewitt/plexodus/internal/probe"
 	"github.com/sfxhewitt/plexodus/internal/scanner"
+	"github.com/sfxhewitt/plexodus/internal/stream"
 )
 
 type Server struct {
@@ -35,6 +36,7 @@ type Server struct {
 	agent    *metadata.Agent
 	art      *metadata.ArtCache
 	prober   *probe.Worker
+	streams  *stream.Manager
 	importer *plex.Importer
 	web      fs.FS
 	signKey  []byte
@@ -42,8 +44,8 @@ type Server struct {
 }
 
 func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner, agent *metadata.Agent,
-	art *metadata.ArtCache, prober *probe.Worker, web fs.FS) *Server {
-	s := &Server{cfg: cfg, db: d, auth: auth.New(d), scanner: sc, agent: agent, art: art, prober: prober,
+	art *metadata.ArtCache, prober *probe.Worker, streams *stream.Manager, web fs.FS) *Server {
+	s := &Server{cfg: cfg, db: d, auth: auth.New(d), scanner: sc, agent: agent, art: art, prober: prober, streams: streams,
 		importer: plex.NewImporter(d), web: web, baseCtx: ctx}
 	key := d.Setting(ctx, "stream_sign_key")
 	if key == "" {
@@ -95,6 +97,10 @@ func (s *Server) Handler() http.Handler {
 	user("POST /api/items/{id}/progress", s.handleProgress)
 	user("POST /api/items/{id}/watched", s.handleWatched)
 	user("GET /api/play/{fileId}", s.handlePlay)
+	user("POST /api/hls", s.handleHLSStart)
+	user("POST /api/hls/{sid}/ping", s.handleHLSPing)
+	user("POST /api/hls/{sid}/stop", s.handleHLSStop)
+	user("GET /api/hls/{sid}/{name}", s.handleHLSFile)
 	user("GET /api/search", s.handleSearch)
 	user("GET /api/scan/status", s.handleScanStatus)
 	user("GET /api/items/{id}/markers", s.handleMarkers)
@@ -103,6 +109,8 @@ func (s *Server) Handler() http.Handler {
 	admin("PUT /api/libraries/{id}", s.handleUpdateLibrary)
 	admin("DELETE /api/libraries/{id}", s.handleDeleteLibrary)
 	admin("POST /api/libraries/{id}/scan", s.handleScanLibrary)
+	admin("POST /api/libraries/scan", s.handleScanAll)
+	admin("POST /api/libraries/{id}/refresh", s.handleRefreshLibrary)
 	admin("GET /api/items/{id}/match", s.handleMatchCandidates)
 	admin("POST /api/items/{id}/match", s.handleMatch)
 	admin("POST /api/items/{id}/refresh", s.handleRefresh)
@@ -248,6 +256,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"name":          "Plexodus",
 		"setupRequired": !s.auth.HasUsers(r.Context()),
+		"ffmpeg":        s.streams.Available(),
 	})
 }
 

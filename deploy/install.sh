@@ -53,7 +53,7 @@ curl -fsSL "$BASE/plexodus.service" -o /etc/systemd/system/plexodus.service
 sed -i "s/^User=.*/User=$SERVICE_USER/; s/^Group=.*/Group=$SERVICE_GROUP/" /etc/systemd/system/plexodus.service
 
 if ! command -v ffprobe >/dev/null 2>&1; then
-  echo "Note: ffprobe not found. Install it for codec checks: sudo apt install ffmpeg"
+  echo "Note: ffmpeg/ffprobe not found. Install them so web browsers can play MKV files: sudo apt install ffmpeg"
 fi
 
 systemctl daemon-reload

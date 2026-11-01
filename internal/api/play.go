@@ -104,6 +104,7 @@ func (s *Server) handlePlay(w http.ResponseWriter, r *http.Request) {
 		"streamUrl":   rel,
 		"externalUrl": externalBase(r) + rel,
 		"position":    position,
+		"hls":         s.streams.Available(),
 	})
 }
 

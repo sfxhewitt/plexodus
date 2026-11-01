@@ -14,6 +14,8 @@ type Config struct {
 	DataDir      string
 	TMDBKey      string
 	FFprobe      string
+	FFmpeg       string
+	StreamDir    string
 	ProbeWorkers int
 	ScanWorkers  int
 	ScanInterval time.Duration
@@ -53,6 +55,7 @@ func Load() *Config {
 	flag.StringVar(&c.DataDir, "data", env("PLEXODUS_DATA", "./data"), "data directory (database and artwork cache)")
 	flag.StringVar(&c.TMDBKey, "tmdb-key", env("TMDB_API_KEY", ""), "TMDB API key (v3 key or v4 read token); can also be set in the UI")
 	flag.StringVar(&c.FFprobe, "ffprobe", env("PLEXODUS_FFPROBE", "ffprobe"), "ffprobe binary")
+	flag.StringVar(&c.FFmpeg, "ffmpeg", env("PLEXODUS_FFMPEG", "ffmpeg"), "ffmpeg binary, used only to remux files a browser can't play as they are")
 	flag.IntVar(&c.ProbeWorkers, "probe-workers", envInt("PLEXODUS_PROBE_WORKERS", 0), "concurrent background ffprobe jobs; 0 (default) probes only when playback starts, which avoids reading every file on cloud mounts")
 	flag.IntVar(&c.ScanWorkers, "scan-workers", envInt("PLEXODUS_SCAN_WORKERS", 16), "concurrent directory listings during a scan")
 	flag.DurationVar(&c.ScanInterval, "scan-interval", envDur("PLEXODUS_SCAN_INTERVAL", 15*time.Minute), "periodic scan interval (0 disables)")
@@ -64,5 +67,6 @@ func Load() *Config {
 
 	c.DBPath = filepath.Join(c.DataDir, "plexodus.db")
 	c.ArtworkDir = filepath.Join(c.DataDir, "artwork")
+	c.StreamDir = filepath.Join(c.DataDir, "stream")
 	return c
 }
