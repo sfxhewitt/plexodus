@@ -21,7 +21,7 @@
         android:layout_width="56dp"
         android:layout_height="56dp"
         android:layout_gravity="center"
-        android:indeterminateTint="@color/teal" />
+        android:indeterminateTint="@color/red" />
 
     <TextView
         android:id="@+id/error"
@@ -57,7 +57,7 @@
                 android:background="@drawable/bg_round_button"
                 android:contentDescription="@string/back"
                 android:src="@drawable/ic_back"
-                android:tint="@color/text" />
+                android:tint="@color/control_fg" />
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -101,7 +101,7 @@
                 android:background="@drawable/bg_round_button"
                 android:contentDescription="@string/rewind"
                 android:src="@drawable/ic_rewind"
-                android:tint="@color/text" />
+                android:tint="@color/control_fg" />
 
             <ImageButton
                 android:id="@+id/play_pause"
@@ -114,7 +114,7 @@
                 android:scaleType="fitCenter"
                 android:padding="22dp"
                 android:src="@drawable/ic_play"
-                android:tint="@color/text" />
+                android:tint="@color/control_fg" />
 
             <ImageButton
                 android:id="@+id/forward"
@@ -123,7 +123,7 @@
                 android:background="@drawable/bg_round_button"
                 android:contentDescription="@string/forward"
                 android:src="@drawable/ic_forward"
-                android:tint="@color/text" />
+                android:tint="@color/control_fg" />
         </LinearLayout>
 
         <LinearLayout
@@ -156,7 +156,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:progressTint="@color/teal"
+                    android:progressTint="@color/red"
                     android:progressBackgroundTint="@color/glass"
                     android:thumbTint="@color/text" />
 
@@ -190,13 +190,13 @@
                     android:background="@drawable/bg_pill_button"
                     android:drawableStart="@drawable/ic_audio"
                     android:drawablePadding="6dp"
-                    android:drawableTint="@color/text"
+                    android:drawableTint="@color/control_fg"
                     android:paddingStart="14dp"
                     android:paddingEnd="16dp"
                     android:stateListAnimator="@null"
                     android:text="@string/audio"
                     android:textAllCaps="false"
-                    android:textColor="@color/text"
+                    android:textColor="@color/control_fg"
                     android:visibility="gone" />
 
                 <Button
@@ -207,13 +207,13 @@
                     android:background="@drawable/bg_pill_button"
                     android:drawableStart="@drawable/ic_subtitles"
                     android:drawablePadding="6dp"
-                    android:drawableTint="@color/text"
+                    android:drawableTint="@color/control_fg"
                     android:paddingStart="14dp"
                     android:paddingEnd="16dp"
                     android:stateListAnimator="@null"
                     android:text="@string/subtitles"
                     android:textAllCaps="false"
-                    android:textColor="@color/text"
+                    android:textColor="@color/control_fg"
                     android:visibility="gone" />
 
                 <ImageButton
@@ -224,7 +224,7 @@
                     android:background="@drawable/bg_pill_button"
                     android:contentDescription="@string/aspect"
                     android:src="@drawable/ic_aspect"
-                    android:tint="@color/text" />
+                    android:tint="@color/control_fg" />
             </LinearLayout>
         </LinearLayout>
     </FrameLayout>
@@ -242,7 +242,7 @@
         android:stateListAnimator="@null"
         android:text="@string/skip_intro"
         android:textAllCaps="false"
-        android:textColor="@color/text"
+        android:textColor="@color/control_fg"
         android:textStyle="bold"
         android:visibility="gone" />
 </FrameLayout>

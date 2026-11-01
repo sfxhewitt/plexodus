@@ -29,6 +29,16 @@ other because every build is signed with the same key.
   When it closes, the page gets a `plexodus:native-ended` event so "up next"
   and resume positions behave the same as in a browser.
 
+## On a TV
+
+On Fire TV, Android TV and the Shield the page switches to its own 10-foot
+interface (`web/src/tv/`): a sidebar of libraries, hub rows under a spotlight
+of the focused title, D-pad focus everywhere, and Back handled by the page
+(`window.__plexodusBack`). The app reports a TV through `PlexodusNative.isTv()`
+and pins the WebView text zoom to 100% so the system font scale can't inflate
+it. In a desktop browser, add `?tv=1` to the address to preview it (`?tv=0`
+to switch back).
+
 ## Building
 
 CI (`.github/workflows/build.yml`) builds the APK on every push and attaches
