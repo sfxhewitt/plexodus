@@ -141,6 +141,8 @@ export default function Player() {
   // Browser fallback (HLS remux) state. `session.start` is where in the
   // file the stream begins, so absolute time = start + video.currentTime.
   const [hlsPlan, setHlsPlan] = useState<Extract<Plan, { mode: "hls" }>>();
+  const [preparing, setPreparing] = useState(false);
+  const pendingSeek = useRef<number>();
   const [session, setSession] = useState<HlsSession>();
   const hlsRef = useRef<Hls>();
   const sessionRef = useRef<HlsSession>();
@@ -159,6 +161,7 @@ export default function Player() {
   const startSession = useCallback(async (p: Extract<Plan, { mode: "hls" }>, fileId: number, start: number) => {
     stopSession(sessionRef.current);
     setWaiting(true);
+    setPreparing(true);
     const s = await api.post<HlsSession>("/api/hls", { fileId, start, audioMode: p.audioMode, audioIndex: p.audioIndex });
     setSession(s);
     setTime(s.start);
@@ -263,6 +266,23 @@ export default function Player() {
     };
   }, [session, stopSession]);
 
+  // iOS suspends background tabs; if the server dropped the stream in the
+  // meantime, start a fresh one from where we were when the tab returns.
+  useEffect(() => {
+    if (!session) return;
+    const onVisible = async () => {
+      if (document.visibilityState !== "visible" || !video.current || video.current.ended) return;
+      const r = await fetch(`/api/hls/${session.id}/ping`, { method: "POST" }).catch(() => undefined);
+      if (!r) return;
+      const { running, finished } = (await r.json().catch(() => ({}))) as { running?: boolean; finished?: boolean };
+      if (!running && !finished && hlsPlan && item) {
+        startSession(hlsPlan, item.files[0].id, session.start + video.current.currentTime).catch(() => {});
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [session, hlsPlan, item, startSession]);
+
   // Absolute position in the file (the HLS stream may start mid-file).
   const offset = session?.start || 0;
   const absTime = () => offset + (video.current?.currentTime || 0);
@@ -303,6 +323,12 @@ export default function Player() {
     v.volume = volume;
     if (inHls) {
       // The stream already starts at the resume point.
+      setPreparing(false);
+      if (pendingSeek.current != null) {
+        const t = pendingSeek.current - offset;
+        pendingSeek.current = undefined;
+        if (t > 0) v.currentTime = t;
+      }
       v.play().catch(() => setPlaying(false));
       return;
     }
@@ -397,6 +423,10 @@ export default function Player() {
     const loadedEnd = v.seekable.length ? s.start + v.seekable.end(v.seekable.length - 1) : s.start;
     if (target >= s.start && target < loadedEnd - 1) {
       v.currentTime = target - s.start;
+    } else if (!v.seekable.length && target >= s.start && target < s.start + 60) {
+      // Nothing has arrived yet; apply the seek once it has rather than
+      // restarting the conversion for a few seconds' difference.
+      pendingSeek.current = target;
     } else if (hlsPlan && item) {
       report(true);
       startSession(hlsPlan, item.files[0].id, target).catch((e) => setError((e as Error).message));
@@ -545,7 +575,12 @@ export default function Player() {
         />
       )}
 
-      {(!info || waiting) && !unsupported && <div className="player-spinner"><div className="spinner" /></div>}
+      {(!info || waiting) && !unsupported && (
+        <div className="player-spinner">
+          <div className="spinner" />
+          {preparing && <div className="muted small">Preparing the stream, reading the file from storage…</div>}
+        </div>
+      )}
 
       <div className="player-top">
         <button className="icon-btn" onClick={() => nav(-1)} aria-label="Back"><Back /></button>

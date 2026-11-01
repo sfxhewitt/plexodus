@@ -312,7 +312,7 @@ input[type="range"]::-moz-range-track { height: 4px; border-radius: 4px; backgro
 input[type="range"]::-moz-range-progress { height: 4px; border-radius: 4px; background: var(--indigo); }
 input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: #fff; }
 .scrub input { width: 100%; }
-.player-spinner { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 1; }
+.player-spinner { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px; pointer-events: none; z-index: 1; }
 .player-unsupported, .player-msg { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px; text-align: center; padding: 24px; background: radial-gradient(60% 60% at 50% 40%, rgba(129, 140, 248, 0.15), transparent), #05060a; }
 .player-unsupported h2 { font-size: 26px; }
 .player-unsupported p { color: var(--muted); max-width: 520px; margin: 0; }
