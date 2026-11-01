@@ -389,21 +389,33 @@ export default function Player() {
   }, [upNext, countdown, nav]);
 
   // Auto-hide controls.
+  const idleRef = useRef(false);
+  const revealTap = useRef(false);
   useEffect(() => {
     let t: ReturnType<typeof setTimeout>;
     const wake = () => {
       setIdle(false);
+      idleRef.current = false;
       clearTimeout(t);
-      t = setTimeout(() => setIdle(true), 3000);
+      t = setTimeout(() => {
+        setIdle(true);
+        idleRef.current = true;
+      }, 3000);
+    };
+    // On a touch screen a tap while the controls are hidden should only
+    // bring them back, not also pause the video under the finger.
+    const touch = () => {
+      revealTap.current = idleRef.current;
+      wake();
     };
     wake();
     window.addEventListener("mousemove", wake);
-    window.addEventListener("touchstart", wake);
+    window.addEventListener("touchstart", touch);
     window.addEventListener("keydown", wake);
     return () => {
       clearTimeout(t);
       window.removeEventListener("mousemove", wake);
-      window.removeEventListener("touchstart", wake);
+      window.removeEventListener("touchstart", touch);
       window.removeEventListener("keydown", wake);
     };
   }, []);
@@ -413,6 +425,20 @@ export default function Player() {
     if (!v) return;
     if (v.paused) v.play();
     else v.pause();
+  };
+  const onVideoClick = () => {
+    if (revealTap.current) {
+      revealTap.current = false;
+      return;
+    }
+    toggle();
+  };
+  // Leave the player. There isn't always a page to go back to (a link
+  // opened straight into the player), so fall back to the item's page.
+  const goBack = () => {
+    const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+    if (idx > 0) nav(-1);
+    else nav(item ? `/item/${item.id}` : "/", { replace: true });
   };
   // Seek to an absolute position in the file. A converted stream can only
   // seek within what the server has produced so far; anything else starts
@@ -491,7 +517,7 @@ export default function Player() {
           }
           break;
         case "Escape":
-          if (!document.fullscreenElement) nav(-1);
+          if (!document.fullscreenElement) goBack();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -517,7 +543,7 @@ export default function Player() {
     return (
       <div className="player-msg">
         <p>{error}</p>
-        <button className="btn glass" onClick={() => nav(-1)}>Go back</button>
+        <button className="btn glass" onClick={goBack}>Go back</button>
       </div>
     );
   }
@@ -533,11 +559,11 @@ export default function Player() {
             <div className="t">{episodeLabel(upNext)} · {upNext.title}</div>
             <div className="row-btns">
               <button className="btn primary sm" onClick={() => nav(`/play/${upNext.id}`, { replace: true })}><Play size={16} /> Play now</button>
-              <button className="btn glass sm" onClick={() => { setUpNext(null); nav(-1); }}>Cancel</button>
+              <button className="btn glass sm" onClick={() => { setUpNext(null); goBack(); }}>Cancel</button>
             </div>
           </div>
         )}
-        {!upNext && <button className="btn glass" onClick={() => nav(-1)}>Back</button>}
+        {!upNext && <button className="btn glass" onClick={goBack}>Back</button>}
       </div>
     );
   }
@@ -553,7 +579,7 @@ export default function Player() {
           src={session ? undefined : info.streamUrl}
           preload="auto"
           playsInline
-          onClick={toggle}
+          onClick={onVideoClick}
           onDoubleClick={fullscreen}
           onLoadedMetadata={onLoaded}
           onPlay={() => setPlaying(true)}
@@ -590,7 +616,7 @@ export default function Player() {
       )}
 
       <div className="player-top">
-        <button className="icon-btn" onClick={() => nav(-1)} aria-label="Back"><Back /></button>
+        <button className="icon-btn" onClick={goBack} aria-label="Back"><Back /></button>
         <div>
           <div className="pt">{title}</div>
           <div className="ps">{subtitle}</div>
