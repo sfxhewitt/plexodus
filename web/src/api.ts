@@ -119,6 +119,8 @@ export interface PlayInfo {
   streamUrl: string;
   externalUrl: string;
   position: number;
+  /** The server has ffmpeg, so files a browser can't play can be remuxed. */
+  hls: boolean;
 }
 
 export interface ScanProgress {

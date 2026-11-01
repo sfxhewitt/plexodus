@@ -18,6 +18,7 @@ import (
 	"github.com/sfxhewitt/plexodus/internal/metadata"
 	"github.com/sfxhewitt/plexodus/internal/probe"
 	"github.com/sfxhewitt/plexodus/internal/scanner"
+	"github.com/sfxhewitt/plexodus/internal/stream"
 	"github.com/sfxhewitt/plexodus/web"
 )
 
@@ -49,7 +50,9 @@ func main() {
 	agent := metadata.NewAgent(d, tmdbKey, art)
 	prober := probe.NewWorker(d, cfg.FFprobe, cfg.ProbeWorkers)
 	sc := scanner.New(d, cfg.ScanWorkers)
-	srv := api.New(ctx, cfg, d, sc, agent, art, prober, web.FS())
+	streams := stream.New(cfg.FFmpeg, cfg.StreamDir)
+	srv := api.New(ctx, cfg, d, sc, agent, art, prober, streams, web.FS())
+	go streams.Reap(ctx)
 
 	go agent.Run(ctx)
 	go prober.Run(ctx)

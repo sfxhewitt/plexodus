@@ -116,6 +116,32 @@ func (s *Server) StartScan(libID int64, opts scanner.Options) {
 	}()
 }
 
+// handleScanAll scans every library, one at a time so the mount isn't
+// flooded, in the background.
+func (s *Server) handleScanAll(w http.ResponseWriter, r *http.Request) {
+	full := r.URL.Query().Get("full") == "1"
+	rows, err := s.db.R.QueryContext(r.Context(), `SELECT id FROM libraries ORDER BY id`)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		rows.Scan(&id)
+		ids = append(ids, id)
+	}
+	rows.Close()
+	go func() {
+		for _, id := range ids {
+			ctx, cancel := context.WithTimeout(s.baseCtx, 12*time.Hour)
+			s.scanner.Scan(ctx, id, scanner.Options{Full: full})
+			cancel()
+		}
+	}()
+	writeJSON(w, map[string]any{"started": len(ids)})
+}
+
 func (s *Server) handleScanLibrary(w http.ResponseWriter, r *http.Request) {
 	id, _ := pathID(r, "id")
 	s.StartScan(id, scanner.Options{Full: r.URL.Query().Get("full") == "1"})
@@ -274,6 +300,52 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		s.agent.Kick()
 	}
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// handleRefreshLibrary re-fetches metadata for everything in a library:
+// matched titles are re-applied from TMDB one at a time in the background,
+// and anything unmatched is queued for matching again.
+func (s *Server) handleRefreshLibrary(w http.ResponseWriter, r *http.Request) {
+	id, _ := pathID(r, "id")
+	rows, err := s.db.R.QueryContext(r.Context(), `SELECT id, kind, COALESCE(tmdb_id, 0) FROM items
+		WHERE library_id = ? AND kind IN ('movie', 'show') ORDER BY added_at DESC`, id)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	type it struct {
+		id   int64
+		kind string
+		tmdb int64
+	}
+	var matched []it
+	var pending []int64
+	for rows.Next() {
+		var x it
+		rows.Scan(&x.id, &x.kind, &x.tmdb)
+		if x.tmdb != 0 {
+			matched = append(matched, x)
+		} else {
+			pending = append(pending, x.id)
+		}
+	}
+	rows.Close()
+	for _, pid := range pending {
+		s.db.W.ExecContext(r.Context(), `UPDATE items SET meta_state = 'pending' WHERE id = ?`, pid)
+	}
+	s.agent.Kick()
+	go func() {
+		for _, x := range matched {
+			if s.baseCtx.Err() != nil {
+				return
+			}
+			ctx, cancel := context.WithTimeout(s.baseCtx, time.Minute)
+			s.agent.Apply(ctx, x.id, x.kind, x.tmdb)
+			cancel()
+			time.Sleep(150 * time.Millisecond) // stay well inside TMDB's rate limit
+		}
+	}()
+	writeJSON(w, map[string]any{"queued": len(matched) + len(pending)})
 }
 
 // ---- settings ----

@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import Hls from "hls.js";
 import { api, Card, Detail, episodeLabel, fmtTime, Marker, MediaFile, PlayInfo } from "../api";
 import { Back, Copy, External, Forward, Fullscreen, Mute, Pause, Play, Rewind, Volume } from "../components/Icons";
 import { native, NativeEnded, nativePlay } from "../native";
 
-// Plexodus never transcodes. We ask the browser whether it can decode the
-// file's codecs and, if it can't, offer external players instead.
+// Plexodus never re-encodes video. The browser gets the file as it is when
+// it can play it. When it can't (Safari has no MKV support, few browsers
+// decode DTS), the server remuxes the same streams into HLS, converting only
+// the audio to AAC if the browser can't decode it. Anything else goes to an
+// external player.
 const videoCodecs: Record<string, string> = {
   h264: 'video/mp4; codecs="avc1.640028"',
   hevc: 'video/mp4; codecs="hvc1.1.6.L120.90"',
@@ -24,15 +28,20 @@ const audioCodecs: Record<string, string> = {
   dts: 'audio/mp4; codecs="dtsc"',
   truehd: 'audio/mp4; codecs="mlpa"',
 };
+// Audio that can ride along unchanged inside fragmented MP4 (HLS).
+const hlsAudioCopy = new Set(["aac", "mp3", "ac3", "eac3", "flac"]);
+// Video that can be copied into fragmented MP4. VP8/VP9 belong in WebM.
+const hlsVideoCopy = new Set(["h264", "hevc", "av1"]);
 const badContainers = ["avi", "asf", "flv", "mpeg", "mpegts"];
+const directContainers = ["mov", "mp4", "m4a", "3gp", "3g2", "mj2", "webm", "matroska", "ogg"];
 
 // WebKit (Safari, and every browser on iOS) has no Matroska demuxer, so an
-// .mkv can never play there regardless of its codecs. Deciding this from the
-// file name avoids probing the file and waiting for the <video> element to
-// fail, which on cold network storage can take minutes.
+// .mkv can never direct play there regardless of its codecs. Knowing that
+// from the file name saves waiting for the <video> element to fail.
 const webkitOnly = /AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|Edg\//.test(navigator.userAgent);
-const neverPlays: Record<string, string> = {
-  mkv: "MKV files can't play in Safari",
+const nativeHLS = !!document.createElement("video").canPlayType("application/vnd.apple.mpegurl");
+const neverDirect: Record<string, string> = {
+  mkv: "Safari can't play MKV files directly",
   avi: "AVI files can't play in a browser",
   wmv: "WMV files can't play in a browser",
   flv: "FLV files can't play in a browser",
@@ -41,24 +50,42 @@ const neverPlays: Record<string, string> = {
   mpg: "MPEG files can't play in a browser",
   mpeg: "MPEG files can't play in a browser",
 };
-function unplayableByName(name: string): string | undefined {
+function notDirectByName(name: string): string | undefined {
   const ext = name.toLowerCase().split(".").pop() || "";
-  if (ext === "mkv") return webkitOnly ? neverPlays.mkv : undefined;
-  return neverPlays[ext];
+  if (ext === "mkv") return webkitOnly ? neverDirect.mkv : undefined;
+  return neverDirect[ext];
 }
 
-function compat(f: MediaFile): { video: boolean; audio: boolean; reason?: string } {
+type Plan =
+  | { mode: "direct"; audioWarn?: string }
+  | { mode: "hls"; audioMode: "copy" | "aac"; audioIndex?: number }
+  | { mode: "none"; reason: string };
+
+function plan(f: MediaFile, name: string, hlsAvailable: boolean): Plan {
   const probe = document.createElement("video");
   const can = (t?: string) => !!t && probe.canPlayType(t) !== "";
-  if (!f.probed) return { video: true, audio: true };
+  if (!f.probed) return { mode: "direct" };
   const container = (f.container || "").split(",")[0];
-  if (badContainers.includes(container)) return { video: false, audio: false, reason: `${container.toUpperCase()} files can't play in a browser` };
   const v = !f.videoCodec || can(videoCodecs[f.videoCodec]);
   const a = !f.audioCodec || can(audioCodecs[f.audioCodec]) || f.audioCodec.startsWith("pcm");
-  let reason: string | undefined;
-  if (!v) reason = `This browser can't decode ${f.videoCodec?.toUpperCase()} video`;
-  else if (!a) reason = `This browser can't decode ${f.audioCodec?.toUpperCase()} audio`;
-  return { video: v, audio: a, reason };
+  const byName = notDirectByName(name);
+  const containerOK = !byName && !badContainers.includes(container) && (directContainers.includes(container) || !container);
+
+  if (containerOK && v && a) return { mode: "direct" };
+  if (containerOK && v && !a && !hlsAvailable) {
+    return { mode: "direct", audioWarn: `This browser can't decode ${f.audioCodec?.toUpperCase()} audio` };
+  }
+  if (hlsAvailable && f.videoCodec && hlsVideoCopy.has(f.videoCodec) && v) {
+    const audio = (f.streams || []).filter((s) => s.type === "audio");
+    const track = audio.find((s) => s.default) || audio[0];
+    const codec = track?.codec || f.audioCodec || "";
+    const copy = hlsAudioCopy.has(codec) && can(audioCodecs[codec]);
+    return { mode: "hls", audioMode: copy ? "copy" : "aac", audioIndex: track?.index };
+  }
+  if (!v) return { mode: "none", reason: `This browser can't decode ${f.videoCodec?.toUpperCase()} video` };
+  if (byName) return { mode: "none", reason: byName + (hlsAvailable ? "" : ", and the server has no ffmpeg to convert it") };
+  if (!a) return { mode: "none", reason: `This browser can't decode ${f.audioCodec?.toUpperCase()} audio` };
+  return { mode: "none", reason: `${container.toUpperCase() || "This"} files can't play in a browser` };
 }
 
 function ExternalPlayers({ info }: { info: PlayInfo }) {
@@ -78,6 +105,12 @@ function ExternalPlayers({ info }: { info: PlayInfo }) {
       <button className="btn glass sm" onClick={copy}><Copy size={16} /> {copied ? "Copied" : "Copy stream URL"}</button>
     </div>
   );
+}
+
+interface HlsSession {
+  id: string;
+  url: string;
+  start: number;
 }
 
 export default function Player() {
@@ -105,6 +138,33 @@ export default function Player() {
   const [markers, setMarkers] = useState<Marker[]>([]);
   const nativeMode = !!native;
 
+  // Browser fallback (HLS remux) state. `session.start` is where in the
+  // file the stream begins, so absolute time = start + video.currentTime.
+  const [hlsPlan, setHlsPlan] = useState<Extract<Plan, { mode: "hls" }>>();
+  const [session, setSession] = useState<HlsSession>();
+  const hlsRef = useRef<Hls>();
+  const sessionRef = useRef<HlsSession>();
+  sessionRef.current = session;
+  const inHls = !!session;
+
+  const stopSession = useCallback((s?: HlsSession) => {
+    hlsRef.current?.destroy();
+    hlsRef.current = undefined;
+    if (s) {
+      const body = new Blob([], { type: "application/json" });
+      if (!navigator.sendBeacon?.(`/api/hls/${s.id}/stop`, body)) fetch(`/api/hls/${s.id}/stop`, { method: "POST", keepalive: true }).catch(() => {});
+    }
+  }, []);
+
+  const startSession = useCallback(async (p: Extract<Plan, { mode: "hls" }>, fileId: number, start: number) => {
+    stopSession(sessionRef.current);
+    setWaiting(true);
+    const s = await api.post<HlsSession>("/api/hls", { fileId, start, audioMode: p.audioMode, audioIndex: p.audioIndex });
+    setSession(s);
+    setTime(s.start);
+    setBuffered(s.start);
+  }, [stopSession]);
+
   // Load item + play info.
   useEffect(() => {
     let cancelled = false;
@@ -114,6 +174,8 @@ export default function Player() {
     setAudioWarn(undefined);
     setUpNext(null);
     setWaiting(true);
+    setSession(undefined);
+    setHlsPlan(undefined);
     (async () => {
       try {
         const d = await api.get<Detail>(`/api/items/${id}`);
@@ -122,13 +184,20 @@ export default function Player() {
         setMarkers([]);
         api.get<Marker[]>(`/api/items/${d.id}/markers`).then((m) => !cancelled && setMarkers(m), () => {});
         if (!d.files.length) throw new Error("No media file for this item.");
-        const byName = native ? undefined : unplayableByName(d.files[0].name || "");
-        const p = await api.get<PlayInfo>(`/api/play/${d.files[0].id}${byName ? "?probe=0" : ""}`);
+        const file = d.files[0];
+        const byName = native ? undefined : notDirectByName(file.name || "");
+        // A file that can never direct play here is only worth probing if
+        // the server can convert it; ask without the probe first.
+        let p = await api.get<PlayInfo>(`/api/play/${file.id}${byName ? "?probe=0" : ""}`);
         if (cancelled) return;
-        if (byName) {
+        if (byName && !p.hls) {
           setInfo(p);
-          setUnsupported(byName);
+          setUnsupported(byName + ", and the server has no ffmpeg to convert it");
           return;
+        }
+        if (byName && !p.file.probed) {
+          p = await api.get<PlayInfo>(`/api/play/${file.id}`);
+          if (cancelled) return;
         }
         if (native) {
           // The app's player handles decoding, so skip the browser checks.
@@ -146,10 +215,19 @@ export default function Player() {
           });
           return;
         }
-        const c = compat(p.file);
-        if (!c.video) setUnsupported(c.reason);
-        else if (!c.audio) setAudioWarn(c.reason);
+        const pl = plan(p.file, file.name || p.fileName, p.hls);
         setInfo(p);
+        if (pl.mode === "none") {
+          setUnsupported(pl.reason);
+        } else if (pl.mode === "hls") {
+          setHlsPlan(pl);
+          setDur(p.file.duration || 0);
+          const from = params.get("from");
+          const start = from != null ? Number(from) : p.position || 0;
+          await startSession(pl, file.id, start > 0 && start < (p.file.duration || Infinity) - 5 ? start : 0);
+        } else if (pl.audioWarn) {
+          setAudioWarn(pl.audioWarn);
+        }
       } catch (e) {
         if (!cancelled) setError((e as Error).message);
       }
@@ -159,21 +237,53 @@ export default function Player() {
     };
   }, [id]);
 
+  // Attach the HLS stream to the <video>; keep the server session alive
+  // while the page is open and end it when the player closes.
+  useEffect(() => {
+    const v = video.current;
+    if (!session || !v) return;
+    if (nativeHLS) {
+      v.src = session.url;
+    } else if (Hls.isSupported()) {
+      const h = new Hls({ startPosition: 0, maxBufferLength: 60, backBufferLength: 30 });
+      hlsRef.current = h;
+      h.on(Hls.Events.ERROR, (_e, data) => {
+        if (data.fatal) setUnsupported("The server couldn't convert this file for the browser");
+      });
+      h.loadSource(session.url);
+      h.attachMedia(v);
+    } else {
+      setUnsupported("This browser can't play converted streams");
+      return;
+    }
+    const ping = setInterval(() => fetch(`/api/hls/${session.id}/ping`, { method: "POST" }).catch(() => {}), 30000);
+    return () => {
+      clearInterval(ping);
+      stopSession(session);
+    };
+  }, [session, stopSession]);
+
+  // Absolute position in the file (the HLS stream may start mid-file).
+  const offset = session?.start || 0;
+  const absTime = () => offset + (video.current?.currentTime || 0);
+
   const report = useCallback(
     (force = false) => {
       const v = video.current;
-      if (!v || !item || !v.duration || !isFinite(v.duration)) return;
+      if (!v || !item) return;
+      const duration = inHls ? dur : v.duration;
+      if (!duration || !isFinite(duration)) return;
       const now = Date.now();
       if (!force && now - lastReport.current < 10000) return;
       lastReport.current = now;
-      const body = JSON.stringify({ position: v.currentTime, duration: v.duration });
+      const body = JSON.stringify({ position: offset + v.currentTime, duration });
       if (force && navigator.sendBeacon) {
         navigator.sendBeacon(`/api/items/${item.id}/progress`, new Blob([body], { type: "application/json" }));
       } else {
         fetch(`/api/items/${item.id}/progress`, { method: "POST", body, headers: { "Content-Type": "application/json" } });
       }
     },
-    [item],
+    [item, inHls, dur, offset],
   );
 
   useEffect(() => {
@@ -190,11 +300,16 @@ export default function Player() {
   // Start position: resume unless ?from=0.
   const onLoaded = () => {
     const v = video.current!;
+    v.volume = volume;
+    if (inHls) {
+      // The stream already starts at the resume point.
+      v.play().catch(() => setPlaying(false));
+      return;
+    }
     setDur(v.duration);
     const from = params.get("from");
     const start = from != null ? Number(from) : info?.position || 0;
     if (start > 0 && start < v.duration - 5) v.currentTime = start;
-    v.volume = volume;
     // Some browsers "play" unsupported video as audio only.
     if (info?.file.videoCodec && v.videoWidth === 0) {
       setUnsupported(`This browser can't decode ${info.file.videoCodec.toUpperCase()} video`);
@@ -266,10 +381,29 @@ export default function Player() {
     if (v.paused) v.play();
     else v.pause();
   };
-  const seek = (delta: number) => {
+  // Seek to an absolute position in the file. A converted stream can only
+  // seek within what the server has produced so far; anything else starts
+  // a new stream from that point.
+  const seekTo = (target: number) => {
     const v = video.current;
-    if (v) v.currentTime = Math.max(0, Math.min(v.duration || 0, v.currentTime + delta));
+    if (!v) return;
+    const total = inHls ? dur : v.duration || 0;
+    target = Math.max(0, Math.min(total || target, target));
+    if (!inHls) {
+      v.currentTime = target;
+      return;
+    }
+    const s = sessionRef.current!;
+    const loadedEnd = v.seekable.length ? s.start + v.seekable.end(v.seekable.length - 1) : s.start;
+    if (target >= s.start && target < loadedEnd - 1) {
+      v.currentTime = target - s.start;
+    } else if (hlsPlan && item) {
+      report(true);
+      startSession(hlsPlan, item.files[0].id, target).catch((e) => setError((e as Error).message));
+    }
+    setTime(target);
   };
+  const seek = (delta: number) => seekTo(absTime() + delta);
   const fullscreen = () => {
     if (document.fullscreenElement) document.exitFullscreen();
     else wrap.current?.requestFullscreen?.();
@@ -333,8 +467,8 @@ export default function Player() {
     if (activeMarker.type === "credits" && item?.kind === "episode") {
       video.current?.pause();
       onEnded();
-    } else if (video.current) {
-      video.current.currentTime = activeMarker.end;
+    } else {
+      seekTo(activeMarker.end);
     }
   };
   const endsAt = dur ? new Date(Date.now() + ((dur - time) * 1000) / (video.current?.playbackRate || 1)) : null;
@@ -371,12 +505,15 @@ export default function Player() {
     );
   }
 
+  const showVideo = info && !unsupported && (!hlsPlan || !!session);
+
   return (
     <div ref={wrap} className={`player ${idle && playing ? "idle" : ""}`}>
-      {info && !unsupported && (
+      {showVideo && (
         <video
+          key={session?.id || "direct"}
           ref={video}
-          src={info.streamUrl}
+          src={session ? undefined : info.streamUrl}
           preload="auto"
           playsInline
           onClick={toggle}
@@ -392,15 +529,18 @@ export default function Player() {
           onCanPlay={() => setWaiting(false)}
           onTimeUpdate={(e) => {
             const v = e.currentTarget;
-            setTime(v.currentTime);
-            if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1));
+            setTime(offset + v.currentTime);
+            if (v.buffered.length) setBuffered(offset + v.buffered.end(v.buffered.length - 1));
             report();
           }}
-          onDurationChange={(e) => setDur(e.currentTarget.duration)}
+          onDurationChange={(e) => {
+            if (!inHls) setDur(e.currentTarget.duration);
+          }}
           onEnded={onEnded}
           onError={() => {
             const code = video.current?.error?.code;
-            setUnsupported(code === 4 ? "This browser can't play this file's format" : "Couldn't load the file from storage");
+            if (inHls) setUnsupported("The server couldn't convert this file for the browser");
+            else setUnsupported(code === 4 ? "This browser can't play this file's format" : "Couldn't load the file from storage");
           }}
         />
       )}
@@ -452,10 +592,7 @@ export default function Player() {
         <div className="player-controls">
           <div className="scrub">
             <input type="range" min={0} max={dur || 0} step={0.1} value={time}
-              onChange={(e) => {
-                if (video.current) video.current.currentTime = Number(e.target.value);
-                setTime(Number(e.target.value));
-              }}
+              onChange={(e) => seekTo(Number(e.target.value))}
               style={{ "--p": `${dur ? (time / dur) * 100 : 0}%`, "--b": `${dur ? (buffered / dur) * 100 : 0}%` } as React.CSSProperties}
               aria-label="Seek" />
           </div>
@@ -472,6 +609,7 @@ export default function Player() {
             </div>
             <div className="time">{fmtTime(time)} <span className="muted">/ {fmtTime(dur)}</span></div>
             <div className="spacer" />
+            {inHls && <span className="ends-at muted">Converted for this browser</span>}
             {endsAt && <span className="ends-at">Ends at {endsAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>}
             <button className="icon-btn" onClick={fullscreen} aria-label="Fullscreen"><Fullscreen /></button>
           </div>

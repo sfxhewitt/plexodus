@@ -62,6 +62,20 @@ make build            # builds web/dist and the ./plexodus binary (needs Go 1.24
 
 Every push to `main` builds fresh binaries into the rolling [`latest` release](https://github.com/sfxhewitt/plexodus/releases/tag/latest). Tagging `v*` publishes a versioned release.
 
+## Browser fallback (remux, never transcode)
+
+Browsers can't play everything as it is: Safari has no MKV support, and few
+browsers decode DTS or TrueHD. When direct play isn't possible, the web
+player asks the server for an HLS remux: ffmpeg copies the video stream
+untouched into fragmented MP4 segments and only converts the audio to AAC
+when the browser can't decode the original. Nothing is re-encoded, it starts
+in a second or two and uses almost no CPU. The Android app and external
+players always get the original file.
+
+This needs `ffmpeg` on the server (`sudo apt install ffmpeg`). Without it the
+player offers VLC/Infuse links instead. Segments are written under the data
+directory (`stream/`) and removed a few minutes after playback stops.
+
 ## Android app
 
 The same UI as the browser, plus a built-in player that direct-plays
