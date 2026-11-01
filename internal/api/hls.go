@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -60,7 +61,7 @@ func (s *Server) handleHLSStart(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, map[string]any{"id": sess.ID, "url": "/api/hls/" + sess.ID + "/index.m3u8", "start": sess.Opts.Start})
+	writeJSON(w, map[string]any{"id": sess.ID, "url": "/api/hls/" + sess.ID + "/index.m3u8", "start": sess.Opts.Start, "vod": sess.VOD()})
 }
 
 func (s *Server) handleHLSPing(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +89,14 @@ func (s *Server) handleHLSFile(w http.ResponseWriter, r *http.Request) {
 	// network storage; later segments arrive well ahead of the player.
 	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
-	p, err := sess.File(ctx, name, 90*time.Second)
+	var c stream.Chunk
+	var playlist []byte
+	var err error
+	if strings.HasSuffix(name, ".m3u8") {
+		playlist, err = sess.Playlist(ctx, 90*time.Second)
+	} else {
+		c, err = sess.File(ctx, name, 90*time.Second)
+	}
 	if err != nil {
 		switch {
 		case errors.Is(err, os.ErrNotExist):
@@ -102,19 +110,29 @@ func (s *Server) handleHLSFile(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	switch {
-	case strings.HasSuffix(name, ".m3u8"):
-		b, err := sess.Playlist(p)
-		if err != nil {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
+	case playlist != nil:
 		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-		w.Write(b)
+		w.Write(playlist)
 	case name == "init.mp4":
 		w.Header().Set("Content-Type", "video/mp4")
-		http.ServeFile(w, r, p)
+		serveChunk(w, r, c)
 	default:
 		w.Header().Set("Content-Type", "video/iso.segment")
-		http.ServeFile(w, r, p)
+		serveChunk(w, r, c)
 	}
+}
+
+// serveChunk sends a whole file or a byte range of one.
+func serveChunk(w http.ResponseWriter, r *http.Request, c stream.Chunk) {
+	if c.Size == 0 {
+		http.ServeFile(w, r, c.Path)
+		return
+	}
+	f, err := os.Open(c.Path)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	http.ServeContent(w, r, "", time.Time{}, io.NewSectionReader(f, c.Off, c.Size))
 }

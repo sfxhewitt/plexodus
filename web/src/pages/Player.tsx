@@ -111,6 +111,10 @@ interface HlsSession {
   id: string;
   url: string;
   start: number;
+  // A VOD stream has its full playlist up front: the player seeks anywhere
+  // natively and `start` is just the position to resume at. Otherwise the
+  // stream begins at `start` and seeking outside it needs a new stream.
+  vod: boolean;
 }
 
 export default function Player() {
@@ -248,7 +252,7 @@ export default function Player() {
     if (nativeHLS) {
       v.src = session.url;
     } else if (Hls.isSupported()) {
-      const h = new Hls({ startPosition: 0, maxBufferLength: 60, backBufferLength: 30 });
+      const h = new Hls({ startPosition: session.vod && session.start > 0 ? session.start : 0, maxBufferLength: 60, backBufferLength: 30 });
       hlsRef.current = h;
       h.on(Hls.Events.ERROR, (_e, data) => {
         if (data.fatal) setUnsupported("The server couldn't convert this file for the browser");
@@ -271,7 +275,7 @@ export default function Player() {
   useEffect(() => {
     if (!session) return;
     const onVisible = async () => {
-      if (document.visibilityState !== "visible" || !video.current || video.current.ended) return;
+      if (session.vod || document.visibilityState !== "visible" || !video.current || video.current.ended) return;
       const r = await fetch(`/api/hls/${session.id}/ping`, { method: "POST" }).catch(() => undefined);
       if (!r) return;
       const { running, finished } = (await r.json().catch(() => ({}))) as { running?: boolean; finished?: boolean };
@@ -284,7 +288,7 @@ export default function Player() {
   }, [session, hlsPlan, item, startSession]);
 
   // Absolute position in the file (the HLS stream may start mid-file).
-  const offset = session?.start || 0;
+  const offset = session && !session.vod ? session.start : 0;
   const absTime = () => offset + (video.current?.currentTime || 0);
 
   const report = useCallback(
@@ -322,9 +326,12 @@ export default function Player() {
     const v = video.current!;
     v.volume = volume;
     if (inHls) {
-      // The stream already starts at the resume point.
       setPreparing(false);
-      if (pendingSeek.current != null) {
+      if (session?.vod) {
+        if (isFinite(v.duration)) setDur(v.duration);
+        if (session.start > 0 && session.start < v.duration - 5 && Math.abs(v.currentTime - session.start) > 1) v.currentTime = session.start;
+      } else if (pendingSeek.current != null) {
+        // The stream already starts at the resume point.
         const t = pendingSeek.current - offset;
         pendingSeek.current = undefined;
         if (t > 0) v.currentTime = t;
@@ -415,7 +422,7 @@ export default function Player() {
     if (!v) return;
     const total = inHls ? dur : v.duration || 0;
     target = Math.max(0, Math.min(total || target, target));
-    if (!inHls) {
+    if (!inHls || sessionRef.current?.vod) {
       v.currentTime = target;
       return;
     }
@@ -564,7 +571,7 @@ export default function Player() {
             report();
           }}
           onDurationChange={(e) => {
-            if (!inHls) setDur(e.currentTarget.duration);
+            if (!inHls || session?.vod) setDur(e.currentTarget.duration);
           }}
           onEnded={onEnded}
           onError={() => {
