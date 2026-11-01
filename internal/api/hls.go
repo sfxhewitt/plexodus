@@ -64,8 +64,12 @@ func (s *Server) handleHLSStart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHLSPing(w http.ResponseWriter, r *http.Request) {
-	s.streams.Get(r.PathValue("sid"), currentUser(r).ID)
-	writeJSON(w, map[string]bool{"ok": true})
+	sess := s.streams.Get(r.PathValue("sid"), currentUser(r).ID)
+	if sess == nil {
+		writeJSON(w, map[string]bool{"ok": false, "running": false, "finished": false})
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true, "running": sess.Running(), "finished": sess.Finished()})
 }
 
 func (s *Server) handleHLSStop(w http.ResponseWriter, r *http.Request) {

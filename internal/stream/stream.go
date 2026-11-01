@@ -66,6 +66,17 @@ func (s *Session) Running() bool {
 	}
 }
 
+// Finished reports whether ffmpeg completed the whole stream successfully,
+// so every segment is on disk and the session needs no process.
+func (s *Session) Finished() bool {
+	if s.Running() {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.err == nil
+}
+
 type Manager struct {
 	ffmpeg   string
 	dir      string
