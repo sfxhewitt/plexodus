@@ -217,6 +217,16 @@
                     android:visibility="gone" />
 
                 <ImageButton
+                    android:id="@+id/stats_button"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/bg_pill_button"
+                    android:contentDescription="@string/stats"
+                    android:src="@drawable/ic_info"
+                    android:tint="@color/control_fg" />
+
+                <ImageButton
                     android:id="@+id/aspect"
                     android:layout_width="40dp"
                     android:layout_height="40dp"
@@ -228,6 +238,21 @@
             </LinearLayout>
         </LinearLayout>
     </FrameLayout>
+
+    <TextView
+        android:id="@+id/stats"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="24dp"
+        android:layout_marginTop="84dp"
+        android:background="@drawable/bg_stats"
+        android:fontFamily="monospace"
+        android:lineSpacingExtra="2dp"
+        android:padding="14dp"
+        android:textColor="@color/text"
+        android:textSize="11sp"
+        android:visibility="gone" />
 
     <Button
         android:id="@+id/skip"
