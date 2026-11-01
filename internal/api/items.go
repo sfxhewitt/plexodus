@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -396,6 +397,7 @@ func (s *Server) nextEpisode(r *http.Request, showID int64) (*Card, error) {
 type MediaFile struct {
 	ID         int64           `json:"id"`
 	Path       string          `json:"path"`
+	Name       string          `json:"name"`
 	Size       int64           `json:"size"`
 	Container  string          `json:"container,omitempty"`
 	VideoCodec string          `json:"videoCodec,omitempty"`
@@ -458,6 +460,7 @@ func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 			if streams != "null" {
 				f.Streams = json.RawMessage(streams)
 			}
+			f.Name = filepath.Base(f.Path)
 			if !currentUser(r).IsAdmin {
 				f.Path = ""
 			}

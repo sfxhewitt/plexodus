@@ -70,7 +70,10 @@ func (s *Server) handlePlay(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "file not found")
 		return
 	}
-	if !probed {
+	// probe=0 lets a client that already knows it can't play the container
+	// (Safari with an MKV) skip the codec check, which reads the file head
+	// through the mount and can take a while on cold storage.
+	if !probed && r.URL.Query().Get("probe") != "0" {
 		// The browser needs codec info to decide if it can play the file.
 		ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 		s.prober.ProbeNow(ctx, fileID, path)

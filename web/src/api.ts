@@ -41,6 +41,7 @@ export interface Stream {
 export interface MediaFile {
   id: number;
   path: string;
+  name: string;
   size: number;
   container?: string;
   videoCodec?: string;
