@@ -7,10 +7,15 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.content.IntentFilter
+import android.media.AudioDeviceInfo
+import android.media.AudioFormat
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.Display
 import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -54,6 +59,11 @@ class PlayerActivity : Activity() {
     private lateinit var skipButton: Button
     private lateinit var audioButton: Button
     private lateinit var subsButton: Button
+    private lateinit var statsText: TextView
+    private var statsVisible = false
+    private var lastReadBytes = -1
+    private var passthrough = false
+    private var modeSwitched = false
 
     private val ui = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
@@ -111,6 +121,8 @@ class PlayerActivity : Activity() {
         audioButton.setOnClickListener { pickTrack(audio = true) }
         subsButton.setOnClickListener { pickTrack(audio = false) }
         findViewById<View>(R.id.aspect).setOnClickListener { cycleAspect() }
+        statsText = findViewById(R.id.stats)
+        findViewById<View>(R.id.stats_button).setOnClickListener { toggleStats() }
         skipButton.setOnClickListener { skipMarker() }
 
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -150,7 +162,12 @@ class PlayerActivity : Activity() {
         })
         findViewById<View>(R.id.touch).setOnTouchListener { _, ev -> gestures.onTouchEvent(ev); true }
 
-        libVlc = LibVLC(this, arrayListOf("--network-caching=4000", "--http-reconnect", "--audio-time-stretch"))
+        // Send Dolby/DTS untouched to the TV or receiver when it says it can
+        // take them (like Plex's "passthrough"); otherwise decode to PCM.
+        passthrough = hdmiTakesSurround()
+        val opts = arrayListOf("--network-caching=4000", "--http-reconnect", "--audio-time-stretch")
+        if (passthrough) opts += listOf("--aout=audiotrack", "--spdif") else opts += "--no-spdif"
+        libVlc = LibVLC(this, opts)
         player = MediaPlayer(libVlc)
         player.attachViews(videoLayout, null, true, false)
         player.setEventListener { onEvent(it) }
@@ -196,6 +213,7 @@ class PlayerActivity : Activity() {
                 updateTime()
             }
             MediaPlayer.Event.ESAdded, MediaPlayer.Event.ESSelected -> updateTrackButtons()
+            MediaPlayer.Event.Vout -> if (e.voutCount > 0) matchRefreshRate()
             MediaPlayer.Event.EndReached -> finishPlayback(ended = true)
             MediaPlayer.Event.EncounteredError -> {
                 spinner.visibility = View.GONE
@@ -295,6 +313,110 @@ class PlayerActivity : Activity() {
         scaleIndex = (scaleIndex + 1) % types.size
         player.videoScale = types[scaleIndex]
         Toast.makeText(this, types[scaleIndex].name.removePrefix("SURFACE_").replace('_', ' ').lowercase(), Toast.LENGTH_SHORT).show()
+    }
+
+    // ---- refresh rate matching ----
+
+    /**
+     * Switch the TV to a refresh rate the film's frame rate divides into
+     * (23.976 fps -> 23.976/24 Hz instead of 59.94 Hz), so pans don't judder.
+     * Android puts the old mode back when the player closes.
+     */
+    private fun matchRefreshRate() {
+        if (modeSwitched) return
+        val track = player.currentVideoTrack ?: return
+        if (track.frameRateNum <= 0 || track.frameRateDen <= 0) return
+        modeSwitched = true
+        val fps = track.frameRateNum.toFloat() / track.frameRateDen
+        @Suppress("DEPRECATION")
+        val display = windowManager.defaultDisplay
+        val current = display.mode
+        val best = display.supportedModes
+            .filter { it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight }
+            .mapNotNull { m ->
+                val ratio = m.refreshRate / fps
+                val whole = Math.round(ratio)
+                val off = Math.abs(ratio - whole)
+                if (whole >= 1 && off < 0.012f) Pair(m, off) else null
+            }
+            // Exact match first (23.976 over 24), then the lowest such rate.
+            .sortedWith(compareBy<Pair<Display.Mode, Float>>({ Math.round(it.second * 1000) }, { it.first.refreshRate }))
+            .firstOrNull()?.first ?: return
+        if (best.modeId == current.modeId) return
+        window.attributes = window.attributes.also { it.preferredDisplayModeId = best.modeId }
+    }
+
+    // ---- audio passthrough ----
+
+    private fun hdmiTakesSurround(): Boolean {
+        val wanted = setOf(AudioFormat.ENCODING_AC3, AudioFormat.ENCODING_E_AC3, AudioFormat.ENCODING_DTS)
+        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val hdmiTypes = mutableSetOf(AudioDeviceInfo.TYPE_HDMI, AudioDeviceInfo.TYPE_HDMI_ARC)
+        if (Build.VERSION.SDK_INT >= 31) hdmiTypes += AudioDeviceInfo.TYPE_HDMI_EARC
+        val fromDevices = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            .filter { it.type in hdmiTypes }
+            .any { d -> d.encodings.any { it in wanted } }
+        if (fromDevices) return true
+        // Fire TV reports the HDMI sink's formats in this sticky broadcast.
+        val filter = IntentFilter(AudioManager.ACTION_HDMI_AUDIO_PLUG)
+        val plug = try {
+            if (Build.VERSION.SDK_INT >= 33) registerReceiver(null, filter, Context.RECEIVER_NOT_EXPORTED) else registerReceiver(null, filter)
+        } catch (_: Exception) {
+            null
+        }
+        val enc = plug?.getIntArrayExtra(AudioManager.EXTRA_ENCODINGS) ?: return false
+        return enc.any { it in wanted }
+    }
+
+    // ---- playback info ("nerd stats") ----
+
+    private val statsTick = object : Runnable {
+        override fun run() {
+            updateStats()
+            if (statsVisible) ui.postDelayed(this, 1000)
+        }
+    }
+
+    private fun toggleStats() {
+        statsVisible = !statsVisible
+        statsText.visibility = if (statsVisible) View.VISIBLE else View.GONE
+        ui.removeCallbacks(statsTick)
+        lastReadBytes = -1
+        if (statsVisible) statsTick.run()
+    }
+
+    private fun updateStats() {
+        val sb = StringBuilder()
+        val v = player.currentVideoTrack
+        if (v != null) {
+            val fps = if (v.frameRateDen > 0) v.frameRateNum.toFloat() / v.frameRateDen else 0f
+            sb.append("VIDEO    ").append(v.codec?.trim()?.uppercase(Locale.US) ?: "?")
+                .append("  ").append(v.width).append('x').append(v.height)
+            if (fps > 0) sb.append(String.format(Locale.US, "  %.3f fps", fps))
+            sb.append('\n')
+        }
+        @Suppress("DEPRECATION")
+        val mode = windowManager.defaultDisplay.mode
+        sb.append("DISPLAY  ").append(mode.physicalWidth).append('x').append(mode.physicalHeight)
+            .append(String.format(Locale.US, " @ %.3f Hz", mode.refreshRate)).append('\n')
+        val audioName = player.audioTracks?.firstOrNull { it.id == player.audioTrack }?.name
+        sb.append("AUDIO    ").append(audioName ?: "-").append('\n')
+        sb.append("OUTPUT   ").append(if (passthrough) "Passthrough to HDMI (when the format allows)" else "Decoded to PCM").append('\n')
+        val media = player.media
+        try {
+            val st = media?.stats
+            if (st != null) {
+                val rate = if (lastReadBytes >= 0) ((st.readBytes - lastReadBytes).toLong() and 0xffffffffL) * 8 / 1e6 else 0.0
+                lastReadBytes = st.readBytes
+                sb.append(String.format(Locale.US, "NETWORK  %.1f Mbps now · %.1f Mbps stream\n", rate, st.demuxBitrate * 8))
+                sb.append("FRAMES   ").append(st.displayedPictures).append(" shown · ").append(st.lostPictures).append(" dropped\n")
+                sb.append("AUDIO BUF ").append(st.playedAbuffers).append(" played · ").append(st.lostAbuffers).append(" lost\n")
+            }
+        } finally {
+            media?.release()
+        }
+        sb.append("POSITION ").append(fmt(timeMs)).append(" / ").append(fmt(lengthMs))
+        statsText.text = sb.toString()
     }
 
     // ---- keyboard / remote control ----
