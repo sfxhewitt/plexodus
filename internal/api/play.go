@@ -64,7 +64,11 @@ func (s *Server) handlePlay(w http.ResponseWriter, r *http.Request) {
 	var path string
 	var itemID, libID int64
 	var probed bool
-	err := s.db.R.QueryRowContext(r.Context(), `SELECT path, item_id, library_id, probed_at IS NOT NULL FROM media_files WHERE id = ?`, fileID).
+	// A file imported from Plex carries codec names but no track list
+	// (streams), which the player needs to pick an audio track; treat it as
+	// unprobed so ffprobe fills it in on first play.
+	err := s.db.R.QueryRowContext(r.Context(), `SELECT path, item_id, library_id, probed_at IS NOT NULL AND (streams IS NOT NULL OR probe_error IS NOT NULL)
+		FROM media_files WHERE id = ?`, fileID).
 		Scan(&path, &itemID, &libID, &probed)
 	if err != nil || !currentUser(r).CanSee(libID) {
 		writeErr(w, 404, "file not found")

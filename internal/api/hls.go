@@ -25,7 +25,6 @@ func (s *Server) handleHLSStart(w http.ResponseWriter, r *http.Request) {
 		Start      float64 `json:"start"`
 		AudioIndex *int    `json:"audioIndex"`
 		AudioMode  string  `json:"audioMode"`
-		Variant    string  `json:"variant"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		writeErr(w, 400, "bad request")
@@ -47,6 +46,14 @@ func (s *Server) handleHLSStart(w http.ResponseWriter, r *http.Request) {
 	if b.AudioIndex != nil {
 		audio = *b.AudioIndex
 	} else {
+		if streams == "null" {
+			// Imported from Plex without a track list: probe now, otherwise
+			// the stream would be made with no audio track at all.
+			ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+			s.prober.ProbeNow(ctx, b.FileID, path)
+			cancel()
+			s.db.R.QueryRowContext(r.Context(), `SELECT COALESCE(streams, 'null') FROM media_files WHERE id = ?`, b.FileID).Scan(&streams)
+		}
 		var ss []probe.Stream
 		json.Unmarshal([]byte(streams), &ss)
 		for _, st := range ss {
@@ -54,9 +61,12 @@ func (s *Server) handleHLSStart(w http.ResponseWriter, r *http.Request) {
 				audio = st.Index
 			}
 		}
+		if audio < 0 && streams == "null" {
+			audio = stream.AudioAuto
+		}
 	}
 	sess, err := s.streams.Start(r.Context(), currentUser(r).ID, b.FileID, stream.Options{
-		Path: path, Start: b.Start, AudioIndex: audio, AudioMode: b.AudioMode, VideoCodec: vcodec, Variant: b.Variant,
+		Path: path, Start: b.Start, AudioIndex: audio, AudioMode: b.AudioMode, VideoCodec: vcodec,
 	})
 	if err != nil {
 		writeErr(w, 500, err.Error())
