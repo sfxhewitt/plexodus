@@ -162,11 +162,13 @@ export async function auditFocus(page: Page, opts: { limit?: number; skip?: (fk:
           const home = el.closest<HTMLElement>("[data-enter]");
           const exit = home && ({ left: "right", right: "left", up: "down", down: "up" } as Record<string, string>)[home.dataset.enter!];
           const ahead: number[] = [];
-          const rects: Record<number, { cx: number; cy: number; top: number; bottom: number; group: string }> = {};
+          const rects: Record<number, { cx: number; cy: number; top: number; bottom: number; group: string; entry: boolean }> = {};
           for (const o of document.querySelectorAll<HTMLElement>("[data-e2e]")) {
             const j = Number(o.dataset.e2e);
             const r = o.getBoundingClientRect();
-            rects[j] = { cx: (r.left + r.right) / 2, cy: (r.top + r.bottom) / 2, top: r.top, bottom: r.bottom, group: o.closest<HTMLElement>("[data-group]")?.dataset.group || "" };
+            rects[j] = { cx: (r.left + r.right) / 2, cy: (r.top + r.bottom) / 2, top: r.top, bottom: r.bottom, group: o.closest<HTMLElement>("[data-group]")?.dataset.group || "",
+              // In a one-way group (the tab bar) we're not in: only a last resort, never "skipped".
+              entry: !!o.closest<HTMLElement>("[data-enter]") && !o.closest<HTMLElement>("[data-enter]")!.contains(el) };
             if (o === el || el.contains(o)) continue;
             // Groups with data-enter (the sidebar) are entered one way, left the opposite way.
             const g: HTMLElement | null = o.closest<HTMLElement>("[data-enter]");
@@ -209,6 +211,7 @@ export async function auditFocus(page: Page, opts: { limit?: number; skip?: (fk:
             const skipped = before.ahead.find((j) => {
               const c = before.rects[j];
               if (c.group && c.group === b.group) return false;
+              if (c.entry && !b.entry) return false;
               return dir === "down" ? c.bottom <= b.top : c.top >= b.bottom;
             });
             if (skipped !== undefined) problems.push({ from: name, key, problem: `skipped over ${await label(skipped)} to ${await label(after.idx)}` });

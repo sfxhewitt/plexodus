@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api, art, Card, Detail, episodeLabel, fmtRuntime, fmtTime, resolution } from "../../api";
 import { Check, Eye, Play, Refresh, Tv } from "../../components/Icons";
 import { useApi } from "../../hooks";
-import { Art, Spinner, TvButton, TvCard, TvRow, useBackdrop } from "../components";
+import { Spinner, TvButton, TvCard, TvRow, useBackdrop } from "../components";
 import { usePageFocus, useRefresh, useToast } from "../hooks";
 import { playItem } from "../play";
 
@@ -54,7 +54,6 @@ export default function Item() {
   const resume = target?.position && target.duration && !target.watched ? target.position : 0;
   const isSeries = d.kind === "show" || d.kind === "season";
   const allWatched = isSeries ? !!d.leafCount && d.viewedLeafCount === d.leafCount : d.watched;
-  const poster = d.kind === "episode" ? undefined : d.poster || d.show?.poster || d.showPoster;
   const showTitle = d.show?.title || d.showTitle;
   const showId = d.show?.id || d.showId;
 
@@ -79,11 +78,6 @@ export default function Item() {
   return (
     <div className={`tv-page tv-detail kind-${d.kind}`} data-vscroll="reveal" data-margin="4rem">
       <section className="tv-detail-hero" data-row data-row-top>
-        {poster ? (
-          <Art src={art(poster, "w500")} title={d.title} className="tv-detail-poster" />
-        ) : (
-          <Art src={art(d.backdrop, "w780")} title={d.title} className="tv-detail-still" />
-        )}
         <div className="tv-detail-info">
           {(d.kind === "season" || d.kind === "episode") && showTitle && <div className="tv-eyebrow">{showTitle}</div>}
           {d.logo && (d.kind === "movie" || d.kind === "show") ? (

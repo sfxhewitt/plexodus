@@ -2,7 +2,7 @@ import { FormEvent, StrictMode, useCallback, useEffect, useLayoutEffect, useRef,
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, art, Card, Detail, episodeLabel, User } from "../api";
-import { Film, Home as HomeIcon, Play, Search as SearchIcon, Settings as SettingsIcon, Tv } from "../components/Icons";
+import { Play, Search as SearchIcon } from "../components/Icons";
 import { UserContext, useUser } from "../hooks";
 import { native, NativeEnded } from "../native";
 import { Backdrop, BackdropCtx, Spinner, TvButton } from "./components";
@@ -19,60 +19,47 @@ import "./tv.css";
 document.documentElement.classList.add("tv");
 installKeys();
 
-// ---------- sidebar ----------
+// ---------- tab bar ----------
 
-function Sidebar() {
+/**
+ * Apple TV style tab bar across the top: Search, Home, each library and
+ * Settings. Up from the top of a page enters it, Down leaves it back to
+ * where you were. It fades away while you browse further down a page.
+ */
+function TabBar({ hidden }: { hidden: boolean }) {
   const { data: libs } = useLibraries();
   const { user } = useUser();
   const nav = useNavigate();
   const loc = useLocation();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLElement>(null);
 
-  const items: { key: string; to: string; label: string; icon: JSX.Element }[] = [
-    { key: "search", to: "/search", label: "Search", icon: <SearchIcon size={26} /> },
-    { key: "home", to: "/", label: "Home", icon: <HomeIcon size={26} /> },
-    ...(libs || []).map((l) => ({
-      key: `lib${l.id}`, to: `/library/${l.id}`, label: l.name,
-      icon: l.kind === "movies" ? <Film size={26} /> : <Tv size={26} />,
-    })),
+  const tabs: { key: string; to: string; label?: string; icon?: JSX.Element }[] = [
+    { key: "search", to: "/search", icon: <SearchIcon size={24} /> },
+    { key: "home", to: "/", label: "Home" },
+    ...(libs || []).map((l) => ({ key: `lib${l.id}`, to: `/library/${l.id}`, label: l.name })),
   ];
   const active = (to: string) => (to === "/" ? loc.pathname === "/" : loc.pathname.startsWith(to));
-  const anyActive = items.some((i) => active(i.to)) || loc.pathname.startsWith("/settings");
+  const anyActive = tabs.some((t) => active(t.to)) || loc.pathname.startsWith("/settings");
 
   return (
-    <nav ref={ref} className={`tv-nav ${open ? "open" : ""}`} data-group="nav" data-remember="false" data-enter="left"
-      onFocus={() => setOpen(true)}
-      onBlur={(e) => !ref.current?.contains(e.relatedTarget as Node) && setOpen(false)}
-      onKeyDown={(e) => {
-        if (e.key === "ArrowRight") {
-          e.preventDefault();
-          e.stopPropagation();
-          focusPage();
-        }
-      }}>
-      <div className="tv-nav-logo">
-        <img src="/favicon.svg" alt="" />
-        <span>plex<b>odus</b></span>
-      </div>
-      <div className="tv-nav-items" data-vscroll="reveal" data-margin="1rem">
-        {items.map((i) => (
-          <button key={i.key} data-f data-fk={`nav-${i.key}`} data-default={active(i.to) || (!anyActive && i.key === "home") ? "" : undefined}
-            className={`tv-nav-item ${active(i.to) ? "active" : ""}`}
-            onClick={() => (active(i.to) ? focusPage() : nav(i.to))}>
-            {i.icon}
-            <span>{i.label}</span>
+    <nav className={`tv-nav ${hidden ? "away" : ""}`} data-group="nav" data-remember="false" data-enter="up">
+      <div className="tv-nav-logo"><img src="/favicon.svg" alt="" /><span>plex<b>odus</b></span></div>
+      <div className="tv-tabs-pill" data-hscroll="reveal">
+        {tabs.map((t) => (
+          <button key={t.key} data-f data-fk={`nav-${t.key}`}
+            data-default={active(t.to) || (!anyActive && t.key === "home") ? "" : undefined}
+            className={`tv-tab-btn ${active(t.to) ? "active" : ""} ${t.icon ? "icon" : ""}`}
+            aria-label={t.label || t.key}
+            onClick={() => (active(t.to) ? focusPage() : nav(t.to))}>
+            {t.icon}
+            {t.label && <span>{t.label}</span>}
           </button>
         ))}
       </div>
-      <div className="tv-nav-bottom">
-        <button data-f data-fk="nav-settings" data-default={loc.pathname.startsWith("/settings") ? "" : undefined}
-          className={`tv-nav-item ${loc.pathname.startsWith("/settings") ? "active" : ""}`}
-          onClick={() => nav("/settings")}>
-          <SettingsIcon size={26} />
-          <span>{user?.username || "Settings"}</span>
-        </button>
-      </div>
+      <button data-f data-fk="nav-settings" data-default={loc.pathname.startsWith("/settings") ? "" : undefined}
+        className={`tv-avatar ${loc.pathname.startsWith("/settings") ? "active" : ""}`} aria-label="Settings"
+        onClick={() => nav("/settings")}>
+        {(user?.username || "?").slice(0, 1).toUpperCase()}
+      </button>
     </nav>
   );
 }
@@ -134,6 +121,25 @@ function Shell() {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [upNext, setUpNext] = useState<Card | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>();
+  // The tab bar shows at the top of a page and fades while you browse below.
+  const [navAway, setNavAway] = useState(false);
+  useEffect(() => {
+    // Shown while you're in it, on a page's top section, or with the page
+    // scrolled to the top; hidden once the page scrolls down under it.
+    const update = () => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el || el === document.body || el.closest("[data-scope]")) return;
+      if (el.closest(".tv-nav") || el.closest("[data-row-top]")) return setNavAway(false);
+      const sc = el.closest<HTMLElement>("[data-vscroll]");
+      setNavAway(!!sc && sc.scrollTop > 8);
+    };
+    document.addEventListener("focusin", update);
+    document.addEventListener("scroll", update, true);
+    return () => {
+      document.removeEventListener("focusin", update);
+      document.removeEventListener("scroll", update, true);
+    };
+  }, []);
 
   useLayoutEffect(() => {
     setCurrentKey(loc.key);
@@ -147,7 +153,7 @@ function Shell() {
     toastTimer.current = setTimeout(() => setToastMsg(null), 4500);
   }, []);
 
-  // Back: leave the page; on Home, go to the sidebar first, then exit.
+  // Back: leave the page; on Home, go to the tab bar first, then exit.
   useEffect(
     () =>
       onBack(() => {
@@ -207,7 +213,7 @@ function Shell() {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </main>
-          <Sidebar />
+          <TabBar hidden={navAway} />
           {upNext && <UpNext c={upNext} onPlay={playNext} onCancel={cancelNext} />}
           {busy && <div className="tv-busy"><Spinner label={busy} /></div>}
           {toastMsg && <div className="tv-toast">{toastMsg}</div>}
