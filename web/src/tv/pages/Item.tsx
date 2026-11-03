@@ -127,6 +127,7 @@ export default function Item() {
         <TvRow id={`seasons-${d.id}`} title="Seasons">
           {d.children.map((s) => (
             <TvCard key={s.id} c={{ ...s, showPoster: d.poster }} shape="poster" onSelect={() => nav(`/item/${s.id}`)}
+              isDefault={s.id === (d.onDeck?.parentId ?? d.children[0].id)}
               sub={`${s.leafCount || 0} episode${s.leafCount === 1 ? "" : "s"}${s.viewedLeafCount ? ` · ${s.viewedLeafCount} watched` : ""}`} />
           ))}
         </TvRow>
@@ -150,7 +151,7 @@ export default function Item() {
             {d.children.map((e) => (
               <TvCard key={e.id} c={{ ...e, showBackdrop: d.show?.backdrop || d.showBackdrop }} shape="land"
                 label={`E${e.episodeNumber ?? ""}`} title={e.title} sub={e.runtime ? fmtRuntime(e.runtime) : ""}
-                onFocusCard={setFocusedEp} onSelect={() => play(e.id)} onPlay={() => play(e.id)} />
+                onFocusCard={setFocusedEp} onSelect={() => play(e.id)} onPlay={() => play(e.id)} isDefault={e.id === target?.id} />
             ))}
           </TvRow>
         </>
@@ -161,7 +162,7 @@ export default function Item() {
           {d.siblings.map((e) => (
             <TvCard key={e.id} c={{ ...e, showBackdrop: d.showBackdrop }} shape="land" label={`E${e.episodeNumber ?? ""}`}
               title={e.title} sub={e.id === d.id ? "Now viewing" : e.runtime ? fmtRuntime(e.runtime) : ""}
-              onSelect={() => nav(`/item/${e.id}`, { replace: true })} onPlay={() => play(e.id)} />
+              onSelect={() => nav(`/item/${e.id}`, { replace: true })} onPlay={() => play(e.id)} isDefault={e.id === d.id} />
           ))}
         </TvRow>
       )}

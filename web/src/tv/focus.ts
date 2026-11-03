@@ -15,6 +15,7 @@
 //   restored when you come back to a page.
 
 type Dir = "up" | "down" | "left" | "right";
+const OPPOSITE: Record<Dir, Dir> = { up: "down", down: "up", left: "right", right: "left" };
 
 const lastInGroup = new Map<string, string>();
 let lastMove = 0;
@@ -51,7 +52,10 @@ function pick(from: HTMLElement, dir: Dir, cands: HTMLElement[]): HTMLElement | 
     // Nearest row first...
     const gap = (r: DOMRect) => Math.max(0, dir === "down" ? r.top - a.bottom : a.top - r.bottom);
     const near = Math.min(...ahead.map(({ r }) => gap(r)));
-    const band = ahead.filter(({ r }) => gap(r) <= near + Math.max(8, r.height * 0.5));
+    // The band is sized by the nearest item, so a row of tall cards just below
+    // a short row (season tabs) isn't pulled in and skipped to.
+    const nearest = ahead.find(({ r }) => gap(r) === near)!;
+    const band = ahead.filter(({ r }) => gap(r) <= near + Math.max(8, nearest.r.height * 0.5));
     // ...then the closest item in it horizontally.
     let best = band[0];
     let bestD = Infinity;
@@ -66,10 +70,14 @@ function pick(from: HTMLElement, dir: Dir, cands: HTMLElement[]): HTMLElement | 
     return best.el;
   }
 
-  const ahead = rects.filter(({ r }) => {
+  const sideways = rects.filter(({ r }) => {
     const cx = (r.left + r.right) / 2;
     return dir === "right" ? cx > acx + 2 && r.right > a.right - 1 : cx < acx - 2 && r.left < a.left + 1;
   });
+  // Stay on the same line. Only jump to another line when the target's whole
+  // group spans this one (the sidebar), never to the next row at a row's end.
+  const overlapsY = (r: DOMRect) => Math.min(a.bottom, r.bottom) - Math.max(a.top, r.top) > 0;
+  const ahead = sideways.filter(({ el, r }) => overlapsY(r) || overlapsY((el.closest("[data-group]") || el).getBoundingClientRect()));
   if (!ahead.length) return;
   let best: (typeof ahead)[number] | undefined;
   let bestScore = Infinity;
@@ -113,11 +121,15 @@ export function move(dir: Dir, instant = false) {
   const cur = document.activeElement as HTMLElement | null;
   const inside = cur && cur !== document.body && all.includes(cur) ? cur : null;
   if (!inside) return focusEl(initialTarget(all), true);
-  // Some groups (the sidebar) can only be entered from one side, e.g. Left.
-  const cands = all.filter((el) => {
-    const g = el.closest<HTMLElement>("[data-enter]");
-    return !g || g.contains(inside) || g.dataset.enter === dir;
-  });
+  // Some groups (the sidebar) can only be entered from one side, e.g. Left,
+  // and only left the opposite way: inside, the other arrows stay in the group.
+  const home = inside.closest<HTMLElement>("[data-enter]");
+  const cands = home && dir !== OPPOSITE[home.dataset.enter as Dir]
+    ? all.filter((el) => home.contains(el))
+    : all.filter((el) => {
+        const g = el.closest<HTMLElement>("[data-enter]");
+        return !g || g.contains(inside) || g.dataset.enter === dir;
+      });
   const t = pick(inside, dir, cands);
   if (!t) return false;
   return focusEl(enterGroup(inside, t, all), instant);

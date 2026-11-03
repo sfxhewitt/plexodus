@@ -5,8 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:tv": "vite --host --mode tv",
     "build": "tsc -b && vite build",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b && tsc -p e2e",
+    "test:tv": "playwright test",
+    "test:tv:ui": "playwright test --ui",
+    "test:tv:screens": "playwright test --grep-invert \"focus audit\""
   },
   "dependencies": {
     "hls.js": "^1.6.2",
@@ -15,6 +19,8 @@
     "react-router-dom": "^6.28.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.20.5",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
