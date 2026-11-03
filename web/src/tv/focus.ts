@@ -8,7 +8,8 @@
 //   into a group lands on the item you last left there, not the nearest one.
 //   `data-default` marks the item to land on the first time.
 // - `data-scope` marks a modal; only focusables inside the last one count.
-// - `data-hscroll` on a row's track keeps the focused card pinned to its left.
+// - `data-hscroll` on a row's track keeps the focused card pinned to its left
+//   (`data-hscroll="reveal"`: only scrolls enough to show it).
 // - `data-vscroll="pin|reveal|center"` on a vertical scroller keeps the focused
 //   row (closest `data-row`, else the item) in place.
 // - `data-fk` gives an item a stable key so focus survives re-renders and is
@@ -130,7 +131,11 @@ export function move(dir: Dir, instant = false) {
         const g = el.closest<HTMLElement>("[data-enter]");
         return !g || g.contains(inside) || g.dataset.enter === dir;
       });
-  const t = pick(inside, dir, cands);
+  // Groups entered from one side (the tab bar) are a last resort: Up only
+  // reaches the tab bar from the topmost thing on the page, even if the page
+  // is scrolled and what's above you is off screen.
+  const plain = home ? cands : cands.filter((el) => !el.closest("[data-enter]"));
+  const t = pick(inside, dir, plain) || pick(inside, dir, cands);
   if (!t) return false;
   return focusEl(enterGroup(inside, t, all), instant);
 }
@@ -164,7 +169,13 @@ function scrollIntoPlace(el: HTMLElement, instant: boolean) {
     const tr = track.getBoundingClientRect();
     const er = el.getBoundingClientRect();
     const pad = parseFloat(getComputedStyle(track).paddingLeft) || 0;
-    const left = track.scrollLeft + (er.left - tr.left) - pad;
+    let left = track.scrollLeft + (er.left - tr.left) - pad;
+    if (track.dataset.hscroll === "reveal") {
+      // Only scroll as far as needed to show it (the tab bar).
+      left = track.scrollLeft;
+      if (er.right + pad > tr.right) left += er.right + pad - tr.right;
+      if (er.left - pad < tr.left) left -= tr.left - (er.left - pad);
+    }
     if (Math.abs(left - track.scrollLeft) > 1) track.scrollTo({ left, behavior });
   }
 

@@ -9,35 +9,46 @@ test.afterEach(({ unhandled }) => {
   expect(unhandled, "API calls the mock doesn't answer (add them to e2e/mock.ts)").toEqual([]);
 });
 
-test("home: rows, sidebar and back again", async ({ page, openTv }, info) => {
+test("home: hero, rows, tab bar and back again", async ({ page, openTv }, info) => {
   await openTv("/");
-  let f = await waitForFocus(page, `c${ids.movie + 3}`); // first Continue Watching card
-  await snap(page, info, "01 home");
+  let f = await waitForFocus(page, "hero-play");
+  await snap(page, info, "01 home hero");
 
-  // Down through every row to the bottom, then back up to the first.
+  // Down into the rows (Continue Watching first), through every row, and back up to the hero.
+  const cw = await press(page, "down");
+  expect(cw.fk, "Down from the hero reaches Continue Watching").toBe(`c${ids.movie + 3}`);
+  await snap(page, info, "02 first row");
   const down = await walk(page, "down");
   expect(down.length, "Down should visit all five rows").toBe(5);
-  await snap(page, info, "02 last row");
+  await snap(page, info, "03 last row");
   const up = await walk(page, "up");
-  expect(up.at(-1)!.fk).toBe(f.fk);
+  expect(up.at(-2)!.fk, "Up from the rows returns to the hero").toBe(f.fk);
+  expect(up.at(-1)!.fk, "...and then the Home tab").toBe("nav-home");
+  expect((await press(page, "down")).fk, "Down from the tab bar goes back into the hero").toBe(f.fk);
 
   // Along a row and back.
+  await press(page, "down");
   await press(page, "down");
   f = await press(page, "down"); // Recently Added Movies
   const along = await walk(page, "right");
   expect(along.at(-1)!.fk, "Right should reach See all at the end of the row, and stop there").toBe("more-Recently Added Movies");
-  await snap(page, info, "03 end of row");
-
-  // Left all the way: back to the first card, then into the sidebar on Home.
+  await snap(page, info, "04 end of row");
   const left = await walk(page, "left");
-  expect(left.at(-2)!.fk).toBe(f.fk);
-  expect(left.at(-1)!.fk).toBe("nav-home");
-  await snap(page, info, "04 sidebar open");
-  expect((await press(page, "left")).fk, "Left in the sidebar stays put").toBe("nav-home");
-  expect((await press(page, "up")).fk).toBe("nav-search");
-  expect((await press(page, "up")).fk, "Up at the top of the sidebar stays put").toBe("nav-search");
-  const back = await press(page, "right");
-  expect(back.fk, "Right leaves the sidebar where you were").toBe(f.fk);
+  expect(left.at(-1)!.fk, "Left stops at the start of the row").toBe(f.fk);
+
+  // Up to the top: hero, then the tab bar on Home.
+  const top = await walk(page, "up");
+  expect(top.at(-2)!.fk).toBe("hero-play");
+  expect(top.at(-1)!.fk, "Up from the hero lands on the Home tab").toBe("nav-home");
+  await snap(page, info, "05 tab bar");
+  expect((await press(page, "up")).fk, "Up in the tab bar stays put").toBe("nav-home");
+  expect((await press(page, "left")).fk).toBe("nav-search");
+  expect((await press(page, "left")).fk, "Left at the start of the tab bar stays put").toBe("nav-search");
+  await press(page, "right");
+  const tabs = await walk(page, "right");
+  expect(tabs.at(-1)!.fk, "Right ends on the settings avatar").toBe("nav-settings");
+  const back = await press(page, "down");
+  expect(back.fk, "Down leaves the tab bar back into the page").toBe("hero-play");
 });
 
 test("show page: Down leaves the hero into the seasons", async ({ page, openTv }, info) => {
@@ -92,8 +103,10 @@ test("library: grid, filters and the genre picker", async ({ page, openTv }, inf
   const down = await walk(page, "down", 6);
   expect(down.length).toBeGreaterThan(4);
   await snap(page, info, "02 scrolled down");
-  await walk(page, "up");
-  expect((await focused(page)).fk, "Up from the top row reaches the filters").toMatch(/^(f-|sort|order|genre)/);
+  const up = await walk(page, "up");
+  expect(up.at(-2)!.fk, "Up from the top row reaches the filters").toMatch(/^(f-|sort|order|genre)/);
+  expect(up.at(-1)!.fk, "...and then this library's tab").toBe(`nav-lib${MOVIES_LIB}`);
+  expect((await press(page, "down")).fk, "Down leaves the tab bar into the filters").toMatch(/^(f-|sort|order|genre)/);
   await walk(page, "right");
   expect((await focused(page)).fk).toBe("genre");
 
