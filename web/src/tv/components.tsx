@@ -100,9 +100,11 @@ export interface CardProps {
   sub?: string;
   label?: string;
   autoFocus?: boolean;
+  /** Where focus lands the first time you move into this card's row. */
+  isDefault?: boolean;
 }
 
-export function TvCard({ c, shape, onSelect, onPlay, onFocusCard, title, sub, label, autoFocus }: CardProps) {
+export function TvCard({ c, shape, onSelect, onPlay, onFocusCard, title, sub, label, autoFocus, isDefault }: CardProps) {
   const isEp = c.kind === "episode";
   const img = shape === "poster"
     ? art(c.poster || c.showPoster, "w342")
@@ -115,6 +117,7 @@ export function TvCard({ c, shape, onSelect, onPlay, onFocusCard, title, sub, la
       data-f
       data-fk={`c${c.id}`}
       data-autofocus={autoFocus ? "" : undefined}
+      data-default={isDefault ? "" : undefined}
       onClick={() => onSelect(c)}
       onFocus={() => onFocusCard?.(c)}
       onKeyDown={(e) => {
