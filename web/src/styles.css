@@ -210,6 +210,11 @@ a.row-title:hover svg { opacity: 1; transform: none; }
 
 /* ---------- libraries page ---------- */
 .libraries h1 { margin-bottom: 24px; }
+.lib-prefs-title { margin: 40px 0 4px; font: 700 20px "Space Grotesk", sans-serif; }
+.lib-prefs { display: grid; gap: 2px; max-width: 640px; margin-top: 14px; }
+.lib-pref { display: flex; align-items: center; gap: 22px; padding: 10px 14px; border-radius: 10px; background: var(--bg-2); }
+.lib-pref .t { flex: 1; font-weight: 600; }
+.lib-pref label { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-2, inherit); }
 .lib-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
 .lib-tile { position: relative; aspect-ratio: 16 / 8; border-radius: 18px; overflow: hidden; display: grid; place-items: center; text-align: center; background: radial-gradient(100% 100% at 0% 0%, hsl(var(--h) 70% 40% / 0.5), transparent 60%), radial-gradient(100% 100% at 100% 100%, hsl(calc(var(--h) + 70) 70% 45% / 0.4), transparent 60%), var(--bg-2); box-shadow: 0 0 0 1px var(--border) inset; transition: transform 0.35s var(--ease), box-shadow 0.35s; }
 .lib-tile:hover { transform: translateY(-4px); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2) inset, 0 30px 50px -20px rgba(0, 0, 0, 0.9); }

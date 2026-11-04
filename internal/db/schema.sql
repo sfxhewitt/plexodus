@@ -165,3 +165,13 @@ CREATE TABLE IF NOT EXISTS invites (
     used_by       INTEGER REFERENCES users(id) ON DELETE SET NULL,
     used_at       INTEGER
 );
+
+-- Per-user display choices for each library: hidden from the menu (tab bar,
+-- sidebar) and/or from Home's rows. Access control stays in user_libraries.
+CREATE TABLE IF NOT EXISTS user_library_prefs (
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    library_id INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+    hide_nav   INTEGER NOT NULL DEFAULT 0,
+    hide_home  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, library_id)
+);

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { api, Library } from "../api";
+import { api, Library, LibraryPrefs } from "../api";
 import { focusEl, focusables, focusInitial } from "./focus";
 
 // ---------- focus memory per history entry ----------
@@ -44,10 +44,20 @@ export function useRefresh(reload: () => void) {
 export const ToastCtx = createContext<(msg: string) => void>(() => {});
 export const useToast = () => useContext(ToastCtx);
 
+/** Every library the user can see, including ones hidden from the menu. Updates when a choice changes. */
 export function useLibraries() {
   const [data, setData] = useState<Library[] | undefined>(() => api.cached<Library[]>("/api/libraries"));
   useEffect(() => {
-    api.get<Library[]>("/api/libraries").then(setData, () => {});
+    const load = () => api.get<Library[]>("/api/libraries").then(setData, () => {});
+    // Apply a change straight away, then confirm it with the server.
+    const onPrefs = (e: Event) => {
+      const { id, prefs } = (e as CustomEvent<{ id: number; prefs: LibraryPrefs }>).detail;
+      setData((ls) => ls?.map((l) => (l.id === id ? { ...l, ...prefs } : l)));
+      load();
+    };
+    load();
+    window.addEventListener("plexodus:library-prefs", onPrefs);
+    return () => window.removeEventListener("plexodus:library-prefs", onPrefs);
   }, []);
   return { data };
 }

@@ -95,6 +95,7 @@ func (s *Server) Handler() http.Handler {
 	user("PUT /api/me/password", s.handleMyPassword)
 	user("GET /api/home", s.handleHome)
 	user("GET /api/libraries", s.handleLibraries)
+	user("PUT /api/me/libraries/{id}", s.handleLibraryPrefs)
 	user("GET /api/libraries/{id}/items", s.handleLibraryItems)
 	user("GET /api/libraries/{id}/genres", s.handleLibraryGenres)
 	user("GET /api/items/{id}", s.handleItem)
