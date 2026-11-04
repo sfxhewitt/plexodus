@@ -34,4 +34,20 @@ object Http {
             c.disconnect()
         }
     }
+
+    /** Fetches a small binary (artwork); null on any failure. */
+    fun bytes(url: String, headers: Map<String, String> = emptyMap(), timeoutMs: Int = 10_000): ByteArray? {
+        val c = URL(url).openConnection() as HttpURLConnection
+        return try {
+            c.connectTimeout = timeoutMs
+            c.readTimeout = timeoutMs
+            c.instanceFollowRedirects = true
+            for ((k, v) in headers) c.setRequestProperty(k, v)
+            if (c.responseCode != 200) null else c.inputStream.use { it.readBytes() }
+        } catch (_: Exception) {
+            null
+        } finally {
+            c.disconnect()
+        }
+    }
 }

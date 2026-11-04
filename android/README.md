@@ -28,6 +28,15 @@ other because every build is signed with the same key.
   and reports progress to `/api/items/{id}/progress` like the web player does.
   When it closes, the page gets a `plexodus:native-ended` event so "up next"
   and resume positions behave the same as in a browser.
+- At the credits (the credits marker, or 10 seconds from the end) an episode
+  shows an "Up next in 10" card for the following episode (next in the
+  season, else the first of the next season). It counts down while playing
+  and then plays it in the same player; Back or Cancel dismisses it. After
+  three episodes in a row with no button pressed, the card asks "Are you
+  still watching?" instead and waits; unanswered, the player lets the TV
+  sleep and closes after 30 minutes. Once the player has offered the next
+  episode itself it reports `ended: false` (with the started item's id), so
+  the page doesn't offer it again.
 
 ## On a TV
 
