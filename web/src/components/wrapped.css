@@ -1,0 +1,227 @@
+/*
+ * Plexodus Wrapped story (components/WrappedStory.tsx), shared by the web and
+ * TV interfaces. Sized in em: the page sets the font size. TV-safe: no flex
+ * gap, inset, aspect-ratio, filters or backdrop-filter; animations are
+ * opacity/transform only and run once per slide.
+ */
+.wr {
+  --wr-cyan: #22e4ff;
+  --wr-violet: #8b5cf6;
+  --wr-magenta: #ff2bd6;
+  --wr-text: #f5f5f7;
+  --wr-soft: #c7c7cc;
+  --wr-muted: #9a9aa6;
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  overflow: hidden;
+  background: #05050a;
+  color: var(--wr-text);
+  line-height: 1.3;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ---- background: artwork faded into a static neon glow ---- */
+.wr-bg, .wr-bg-img, .wr-bg-glow { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
+.wr-bg-img {
+  background-size: cover;
+  background-position: center 25%;
+  opacity: 0.28;
+  animation: wr-fade 0.8s ease both;
+}
+.wr-bg-glow {
+  background:
+    radial-gradient(60% 55% at 12% 8%, rgba(34, 228, 255, 0.22), transparent 70%),
+    radial-gradient(55% 60% at 92% 95%, rgba(255, 43, 214, 0.24), transparent 70%),
+    radial-gradient(40% 40% at 70% 20%, rgba(139, 92, 246, 0.16), transparent 70%),
+    linear-gradient(180deg, rgba(5, 5, 10, 0.35), rgba(5, 5, 10, 0.85));
+}
+
+/* ---- progress bars ---- */
+.wr-progress {
+  position: absolute;
+  top: 1.2em; left: 1.5em; right: 1.5em;
+  display: flex;
+  z-index: 2;
+}
+.wr-progress-seg {
+  flex: 1;
+  height: 0.22em;
+  margin: 0 0.15em;
+  border-radius: 1em;
+  background: rgba(255, 255, 255, 0.22);
+  overflow: hidden;
+}
+.wr-progress-fill {
+  height: 100%;
+  width: 100%;
+  background: #fff;
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+.wr-progress-fill.done { transform: scaleX(1); }
+.wr-progress-fill.run { animation: wr-progress 7s linear forwards; }
+.wr-progress-fill.paused { animation-play-state: paused; }
+@keyframes wr-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* ---- slide ---- */
+.wr-slide {
+  position: absolute;
+  top: 3em; left: 0; right: 0; bottom: 1.5em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 2em;
+  z-index: 1;
+}
+.wr-center { text-align: center; max-width: 40em; }
+.wr-panel { width: 100%; max-width: 44em; }
+
+.wr-eyebrow {
+  font-size: 0.85em;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--wr-cyan);
+  margin-bottom: 0.8em;
+}
+.wr-huge {
+  font-family: "Space Grotesk", "SF Pro Display", Inter, sans-serif;
+  font-size: 5.6em;
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+}
+.wr-huge-sm {
+  font-family: "Space Grotesk", "SF Pro Display", Inter, sans-serif;
+  font-size: 3.4em;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  margin-bottom: 0.15em;
+}
+.wr-big { font-size: 1.8em; font-weight: 700; margin-top: 0.2em; }
+.wr-title {
+  font-family: "Space Grotesk", "SF Pro Display", Inter, sans-serif;
+  font-size: 1.9em;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.6em;
+}
+.wr-lead { font-size: 1.5em; font-weight: 600; margin: 0.6em 0 0; }
+.wr-soft { font-size: 1.1em; color: var(--wr-soft); margin: 0.8em 0 0; }
+.wr-caption { font-size: 0.8em; color: var(--wr-muted); margin: 0.6em 0 0; }
+
+/* Gradient text, with a plain colour where background-clip isn't supported. */
+.wr-neon { color: var(--wr-cyan); }
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  .wr-neon {
+    background: linear-gradient(90deg, var(--wr-cyan), var(--wr-violet) 55%, var(--wr-magenta));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
+}
+
+/* ---- stats row ---- */
+.wr-stats { display: flex; justify-content: center; margin-top: 1.6em; }
+.wr-stats > div {
+  margin: 0 0.4em;
+  padding: 0.7em 1.1em;
+  min-width: 6em;
+  border-radius: 0.8em;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.wr-stats b { display: block; font-size: 1.7em; font-weight: 800; }
+.wr-stats span { font-size: 0.85em; color: var(--wr-soft); }
+
+/* ---- top lists ---- */
+.wr-list { list-style: none; margin: 0; padding: 0; }
+.wr-list li { display: flex; align-items: center; margin-bottom: 0.55em; }
+.wr-rank {
+  width: 1.6em;
+  font-size: 1.5em;
+  font-weight: 800;
+  color: var(--wr-magenta);
+  text-align: center;
+  flex: none;
+}
+.wr-poster {
+  width: 2.6em;
+  height: 3.9em;
+  border-radius: 0.35em;
+  background: #1a1a26 center / cover no-repeat;
+  flex: none;
+  margin: 0 0.9em 0 0.3em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  color: var(--wr-muted);
+  box-shadow: 0 0.3em 0.9em rgba(0, 0, 0, 0.5);
+}
+.wr-list-text { min-width: 0; }
+.wr-list-title { font-size: 1.2em; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wr-list-sub { font-size: 0.9em; color: var(--wr-soft); }
+
+/* ---- vertical bars (single series; the peak in magenta) ---- */
+.wr-bars { display: flex; align-items: flex-end; height: 9em; margin-top: 1.4em; }
+.wr-bar { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; margin: 0 1px; }
+.wr-bar-track { flex: 1; width: 100%; display: flex; align-items: flex-end; }
+.wr-bar-fill {
+  width: 100%;
+  border-radius: 0.25em 0.25em 0 0;
+  background: var(--wr-cyan);
+  opacity: 0.75;
+  transform-origin: bottom;
+  animation: wr-grow 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) 0.45s both;
+}
+.wr-bar.peak .wr-bar-fill { background: var(--wr-magenta); opacity: 1; }
+.wr-bar-label { height: 1.4em; font-size: 0.75em; color: var(--wr-muted); margin-top: 0.3em; white-space: nowrap; }
+.wr-bar.peak .wr-bar-label { color: var(--wr-text); font-weight: 700; }
+@keyframes wr-grow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+
+/* ---- horizontal bars (genres) ---- */
+.wr-hbars { margin-top: 0.4em; }
+.wr-hbar { display: flex; align-items: center; margin-bottom: 0.7em; }
+.wr-hbar-name { width: 8.5em; flex: none; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wr-hbar-track { flex: 1; height: 1.1em; margin: 0 0.8em; }
+.wr-hbar-fill {
+  height: 100%;
+  border-radius: 0 0.3em 0.3em 0;
+  background: var(--wr-cyan);
+  opacity: 0.75;
+  transform-origin: left;
+  animation: wr-growx 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) 0.3s both;
+}
+.wr-hbar.peak .wr-hbar-fill { background: var(--wr-magenta); opacity: 1; }
+.wr-hbar-val { width: 3.5em; flex: none; text-align: right; color: var(--wr-soft); font-variant-numeric: tabular-nums; }
+@keyframes wr-growx { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* ---- summary grid ---- */
+.wr-grid { display: flex; flex-wrap: wrap; margin: 0 -0.35em; }
+.wr-grid > div {
+  width: calc(50% - 0.7em);
+  margin: 0 0.35em 0.7em;
+  padding: 0.75em 1em;
+  border-radius: 0.8em;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  min-width: 0;
+}
+.wr-grid span { display: block; font-size: 0.75em; letter-spacing: 0.12em; text-transform: uppercase; color: var(--wr-muted); }
+.wr-grid b { display: block; font-size: 1.25em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- entrance animations (once per slide) ---- */
+.wr-in { animation: wr-up 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.wr-pop { animation: wr-pop 0.7s cubic-bezier(0.2, 0.9, 0.25, 1.2) 0.1s both; }
+@keyframes wr-up { from { opacity: 0; transform: translateY(0.8em); } to { opacity: 1; transform: none; } }
+@keyframes wr-pop { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: none; } }
+@keyframes wr-fade { from { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .wr-in, .wr-pop, .wr-bar-fill, .wr-hbar-fill, .wr-bg-img { animation: none; }
+}

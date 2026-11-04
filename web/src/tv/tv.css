@@ -605,3 +605,47 @@ html.tv [data-hscroll]::-webkit-scrollbar, html.tv [data-vscroll]::-webkit-scrol
 .tv-pf-editor-actions { margin-top: 1rem; }
 .tv-avatar.pf { background: var(--pf); font-size: 2.2rem; text-transform: none; }
 .tv-avatar.pf b { font-size: 1.7rem; color: #07070c; }
+
+/* ---------- smart rows ---------- */
+.tv-row-eyebrow {
+  display: inline-block; vertical-align: 0.2em; margin-right: 0.8rem; padding: 0.2rem 0.7rem; border-radius: 1rem;
+  font-size: 0.85rem; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase;
+  color: #05050a; background: var(--tv-neon);
+}
+
+/* ---------- Plexodus Wrapped ---------- */
+.tv-wrapped-row { padding-top: 0.6rem; }
+.tv-wrapped-banner {
+  position: relative; display: flex; align-items: center; justify-content: space-between; overflow: hidden;
+  margin: 0 var(--pad); width: calc(100% - 2 * var(--pad)); height: 9.5rem; padding: 0 3rem; border-radius: 1.2rem;
+  background: #0b0b14; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  transition: transform var(--tv-fast) var(--tv-ease);
+}
+.tv-wrapped-banner:focus { transform: scale(1.02); box-shadow: var(--tv-glow); }
+.tv-wrapped-glow {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none;
+  background: radial-gradient(60% 140% at 0% 0%, rgba(34, 228, 255, 0.3), transparent 70%),
+    radial-gradient(60% 160% at 100% 100%, rgba(255, 43, 214, 0.32), transparent 70%);
+}
+.tv-wrapped-text { position: relative; display: flex; flex-direction: column; }
+.tv-wrapped-eyebrow { font-size: 0.95rem; font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; color: var(--tv-cyan); }
+.tv-wrapped-title { font-size: 2.3rem; font-weight: 800; letter-spacing: -0.02em; margin: 0.2rem 0; }
+.tv-wrapped-sub { font-size: 1.25rem; color: var(--tv-soft); }
+.tv-wrapped-year {
+  position: relative; font-size: 6rem; font-weight: 900; letter-spacing: -0.05em; line-height: 1;
+  color: var(--tv-cyan); background: var(--tv-neon); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+
+.tv-wrapped { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 12; background: var(--tv-bg); font-size: 2rem; }
+.tv-wrapped .wr-progress { top: 2.4rem; left: var(--tv-safe); right: var(--tv-safe); }
+.tv-wrapped .wr-slide { top: 5rem; bottom: 3rem; padding: 0 var(--tv-safe); }
+.tv-wrapped .wr-progress-fill.run { animation-duration: 9s; }
+.tv-wrapped .wr-actions, .wr-tv-actions { margin-top: 1.2em; justify-content: center; }
+.tv-wrapped .wr-center .tv-actions { justify-content: center; }
+.tv-wrapped .tv-btn { font-size: 1.4rem; }
+.tv-wrapped-anchor { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 2; background: none; }
+.tv-wrapped-anchor:focus { background: none; box-shadow: none; transform: none; }
+.tv-wrapped-hint {
+  position: absolute; bottom: 1.6rem; left: 0; right: 0; text-align: center;
+  font-size: 1.1rem; color: var(--tv-muted); letter-spacing: 0.05em;
+}

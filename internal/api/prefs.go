@@ -104,6 +104,7 @@ func (s *Server) handleWatchlist(w http.ResponseWriter, r *http.Request) {
 	} else {
 		_, err = s.db.W.ExecContext(r.Context(), `DELETE FROM watchlist WHERE user_id = ? AND item_id = ?`, currentUser(r).ID, id)
 	}
+	s.smart.forget(currentUser(r).ID) // cards carry the watchlist flag
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

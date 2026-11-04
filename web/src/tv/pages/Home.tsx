@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { art, Card, fmtRuntime, Row as RowT } from "../../api";
+import { art, Card, fmtRuntime, HomeData } from "../../api";
 import { ChevronRight, Info, Play } from "../../components/Icons";
 import { useApi } from "../../hooks";
 import { Spinner, TvButton, TvCard, TvRow, useBackdrop } from "../components";
@@ -137,8 +137,26 @@ function Hero({ items, onPlay }: { items: Card[]; onPlay: (c: Card) => void }) {
 
 const CONTINUE = { continueRow: true };
 
+/** A single wide tile that opens Plexodus Wrapped. */
+function WrappedBanner({ year }: { year: number }) {
+  const nav = useNavigate();
+  return (
+    <section className="tv-row tv-wrapped-row" data-row data-group="home-wrapped">
+      <button className="tv-wrapped-banner" data-f data-fk="wrapped" onClick={() => nav("/wrapped")}>
+        <span className="tv-wrapped-glow" />
+        <span className="tv-wrapped-text">
+          <span className="tv-wrapped-eyebrow">Plexodus Wrapped</span>
+          <span className="tv-wrapped-title">Your {year} in watching</span>
+          <span className="tv-wrapped-sub">Hours, top shows, binge records and your peak time of day</span>
+        </span>
+        <span className="tv-wrapped-year">{year}</span>
+      </button>
+    </section>
+  );
+}
+
 export default function Home() {
-  const { data, error, reload } = useApi<{ hero: Card[]; rows: RowT[] }>("/api/home");
+  const { data, error, reload } = useApi<HomeData>("/api/home");
   useRefresh(reload);
   const nav = useNavigate();
   const toast = useToast();
@@ -175,7 +193,8 @@ export default function Home() {
           // Apple TV style: wide cards everywhere; posters only when there's no art.
           const continuing = r.kind === "landscape";
           return (
-            <TvRow key={r.title} id={`home-${r.title}`} title={r.title}>
+            <Fragment key={r.title}>
+            <TvRow id={`home-${r.title}`} title={r.smart ? <><span className="tv-row-eyebrow">Tonight</span>{r.title}</> : r.title}>
               {r.items.map((c, i) => (
                 <TvCard key={c.id} c={c} shape="land" autoFocus={!hasHero && ri === 0 && i === 0}
                   title={c.kind === "episode" ? c.showTitle || c.title : c.title}
@@ -187,6 +206,9 @@ export default function Home() {
                 </button>
               )}
             </TvRow>
+            {/* Wrapped sits under the first row, so Continue Watching stays on top. */}
+            {ri === 0 && data.wrapped && <WrappedBanner year={data.wrapped.year} />}
+            </Fragment>
           );
         })}
         <div className="tv-rows-tail" />

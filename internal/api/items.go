@@ -43,6 +43,8 @@ type Card struct {
 	ViewedLeaves  int     `json:"viewedLeafCount,omitempty"`
 	Overview      string  `json:"overview,omitempty"`
 	Watchlisted   bool    `json:"watchlisted,omitempty"`
+	// Note replaces the card's subtitle in smart rows ("Season 2 · 3 left").
+	Note string `json:"note,omitempty"`
 }
 
 // cardCols selects card fields from items alias i, with the user's watch
@@ -281,6 +283,9 @@ type Row struct {
 	Link  string `json:"link,omitempty"`
 	Kind  string `json:"kind"` // "poster" or "landscape"
 	Items []Card `json:"items"`
+	// Smart marks a "Tonight" row worked out for the user (season, because,
+	// short, gems); the UIs label these rows.
+	Smart string `json:"smart,omitempty"`
 }
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
@@ -310,6 +315,13 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	// Libraries the user hid from Home get no rows there (Continue Watching
 	// still includes them).
 	hiddenHome := s.hiddenHomeLibraries(r)
+
+	// "Tonight" smart rows (see smart.go): some go near the top, the rest
+	// after the libraries' rows.
+	tSmart0 := time.Now()
+	early, later := s.smartRows(r, hiddenHome)
+	rows = append(rows, early...)
+	tSmart := time.Since(tSmart0)
 	libs, err := s.db.R.QueryContext(ctx, `SELECT l.id, l.name, l.kind FROM libraries l`+libACL(currentUser(r))+` ORDER BY l.name`)
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -344,7 +356,8 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tLibs := time.Since(t0) - tCont
+	tLibs := time.Since(t0) - tCont - tSmart
+	rows = append(rows, later...)
 
 	// Hero: recent, well-rated titles that have artwork worth showing.
 	hero, err := s.cards(r, `WHERE i.kind IN ('movie', 'show') AND i.backdrop IS NOT NULL AND i.overview IS NOT NULL
@@ -368,9 +381,14 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		rows = []Row{}
 	}
 	if took := time.Since(t0); took > 500*time.Millisecond {
-		log.Printf("home: %s (continue %s, libraries %s)", took.Round(time.Millisecond), tCont.Round(time.Millisecond), tLibs.Round(time.Millisecond))
+		log.Printf("home: %s (continue %s, smart rows %s, libraries %s)", took.Round(time.Millisecond), tCont.Round(time.Millisecond),
+			tSmart.Round(time.Millisecond), tLibs.Round(time.Millisecond))
 	}
-	writeJSON(w, map[string]any{"hero": hero, "rows": rows})
+	resp := map[string]any{"hero": hero, "rows": rows}
+	if t := s.wrappedTeaser(r); t != nil {
+		resp["wrapped"] = t
+	}
+	writeJSON(w, resp)
 }
 
 // continueWatching merges in-progress items with the next unwatched episode
@@ -627,12 +645,16 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 			watched = MAX(watch_state.watched, excluded.watched),
 			updated_at = excluded.updated_at`,
 		currentUser(r).ID, id, pos, body.Duration, watched, boolInt(watched), db.Now())
+	if err == nil && watched {
+		err = db.RecordPlay(r.Context(), s.db.W, currentUser(r).ID, id, db.Now(), body.Duration, "plexodus")
+		s.smart.forget(currentUser(r).ID)
+	}
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
 	// Near the end of an episode, get the next one's skip markers ready.
-	if body.Duration > 0 && body.Position/body.Duration > 0.7 {
+	if s.detector != nil && body.Duration > 0 && body.Position/body.Duration > 0.7 {
 		s.detector.OnNearEnd(s.baseCtx, id)
 	}
 	writeJSON(w, map[string]any{"watched": watched})
@@ -667,6 +689,7 @@ func (s *Server) handleWatched(w http.ResponseWriter, r *http.Request) {
 		ON CONFLICT(user_id, item_id) DO UPDATE SET watched = excluded.watched, position = 0,
 			play_count = watch_state.play_count + excluded.play_count, updated_at = excluded.updated_at`,
 		id, uid, body.Watched, boolInt(body.Watched), db.Now())
+	s.smart.forget(uid)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return

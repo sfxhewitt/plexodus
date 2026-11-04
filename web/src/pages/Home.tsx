@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { art, Card, fmtRuntime, Library, Row as RowT } from "../api";
+import { art, Card, fmtRuntime, HomeData, Library } from "../api";
 import { Row } from "../components/Cards";
 import { Info, Play } from "../components/Icons";
 import { useApi, useUser } from "../hooks";
@@ -48,8 +48,22 @@ function Hero({ items }: { items: Card[] }) {
   );
 }
 
+function WrappedBanner({ year }: { year: number }) {
+  return (
+    <Link to="/wrapped" className="wrapped-banner">
+      <span className="wrapped-banner-glow" />
+      <span className="wrapped-banner-text">
+        <span className="wrapped-banner-eyebrow">Plexodus Wrapped</span>
+        <span className="wrapped-banner-title">Your {year} in watching</span>
+        <span className="wrapped-banner-sub">Hours, top shows, binge records and your peak time of day</span>
+      </span>
+      <span className="wrapped-banner-year">{year}</span>
+    </Link>
+  );
+}
+
 export default function Home() {
-  const { data, error } = useApi<{ hero: Card[]; rows: RowT[] }>("/api/home");
+  const { data, error } = useApi<HomeData>("/api/home");
   const { data: libs } = useApi<Library[]>("/api/libraries");
   const { user } = useUser();
 
@@ -71,7 +85,14 @@ export default function Home() {
     <div className={`home ${data.hero.length ? "" : "no-hero"}`}>
       <Hero items={data.hero} />
       <div className="rows">
-        {data.rows.map((r) => <Row key={r.title} {...r} />)}
+        {data.rows.map((r, i) => (
+          <Fragment key={r.title}>
+            <Row {...r} />
+            {/* Wrapped sits under the first row, so Continue Watching stays on top. */}
+            {i === 0 && data.wrapped && <WrappedBanner year={data.wrapped.year} />}
+          </Fragment>
+        ))}
+        {!data.rows.length && data.wrapped && <WrappedBanner year={data.wrapped.year} />}
       </div>
     </div>
   );

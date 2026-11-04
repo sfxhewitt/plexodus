@@ -256,10 +256,14 @@ func (s *Syncer) sync(ctx context.Context, c *Client, pm PathMap) (checked, upda
 			seen[key] = t
 		}
 	}
+	var plays []HistoryEntry
 	if err := c.History(ctx, since, func(page []HistoryEntry) error {
 		for _, h := range page {
 			if h.Type == "" || h.Type == "movie" || h.Type == "episode" {
 				add(h.RatingKey, h.ViewedAt)
+				if OwnerPlay(h) {
+					plays = append(plays, h)
+				}
 			}
 		}
 		return nil
@@ -291,7 +295,77 @@ func (s *Syncer) sync(ctx context.Context, c *Client, pm PathMap) (checked, upda
 			return checked, updated, err
 		}
 	}
-	return checked, updated, s.db.SetSetting(ctx, "plex_sync_cursor", strconv.FormatInt(started, 10))
+	// Items are linked by now (apply links new titles by path), so each
+	// play can be logged for Wrapped.
+	if err := s.recordPlays(ctx, uid, plays); err != nil {
+		return checked, updated, err
+	}
+	if err := s.db.SetSetting(ctx, "plex_sync_cursor", strconv.FormatInt(started, 10)); err != nil {
+		return checked, updated, err
+	}
+	return checked, updated, s.backfillHistory(ctx, c, uid)
+}
+
+// OwnerPlay reports whether a history entry is the server owner's own view
+// (Plex numbers the owner's local account 1); friends' plays are left out
+// of the owner's Wrapped.
+func OwnerPlay(h HistoryEntry) bool { return h.AccountID == 0 || h.AccountID == 1 }
+
+// recordPlays logs Plex views in watch_history, for items linked to Plex.
+func (s *Syncer) recordPlays(ctx context.Context, uid int64, plays []HistoryEntry) error {
+	if len(plays) == 0 {
+		return nil
+	}
+	return s.db.Tx(ctx, func(tx *sql.Tx) error {
+		for _, h := range plays {
+			ids, err := queryIDs(tx, `SELECT item_id FROM plex_links WHERE rating_key = ?`, h.RatingKey)
+			if err != nil {
+				return err
+			}
+			for _, id := range ids {
+				if err := db.RecordPlay(ctx, tx, uid, id, h.ViewedAt, playLength(tx, id), "plex"); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
+// playLength is an item's length in seconds from what's already in the
+// database (never the file): the probed duration, else the runtime.
+func playLength(tx *sql.Tx, itemID int64) float64 {
+	var secs float64
+	tx.QueryRow(`SELECT COALESCE((SELECT MAX(duration) FROM media_files WHERE item_id = ?1),
+		(SELECT runtime * 60 FROM items WHERE id = ?1), 0)`, itemID).Scan(&secs)
+	return secs
+}
+
+// backfillHistory reads Plex's whole play history once (the regular sync
+// only looks back from its cursor), so Wrapped covers the years before
+// Plexodus. It only adds history rows; watch state is left to the sync.
+func (s *Syncer) backfillHistory(ctx context.Context, c *Client, uid int64) error {
+	if s.db.Setting(ctx, "plex_history_backfill") == "done" {
+		return nil
+	}
+	var all []HistoryEntry
+	if err := c.History(ctx, 1, func(page []HistoryEntry) error {
+		for _, h := range page {
+			if (h.Type == "" || h.Type == "movie" || h.Type == "episode") && OwnerPlay(h) {
+				all = append(all, h)
+			}
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("history backfill: %w", err)
+	}
+	for i := 0; i < len(all); i += 500 {
+		if err := s.recordPlays(ctx, uid, all[i:min(i+500, len(all))]); err != nil {
+			return err
+		}
+	}
+	log.Printf("plex watch sync: %d past plays read for Wrapped", len(all))
+	return s.db.SetSetting(ctx, "plex_history_backfill", "done")
 }
 
 // State is a Plex item's watch state as Plexodus stores it.

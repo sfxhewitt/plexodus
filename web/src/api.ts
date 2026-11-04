@@ -27,6 +27,8 @@ export interface Card {
   overview?: string;
   /** On the signed-in user's watchlist. */
   watchlisted?: boolean;
+  /** Smart rows: replaces the subtitle ("Season 2 · 3 left · 2h 10m"). */
+  note?: string;
 }
 
 export interface Stream {
@@ -134,6 +136,55 @@ export interface Row {
   link?: string;
   kind: "poster" | "landscape";
   items: Card[];
+  /** A "Tonight" row picked for the user (season, because, short, gems). */
+  smart?: string;
+}
+
+export interface HomeData {
+  hero: Card[];
+  rows: Row[];
+  /** Present when the user has plays this year: Home offers their Wrapped. */
+  wrapped?: { year: number; plays: number };
+}
+
+export interface WrappedTitle {
+  card: Card;
+  plays: number;
+  seconds: number;
+}
+
+export interface Wrapped {
+  year: number;
+  years: number[];
+  plays: number;
+  movies: number;
+  episodes: number;
+  shows: number;
+  seconds: number;
+  days: number;
+  topShows: WrappedTitle[];
+  topMovies: WrappedTitle[];
+  topGenres: { name: string; seconds: number }[];
+  hours: number[];
+  weekdays: number[];
+  months: number[];
+  peakHour: number;
+  persona: string;
+  blurb: string;
+  streak: { days: number; start?: string; end?: string };
+  binge?: { show: Card; episodes: number; date: string; seconds: number };
+  biggestDay?: { date: string; plays: number; seconds: number };
+  first?: { card: Card; at: number };
+}
+
+export function wrappedUrl(year?: number) {
+  let tz = "";
+  try {
+    tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {
+    /* old WebView */
+  }
+  return `/api/wrapped?tz=${encodeURIComponent(tz)}${year ? `&year=${year}` : ""}`;
 }
 
 export interface PlayInfo {

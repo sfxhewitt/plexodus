@@ -15,6 +15,7 @@ import LibraryPage from "./pages/Library";
 import SearchPage from "./pages/Search";
 import SettingsPage from "./pages/Settings";
 import { Screensaver } from "./Screensaver";
+import WrappedPage from "./pages/Wrapped";
 import { MenuProvider, useLibraryMenu, useLongPress } from "./menu";
 import { TvWhoIsWatching } from "./profiles";
 import { colorOf, forgetPicked, goHome, initialOf, loadProfiles, shouldPick } from "../profiles";
@@ -224,6 +225,7 @@ function Shell() {
               <Route path="/item/:id" element={<Item />} />
               <Route path="/search" element={<SearchPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/wrapped" element={<WrappedPage />} />
               <Route path="/play/:id" element={<PlayRoute />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

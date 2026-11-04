@@ -2,7 +2,7 @@
 // so the TV UI renders the same screens every run without a real server.
 // Shapes follow web/src/api.ts.
 import type { Page, Route } from "@playwright/test";
-import type { Card, Detail, Library, Row } from "../src/api";
+import type { Card, Detail, HomeData, Library, Row, Wrapped } from "../src/api";
 
 const DAY = 86400;
 const NOW = 1_790_000_000;
@@ -117,6 +117,43 @@ function detail(c: Card): Detail {
 interface UserState {
   hiddenContinue: Set<number>;
   watchlist: number[];
+}
+
+/**
+ * Smart rows and the Wrapped tile, added to Home when the page was opened
+ * with ?extras=1 (so the other specs keep the plain Home they count rows on).
+ */
+function extras(h: HomeData): HomeData {
+  const season = seasons.get(shows[0].id)![0];
+  const smart: Row[] = [
+    {
+      title: "Finish a Season This Weekend", kind: "poster", smart: "season",
+      items: [{ ...season, title: shows[0].title, showPoster: shows[0].poster, showBackdrop: shows[0].backdrop, note: "Season 1 · 8 left · 6h 4m" }],
+    },
+    { title: `Because You Watched ${movies[0].title}`, kind: "poster", smart: "because", items: movies.slice(30, 44) },
+  ];
+  const later: Row[] = [
+    { title: "Under 100 Minutes", kind: "poster", smart: "short", items: movies.filter((m) => (m.runtime || 0) <= 100) },
+    { title: "Forgotten Gems", kind: "poster", smart: "gems", items: [...movies.slice(44, 52), shows[5], shows[6]] },
+  ];
+  return { ...h, rows: [h.rows[0], ...smart, ...h.rows.slice(1), ...later], wrapped: { year: 2026, plays: 812 } };
+}
+
+/** A year of Wrapped for the mock user. */
+export function wrapped(year = 2026): Wrapped {
+  const hours = Array.from({ length: 24 }, (_, h) => (h >= 18 ? (24 - Math.abs(22 - h) * 5) * 3600 : h < 2 ? 9 * 3600 : h * 600));
+  return {
+    year, years: [2026, 2025, 2024], plays: 812, movies: 96, episodes: 716, shows: 41, seconds: 1_480_000, days: 233,
+    topShows: shows.slice(0, 5).map((c, i) => ({ card: c, plays: 80 - i * 11, seconds: (80 - i * 11) * 2700 })),
+    topMovies: movies.slice(0, 5).map((c, i) => ({ card: c, plays: i === 0 ? 3 : 1, seconds: (i === 0 ? 3 : 1) * 6600 })),
+    topGenres: GENRES.slice(0, 5).map((name, i) => ({ name, seconds: (300 - i * 50) * 3600 })),
+    hours, weekdays: [5, 3, 3, 4, 4, 7, 8].map((x) => x * 36000), months: [8, 6, 9, 7, 5, 4, 6, 9, 12, 10, 11, 4].map((x) => x * 36000),
+    peakHour: 22, persona: "The Night Owl", blurb: "Your peak was after dark. The best stories start late.",
+    streak: { days: 23, start: `${year}-03-02`, end: `${year}-03-24` },
+    binge: { show: shows[0], episodes: 11, date: `${year}-02-14`, seconds: 11 * 2700 },
+    biggestDay: { date: `${year}-02-14`, plays: 12, seconds: 13 * 2700 },
+    first: { card: shows[1], at: NOW },
+  };
 }
 
 function home(st: UserState = { hiddenContinue: new Set(), watchlist: [] }): { hero: Card[]; rows: Row[] } {
@@ -268,7 +305,8 @@ addEventListener("message", function (e) {
       Object.assign(l, route.request().postDataJSON());
       return json(route, { ok: true });
     }
-    if (p === "/api/home") return json(route, home(st));
+    if (p === "/api/home") return json(route, page.url().includes("extras=1") ? extras(home(st)) : home(st));
+    if (p === "/api/wrapped") return json(route, wrapped(Number(u.searchParams.get("year")) || 2026));
     if ((mm = p.match(/^\/api\/items\/(\d+)\/continue\/hide$/)) && m === "POST") {
       st.hiddenContinue.add(Number(mm[1]));
       return json(route, { ok: true });

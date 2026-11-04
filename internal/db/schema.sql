@@ -212,3 +212,18 @@ CREATE TABLE IF NOT EXISTS continue_hidden (
     hidden_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, item_id)
 );
+
+-- Every completed play, for Plexodus Wrapped and "Because you watched".
+-- watch_state only keeps the latest state per item; this keeps each view.
+-- source: plexodus (played here), plex (Plex play history), state (seeded
+-- from watch_state once, for plays from before this table existed).
+CREATE TABLE IF NOT EXISTS watch_history (
+    id         INTEGER PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    watched_at INTEGER NOT NULL,
+    seconds    REAL NOT NULL DEFAULT 0,       -- how long the item is; 0 = unknown
+    source     TEXT NOT NULL DEFAULT 'plexodus'
+);
+CREATE INDEX IF NOT EXISTS watch_history_user ON watch_history(user_id, watched_at);
+CREATE INDEX IF NOT EXISTS watch_history_item ON watch_history(user_id, item_id, watched_at);

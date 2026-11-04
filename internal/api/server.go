@@ -54,6 +54,8 @@ type Server struct {
 
 	plexArtMu       sync.Mutex
 	plexArtInflight map[string]*artFetch
+
+	smart smartCache
 }
 
 func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner, agent *metadata.Agent,
@@ -112,6 +114,7 @@ func (s *Server) Handler() http.Handler {
 	user("POST /api/profiles/{id}/switch", s.handleSwitchProfile)
 	user("PUT /api/me/password", s.handleMyPassword)
 	user("GET /api/home", s.handleHome)
+	user("GET /api/wrapped", s.handleWrapped)
 	user("GET /api/libraries", s.handleLibraries)
 	user("PUT /api/me/libraries/{id}", s.handleLibraryPrefs)
 	user("GET /api/libraries/{id}/items", s.handleLibraryItems)
