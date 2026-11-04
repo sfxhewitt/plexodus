@@ -520,3 +520,56 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
 .pf-menu button.current { font-weight: 700; }
 .pf-menu hr { width: 100%; border: 0; border-top: 1px solid var(--border); margin: 6px 0; }
 .nav-avatar-btn { padding: 0; border: 0; background: none; border-radius: 28%; }
+
+/* ---- smart rows ---- */
+.row-eyebrow {
+  font: 700 11px Inter, sans-serif; letter-spacing: 0.16em; text-transform: uppercase;
+  padding: 3px 8px; margin-right: 8px; border-radius: 999px;
+  color: #05050a; background: var(--accent);
+}
+
+/* ---- Plexodus Wrapped ---- */
+.wrapped-banner {
+  position: relative; display: flex; align-items: center; justify-content: space-between;
+  margin: 8px var(--gutter) 28px; padding: 22px 28px; border-radius: 18px; overflow: hidden;
+  background: #0b0b14; border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: transform 0.25s var(--ease), border-color 0.25s;
+}
+.wrapped-banner:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, 0.25); }
+.wrapped-banner-glow {
+  position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(60% 120% at 0% 0%, rgba(34, 228, 255, 0.28), transparent 70%),
+    radial-gradient(60% 140% at 100% 100%, rgba(255, 43, 214, 0.3), transparent 70%);
+}
+.wrapped-banner-text { position: relative; display: flex; flex-direction: column; min-width: 0; }
+.wrapped-banner-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: #22e4ff; }
+.wrapped-banner-title { font: 700 24px "Space Grotesk", sans-serif; letter-spacing: -0.02em; margin: 2px 0; }
+.wrapped-banner-sub { color: var(--muted); font-size: 14px; }
+.wrapped-banner-year {
+  position: relative; font: 800 64px/1 "Space Grotesk", sans-serif; letter-spacing: -0.05em; margin-left: 16px;
+  background: linear-gradient(90deg, #22e4ff, #8b5cf6 55%, #ff2bd6); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+@media (max-width: 600px) {
+  .wrapped-banner { padding: 18px; }
+  .wrapped-banner-title { font-size: 19px; }
+  .wrapped-banner-sub { display: none; }
+  .wrapped-banner-year { font-size: 42px; }
+}
+
+.wr-page {
+  position: fixed; inset: 0; z-index: 200; background: #05050a; touch-action: pan-y;
+  font-size: clamp(11px, min(2.1vw, 2.6vh), 22px);
+}
+.wr-page .wr-close { position: absolute; top: 2.2em; right: 1.2em; z-index: 3; font-size: 18px; color: #fff; }
+.wr-page .wr-nav { position: absolute; top: 50%; z-index: 3; margin-top: -20px; color: #fff; background: rgba(255, 255, 255, 0.08); }
+.wr-page .wr-nav.prev { left: 16px; }
+.wr-page .wr-nav.next { right: 16px; }
+.wr-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 1.4em; }
+@media (max-width: 700px), (hover: none) {
+  .wr-page .wr-nav { display: none; }
+  .wr-page .wr-slide { padding: 0 1.2em; }
+}
+@media (max-width: 600px) {
+  .wr-page { font-size: clamp(10px, 3.2vw, 15px); }
+  .wr-page .wr-grid > div { width: calc(100% - 0.7em); }
+}

@@ -14,11 +14,12 @@ import Login from "./pages/Login";
 import Player from "./pages/Player";
 import Search from "./pages/Search";
 import Settings from "./pages/Settings";
+import Wrapped from "./pages/Wrapped";
 import "./styles.css";
 
 function Shell() {
   const loc = useLocation();
-  const playing = loc.pathname.startsWith("/play/");
+  const playing = loc.pathname.startsWith("/play/") || loc.pathname === "/wrapped";
   useEffect(() => {
     if (!loc.pathname.startsWith("/search")) window.scrollTo(0, 0);
   }, [loc.pathname]);
@@ -34,6 +35,7 @@ function Shell() {
           <Route path="/play/:id" element={<Player />} />
           <Route path="/search" element={<Search />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/wrapped" element={<Wrapped />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

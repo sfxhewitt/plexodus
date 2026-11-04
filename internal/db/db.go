@@ -87,8 +87,10 @@ func migrate(w *sql.DB) error {
 			}
 		}
 	}
-	_, err := w.Exec(`CREATE INDEX IF NOT EXISTS users_parent ON users(parent_id)`)
-	return err
+	if _, err := w.Exec(`CREATE INDEX IF NOT EXISTS users_parent ON users(parent_id)`); err != nil {
+		return err
+	}
+	return seedHistory(w)
 }
 
 func (d *DB) Close() error {

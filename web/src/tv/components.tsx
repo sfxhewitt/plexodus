@@ -128,7 +128,7 @@ export const TvCard = memo(function TvCard({ c, shape, onSelect, onPlay, onFocus
     ? art(c.poster || c.showPoster, "w342")
     : art(c.backdrop || c.showBackdrop, "w500");
   const t = title ?? (isEp && shape === "land" ? c.showTitle || c.title : c.title);
-  const s = sub ?? (isEp && shape === "land" ? cardSub(c) : c.kind === "season" ? cardSub(c) : c.year ? String(c.year) : "");
+  const s = sub ?? c.note ?? (isEp && shape === "land" ? cardSub(c) : c.kind === "season" ? cardSub(c) : c.year ? String(c.year) : "");
   return (
     <button
       className={`tv-card ${shape}`}

@@ -53,7 +53,7 @@ function Badge({ c }: { c: Card }) {
 }
 
 export function PosterCard({ c, subtitle }: { c: Card; subtitle?: string }) {
-  const sub = subtitle ?? (c.kind === "season" ? `${c.leafCount || 0} episodes` : c.year ? String(c.year) : "");
+  const sub = subtitle ?? c.note ?? (c.kind === "season" ? `${c.leafCount || 0} episodes` : c.year ? String(c.year) : "");
   return (
     <Link to={itemLink(c)} className="poster-card">
       <div className="poster-frame">
@@ -74,7 +74,7 @@ export function LandscapeCard({ c, to }: { c: Card; to?: string }) {
   const isEp = c.kind === "episode";
   const img = art(c.backdrop || c.showBackdrop, "w780");
   const title = isEp ? c.showTitle || c.title : c.title;
-  const sub = isEp ? `${episodeLabel(c)} — ${c.title}` : c.year ? String(c.year) : "";
+  const sub = c.note ?? (isEp ? `${episodeLabel(c)} — ${c.title}` : c.year ? String(c.year) : "");
   return (
     <Link to={to || (c.position ? `/play/${c.id}` : itemLink(c))} className="land-card">
       <div className="land-frame">
@@ -91,7 +91,7 @@ export function LandscapeCard({ c, to }: { c: Card; to?: string }) {
   );
 }
 
-export function Row({ title, link, kind, items }: { title: string; link?: string; kind: "poster" | "landscape"; items: Card[] }) {
+export function Row({ title, link, kind, items, smart }: { title: string; link?: string; kind: "poster" | "landscape"; items: Card[]; smart?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const scroll = (dir: number) => {
     const el = ref.current;
@@ -100,7 +100,9 @@ export function Row({ title, link, kind, items }: { title: string; link?: string
   return (
     <section className={`row row-${kind}`}>
       <div className="row-head">
-        {link ? <Link to={link} className="row-title">{title}<ChevronRight size={18} /></Link> : <h2 className="row-title">{title}</h2>}
+        {link ? <Link to={link} className="row-title">{title}<ChevronRight size={18} /></Link> : (
+          <h2 className="row-title">{smart && <span className="row-eyebrow">Tonight</span>}{title}</h2>
+        )}
         <div className="row-arrows">
           <button className="icon-btn" onClick={() => scroll(-1)} aria-label="Scroll left"><ChevronLeft /></button>
           <button className="icon-btn" onClick={() => scroll(1)} aria-label="Scroll right"><ChevronRight /></button>
