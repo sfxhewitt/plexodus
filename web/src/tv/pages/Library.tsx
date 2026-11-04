@@ -6,6 +6,7 @@ import { useApi } from "../../hooks";
 import { BackdropCtx, Spinner, TvButton, TvCard } from "../components";
 import { focusInitial, focusKey, onBack } from "../focus";
 import { useLibraries, usePageFocus, useRefresh, useToast } from "../hooks";
+import { requestTrailer, stopTrailer } from "../ambient";
 import { playCard } from "../play";
 
 const PAGE = 120;
@@ -102,6 +103,7 @@ export default function LibraryPage() {
   useEffect(() => () => {
     clearTimeout(bdTimer.current);
     setBackdrop(undefined);
+    stopTrailer();
   }, [setBackdrop]);
   usePageFocus(state.total >= 0);
 
@@ -118,6 +120,8 @@ export default function LibraryPage() {
   const onFocusCard = useCallback((c: Card) => {
     clearTimeout(bdTimer.current);
     bdTimer.current = setTimeout(() => setBackdrop(art(c.backdrop, "w1280")), 350);
+    // Rest on a poster a little longer and its trailer plays behind the grid.
+    requestTrailer(c.kind === "movie" || c.kind === "show" ? c.id : undefined, 3000);
     const { state: st, load: ld } = latest.current;
     if (st.items.length < st.total && st.items.indexOf(c) > st.items.length - 40) ld(st.items.length);
   }, [setBackdrop]);

@@ -185,6 +185,23 @@ export async function mockServer(page: Page, opts: MockOptions = {}) {
     return route.fulfill({ status: 200, contentType: "image/svg+xml", body: artSvg(u.pathname + u.search) });
   });
 
+  // A stand-in YouTube player: answers the iframe API handshake and reports
+  // "playing", like the real embed does once a trailer starts.
+  await page.route(/youtube(-nocookie)?\.com\//, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: `<!doctype html><body style="margin:0;background:#123;color:#fff;font:40px sans-serif">fake trailer<script>
+addEventListener("message", function (e) {
+  var m = JSON.parse(e.data);
+  if (m.event !== "listening") return;
+  parent.postMessage(JSON.stringify({ event: "onReady", id: 1 }), "*");
+  setTimeout(function () { parent.postMessage(JSON.stringify({ event: "onStateChange", info: 1, id: 1 }), "*"); }, 100);
+});
+</script></body>`,
+    }),
+  );
+
   // Per-test copy: the settings screen changes library choices.
   const libs = libraries.map((l) => ({ ...l, hidden: false, hiddenHome: false }));
   const st: UserState = { hiddenContinue: new Set(), watchlist: [] };
@@ -217,6 +234,12 @@ export async function mockServer(page: Page, opts: MockOptions = {}) {
     if ((mm = p.match(/^\/api\/libraries\/(\d+)\/genres$/))) return json(route, GENRES.map((name, i) => ({ name, count: 40 - i * 5 })));
     if ((mm = p.match(/^\/api\/libraries\/(\d+)\/items$/))) return json(route, libraryItems(Number(mm[1]), u.searchParams));
     if ((mm = p.match(/^\/api\/items\/(\d+)\/markers$/))) return json(route, []);
+    // Only the first film has a trailer, so the other screens stay still.
+    if ((mm = p.match(/^\/api\/items\/(\d+)\/trailer$/))) return json(route, { youtube: Number(mm[1]) === ids.movie ? "fakeTrailer" : "" });
+    if ((mm = p.match(/^\/api\/play\/(\d+)$/))) {
+      return json(route, { externalUrl: `http://media.test/stream/${mm[1]}`, position: 0, file: { id: Number(mm[1]), duration: 5400 } });
+    }
+    if (p === "/api/screensaver") return json(route, [...movies.slice(0, 6), ...shows.slice(0, 2)]);
     if ((mm = p.match(/^\/api\/items\/(\d+)\/watched$/)) && m === "POST") return json(route, {});
     if ((mm = p.match(/^\/api\/items\/(\d+)$/))) {
       const c = byId.get(Number(mm[1]));

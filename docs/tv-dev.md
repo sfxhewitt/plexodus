@@ -100,3 +100,24 @@ Notes:
   URL from the proxied API, so video goes seedbox → PC → TV. That's fine for
   testing, but for normal watching switch back to the seedbox address.
 - Only the web UI hot-reloads. Changes under `android/` still need a new APK.
+
+## Screensaver and trailers
+
+- **Screensaver** (`web/src/tv/Screensaver.tsx`): after the idle time set in
+  TV Settings (default 3 minutes, per device in localStorage), it cross-fades
+  through `/api/screensaver` (random films and shows with backdrops from the
+  user's Home libraries) with a slow drift. OK plays the title on screen; any
+  other button, or Back, just wakes the app without moving focus. It never
+  starts while the app's player is up. The TV's own system screensaver still
+  takes over after its timeout.
+- **Trailers** (`web/src/tv/Trailer.tsx`, `ambient.ts`): `/api/items/{id}/trailer`
+  asks TMDB for the best official YouTube trailer (cached in memory: a week
+  for hits, a day for misses). Pages call `requestTrailer(id, delayMs)`; the
+  shared backdrop plays it in a muted-or-not YouTube embed that stays invisible
+  until the player reports "playing". The Home hero runs its own. The frame is
+  `inert` and focus is pulled back if it ever lands there, so the remote keeps
+  driving the page. Trailers need an app build with `canEmbed()` (older builds
+  could hand the frame's navigation to the YouTube app); in a desktop browser
+  with `?tv=1` they play muted.
+- The Playwright mock serves a fake YouTube page that reports "playing", so
+  `e2e/ambient.spec.ts` covers both offline.

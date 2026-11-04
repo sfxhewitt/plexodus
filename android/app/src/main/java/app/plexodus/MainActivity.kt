@@ -80,6 +80,9 @@ class MainActivity : Activity() {
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val u = request.url
+                // Embedded frames (trailers behind the TV art) navigate on their
+                // own; never hand those to another app.
+                if (!request.isForMainFrame) return false
                 if ((u.scheme == "http" || u.scheme == "https") && sameServer(u)) return false
                 // vlc://, mailto:, other sites: hand to the system.
                 try {
@@ -213,6 +216,10 @@ class MainActivity : Activity() {
 
         @JavascriptInterface
         fun platform(): String = "android"
+
+        /** This shell keeps embedded frames (YouTube trailers) inside the page. */
+        @JavascriptInterface
+        fun canEmbed(): Boolean = true
 
         @JavascriptInterface
         fun isTv(): Boolean = this@MainActivity.isTv

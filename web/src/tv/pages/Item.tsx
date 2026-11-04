@@ -1,10 +1,11 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, art, Card, Detail, episodeLabel, fmtRuntime, fmtTime, resolution } from "../../api";
 import { Check, Eye, Play, Plus, Refresh, Tv, X } from "../../components/Icons";
 import { useApi } from "../../hooks";
 import { Spinner, TvButton, TvCard, TvRow, useBackdrop } from "../components";
 import { usePageFocus, useRefresh, useToast } from "../hooks";
+import { requestTrailer, stopTrailer } from "../ambient";
 import { playItem } from "../play";
 
 function MediaChips({ d }: { d: Detail }) {
@@ -41,6 +42,13 @@ export default function Item() {
   const backdrop = d ? (d.kind !== "episode" && d.backdrop) || d.show?.backdrop || d.showBackdrop || d.backdrop : undefined;
   useBackdrop(art(backdrop, "w1280"));
   usePageFocus(ready);
+  // A film's or show's trailer fades in behind the page once you've settled on it.
+  const trailerId = ready && (d.kind === "movie" || d.kind === "show") ? d.id : undefined;
+  useEffect(() => {
+    if (trailerId === undefined) return;
+    requestTrailer(trailerId, 2500);
+    return stopTrailer;
+  }, [trailerId]);
 
   const play = useCallback((itemId: number, fromStart = false) => {
     playItem(itemId, { fromStart }).catch((e: Error) => toast(e.message));
