@@ -164,42 +164,44 @@ func (im Images) BestLogo() string {
 }
 
 type MovieDetails struct {
-	ID            int64   `json:"id"`
-	Title         string  `json:"title"`
-	OriginalTitle string  `json:"original_title"`
-	Overview      string  `json:"overview"`
-	Tagline       string  `json:"tagline"`
-	Runtime       int     `json:"runtime"`
-	ReleaseDate   string  `json:"release_date"`
-	VoteAverage   float64 `json:"vote_average"`
-	ImdbID        string  `json:"imdb_id"`
-	PosterPath    string  `json:"poster_path"`
-	BackdropPath  string  `json:"backdrop_path"`
-	Genres        []Genre `json:"genres"`
-	Images        Images  `json:"images"`
+	ID            int64        `json:"id"`
+	Title         string       `json:"title"`
+	OriginalTitle string       `json:"original_title"`
+	Overview      string       `json:"overview"`
+	Tagline       string       `json:"tagline"`
+	Runtime       int          `json:"runtime"`
+	ReleaseDate   string       `json:"release_date"`
+	VoteAverage   float64      `json:"vote_average"`
+	ImdbID        string       `json:"imdb_id"`
+	PosterPath    string       `json:"poster_path"`
+	BackdropPath  string       `json:"backdrop_path"`
+	Genres        []Genre      `json:"genres"`
+	Images        Images       `json:"images"`
+	ReleaseDates  ReleaseDates `json:"release_dates"`
 }
 
 func (t *TMDB) Movie(ctx context.Context, id int64) (*MovieDetails, error) {
 	var m MovieDetails
 	err := t.get(ctx, fmt.Sprintf("/movie/%d", id), url.Values{
-		"append_to_response": {"images"}, "include_image_language": {"en,null"},
+		"append_to_response": {"images,release_dates"}, "include_image_language": {"en,null"},
 	}, &m)
 	return &m, err
 }
 
 type ShowDetails struct {
-	ID             int64   `json:"id"`
-	Name           string  `json:"name"`
-	OriginalName   string  `json:"original_name"`
-	Overview       string  `json:"overview"`
-	Tagline        string  `json:"tagline"`
-	FirstAirDate   string  `json:"first_air_date"`
-	VoteAverage    float64 `json:"vote_average"`
-	EpisodeRunTime []int   `json:"episode_run_time"`
-	PosterPath     string  `json:"poster_path"`
-	BackdropPath   string  `json:"backdrop_path"`
-	Genres         []Genre `json:"genres"`
-	Images         Images  `json:"images"`
+	ID             int64          `json:"id"`
+	Name           string         `json:"name"`
+	OriginalName   string         `json:"original_name"`
+	Overview       string         `json:"overview"`
+	Tagline        string         `json:"tagline"`
+	FirstAirDate   string         `json:"first_air_date"`
+	VoteAverage    float64        `json:"vote_average"`
+	EpisodeRunTime []int          `json:"episode_run_time"`
+	PosterPath     string         `json:"poster_path"`
+	BackdropPath   string         `json:"backdrop_path"`
+	Genres         []Genre        `json:"genres"`
+	Images         Images         `json:"images"`
+	ContentRatings ContentRatings `json:"content_ratings"`
 	ExternalIDs    struct {
 		ImdbID string `json:"imdb_id"`
 	} `json:"external_ids"`
@@ -208,7 +210,7 @@ type ShowDetails struct {
 func (t *TMDB) Show(ctx context.Context, id int64) (*ShowDetails, error) {
 	var s ShowDetails
 	err := t.get(ctx, fmt.Sprintf("/tv/%d", id), url.Values{
-		"append_to_response": {"images,external_ids"}, "include_image_language": {"en,null"},
+		"append_to_response": {"images,external_ids,content_ratings"}, "include_image_language": {"en,null"},
 	}, &s)
 	return &s, err
 }

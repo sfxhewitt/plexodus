@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -95,13 +96,21 @@ func (s *Server) cards(r *http.Request, where string, args ...any) ([]Card, erro
 	return scanCards(rows)
 }
 
-// aclJoin restricts alias to the libraries a user can see. Library ids are
-// integers from the database, so building them into the SQL is safe.
+// aclJoin restricts alias to the libraries a user can see and, for a kids
+// profile, to titles rated for its age. Library ids are integers from the
+// database, so building them into the SQL is safe.
 func aclJoin(u auth.User, alias string) string {
-	if u.IsAdmin || u.AllLibraries {
+	var conds []string
+	if !u.IsAdmin && !u.AllLibraries {
+		conds = append(conds, alias+".library_id IN ("+idList(u.Libraries)+")")
+	}
+	if k := kidsExpr(u, alias); k != "" {
+		conds = append(conds, k)
+	}
+	if len(conds) == 0 {
 		return ""
 	}
-	return " JOIN (SELECT 1) acl ON " + alias + ".library_id IN (" + idList(u.Libraries) + ")"
+	return " JOIN (SELECT 1) acl ON " + strings.Join(conds, " AND ")
 }
 
 func idList(ids []int64) string {
@@ -136,13 +145,14 @@ type Library struct {
 }
 
 func (s *Server) handleLibraries(w http.ResponseWriter, r *http.Request) {
+	kids := kidsCond(currentUser(r), "i")
 	rows, err := s.db.R.QueryContext(r.Context(), `SELECT l.id, l.name, l.kind, l.paths, l.trust_dir_mtime, COALESCE(l.last_scan_at, 0),
-		(SELECT COUNT(*) FROM items i WHERE i.library_id = l.id AND i.kind IN ('movie', 'show')),
+		(SELECT COUNT(*) FROM items i WHERE i.library_id = l.id AND i.kind IN ('movie', 'show')`+kids+`),
 		(SELECT COUNT(*) FROM media_files m WHERE m.library_id = l.id),
 		(SELECT COUNT(*) FROM media_files m WHERE m.library_id = l.id AND m.probed_at IS NULL),
 		(SELECT COUNT(*) FROM items i WHERE i.library_id = l.id AND i.kind IN ('movie', 'show') AND i.meta_state = 'pending'),
 		(SELECT COALESCE(SUM(size), 0) FROM media_files m WHERE m.library_id = l.id),
-		COALESCE((SELECT backdrop FROM items i WHERE i.library_id = l.id AND i.kind IN ('movie', 'show') AND i.backdrop IS NOT NULL
+		COALESCE((SELECT backdrop FROM items i WHERE i.library_id = l.id AND i.kind IN ('movie', 'show') AND i.backdrop IS NOT NULL`+kids+`
 			ORDER BY i.added_at DESC LIMIT 1), ''),
 		COALESCE(p.hide_nav, 0), COALESCE(p.hide_home, 0)
 		FROM libraries l LEFT JOIN user_library_prefs p ON p.library_id = l.id AND p.user_id = ?`+libACL(currentUser(r))+` ORDER BY l.name`,
@@ -173,11 +183,17 @@ var sortColumns = map[string]string{
 
 // itemVisible reports whether the current user may see an item.
 func (s *Server) itemVisible(r *http.Request, id int64) bool {
+	return s.canView(r.Context(), currentUser(r), id)
+}
+
+// canView reports whether u may see an item: its library is shared with
+// them and, for a kids profile, it is rated for their age.
+func (s *Server) canView(ctx context.Context, u auth.User, id int64) bool {
 	var lib int64
-	if s.db.R.QueryRowContext(r.Context(), `SELECT library_id FROM items WHERE id = ?`, id).Scan(&lib) != nil {
+	if s.db.R.QueryRowContext(ctx, `SELECT library_id FROM items i WHERE id = ?`+kidsCond(u, "i"), id).Scan(&lib) != nil {
 		return false
 	}
-	return currentUser(r).CanSee(lib)
+	return u.CanSee(lib)
 }
 
 func libACL(u auth.User) string {
@@ -205,7 +221,7 @@ func (s *Server) handleLibraryItems(w http.ResponseWriter, r *http.Request) {
 	limit := queryInt(r, "limit", 100, 500)
 	offset := queryInt(r, "offset", 0, 0)
 
-	where := `WHERE i.library_id = ?2 AND i.kind IN ('movie', 'show')`
+	where := `WHERE i.library_id = ?2 AND i.kind IN ('movie', 'show')` + kidsCond(currentUser(r), "i")
 	args := []any{id}
 	if g := q.Get("genre"); g != "" {
 		where += fmt.Sprintf(` AND EXISTS (SELECT 1 FROM json_each(i.genres) WHERE value = ?%d)`, len(args)+2)
@@ -239,7 +255,7 @@ func (s *Server) handleLibraryGenres(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := s.db.R.QueryContext(r.Context(), `SELECT j.value, COUNT(*) FROM items i, json_each(i.genres) j
-		WHERE i.library_id = ? AND i.kind IN ('movie', 'show') AND i.genres IS NOT NULL GROUP BY j.value ORDER BY j.value`, id)
+		WHERE i.library_id = ? AND i.kind IN ('movie', 'show') AND i.genres IS NOT NULL`+kidsCond(currentUser(r), "i")+` GROUP BY j.value ORDER BY j.value`, id)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -332,7 +348,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 
 	// Hero: recent, well-rated titles that have artwork worth showing.
 	hero, err := s.cards(r, `WHERE i.kind IN ('movie', 'show') AND i.backdrop IS NOT NULL AND i.overview IS NOT NULL
-		AND i.id IN (SELECT id FROM items WHERE kind IN ('movie', 'show') AND backdrop IS NOT NULL`+notInLibs(hiddenHome)+` ORDER BY added_at DESC LIMIT 60)
+		AND i.id IN (SELECT id FROM items WHERE kind IN ('movie', 'show') AND backdrop IS NOT NULL`+notInLibs(hiddenHome)+kidsTop(currentUser(r))+` ORDER BY added_at DESC LIMIT 60)
 		ORDER BY RANDOM() LIMIT 6`)
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -343,7 +359,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Top rated row for variety.
-	top, _ := s.cards(r, `WHERE i.id IN (SELECT id FROM items WHERE kind IN ('movie', 'show') AND rating >= 7.5 AND poster IS NOT NULL`+notInLibs(hiddenHome)+`
+	top, _ := s.cards(r, `WHERE i.id IN (SELECT id FROM items WHERE kind IN ('movie', 'show') AND rating >= 7.5 AND poster IS NOT NULL`+notInLibs(hiddenHome)+kidsTop(currentUser(r))+`
 		ORDER BY RANDOM() LIMIT 24)`)
 	if len(top) >= 6 {
 		rows = append(rows, Row{Title: "Critically Acclaimed", Kind: "poster", Items: top})

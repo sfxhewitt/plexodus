@@ -137,6 +137,7 @@ type Metadata struct {
 	TitleSort            string  `json:"titleSort"`
 	Summary              string  `json:"summary"`
 	Tagline              string  `json:"tagline"`
+	ContentRating        string  `json:"contentRating"`
 	Year                 int     `json:"year"`
 	Index                int     `json:"index"`
 	ParentIndex          int     `json:"parentIndex"`

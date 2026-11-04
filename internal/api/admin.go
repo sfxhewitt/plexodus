@@ -412,7 +412,7 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 // ---- users ----
 
 func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.R.QueryContext(r.Context(), `SELECT id, username, is_admin FROM users ORDER BY username`)
+	rows, err := s.db.R.QueryContext(r.Context(), `SELECT id, username, is_admin FROM users WHERE parent_id IS NULL ORDER BY username`)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return

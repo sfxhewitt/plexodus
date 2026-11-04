@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/sfxhewitt/plexodus/internal/db"
+	cert "github.com/sfxhewitt/plexodus/internal/rating"
 	"github.com/sfxhewitt/plexodus/internal/scanner"
 )
 
@@ -262,6 +263,26 @@ func applyMetadata(tx *sql.Tx, id int64, m *Metadata, still bool) error {
 		m.Title, sortTitle(m), nullStr(m.OriginalTitle), year, nullStr(m.Summary), nullStr(m.Tagline), genres(m), rating(m),
 		m.Duration/60000, nullStr(m.OriginallyAvailableAt), tmdbID(m), nullStr(m.ExternalID("imdb")),
 		poster, backdrop, plexImg(m.ImageOf("clearLogo")), m.AddedAt, m.AddedAt, db.Now(), db.Now(), id)
+	if err != nil {
+		return err
+	}
+	return SetContentRating(tx, id, m.ContentRating)
+}
+
+// SetContentRating stores a rating and its age (NULL when the rating isn't
+// one we know, such as "NR"), keeping the old one when the new one is empty.
+func SetContentRating(ex interface {
+	Exec(string, ...any) (sql.Result, error)
+}, id int64, c string) error {
+	c = strings.TrimSpace(c)
+	if c == "" {
+		return nil
+	}
+	var age any
+	if a, ok := cert.Age(c); ok {
+		age = a
+	}
+	_, err := ex.Exec(`UPDATE items SET content_rating = ?, age = ? WHERE id = ?`, c, age, id)
 	return err
 }
 

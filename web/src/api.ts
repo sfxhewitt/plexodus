@@ -102,11 +102,21 @@ export async function setLibraryPrefs(id: number, prefs: LibraryPrefs) {
 }
 
 export interface User {
+  /** The active viewer: the account, or one of its profiles. */
   id: number;
   username: string;
   isAdmin: boolean;
   allLibraries: boolean;
   libraries: number[];
+  accountId?: number;
+  isProfile?: boolean;
+  /** Profile name (the username for the main profile). */
+  name?: string;
+  avatar?: string;
+  color?: string;
+  /** Kids profiles: titles rated above this age are hidden. */
+  maxAge?: number;
+  kids?: boolean;
 }
 
 export interface Invite {

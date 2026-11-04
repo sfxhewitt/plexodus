@@ -146,7 +146,13 @@ media.example.com {
 
 Sign-in is rate-limited per IP (10 failed attempts per 10 minutes). When a local reverse proxy is in front, the real client IP is taken from `X-Forwarded-For`.
 
-## Configuration
+## Profiles and kids mode
+
+Each account can have up to 8 profiles, Netflix-style: everyone in the house gets their own Continue Watching, watchlist, watched status and library choices, without separate passwords. Add them from the avatar menu → **Manage profiles** on the web, or **Settings → Manage profiles** on the TV. When an account has profiles, **Who's watching?** appears each time the app starts.
+
+- **Kids profiles** only show titles rated for the age you pick (Little kids: G/TV-Y/U; Kids: up to PG/TV-PG; Teens: up to PG-13/TV-14/12A). Titles without a rating are hidden. Ratings come from Plex (copied once for libraries imported earlier) and from TMDB. A kids profile can't open the admin settings or manage profiles.
+- **PINs** are optional 4-digit codes. Put one on your main profile so the kids can't switch back to it. The main profile can switch into any profile without its PIN.
+
 
 Flags override environment variables.
 

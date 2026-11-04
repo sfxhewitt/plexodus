@@ -537,3 +537,71 @@ html.tv [data-hscroll]::-webkit-scrollbar, html.tv [data-vscroll]::-webkit-scrol
 .tv-saver-ok svg { margin-right: 0.35rem; }
 
 .tv-pref-row .tv-btn.chip.ambient { margin-left: 0.8rem; }
+/* ---------- profiles ---------- */
+
+.tv-pf-screen {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background:
+    radial-gradient(70rem 50rem at 15% 0%, rgba(34, 228, 255, 0.13), rgba(34, 228, 255, 0) 60%),
+    radial-gradient(70rem 50rem at 90% 100%, rgba(255, 43, 214, 0.14), rgba(255, 43, 214, 0) 60%),
+    var(--tv-bg);
+}
+.tv-pf-screen > .tv-h1 { position: relative; margin-bottom: 4rem; }
+.tv-pf-grid { position: relative; display: flex; justify-content: center; flex-wrap: wrap; max-width: 110rem; }
+.tv-pf-tile { display: flex; flex-direction: column; align-items: center; width: 16rem; margin: 0 1.6rem 1rem; text-align: center !important; }
+.tv-pf-tile-art { position: relative; display: block; width: 14rem; height: 14rem; border-radius: 3.6rem; transition: transform var(--tv-fast) var(--tv-ease); }
+.tv-pf-tile:focus .tv-pf-tile-art { transform: scale(1.1); box-shadow: 0 0 0 0.25rem #fff, 0 0 2.2rem 0.3rem var(--pf, rgba(34, 228, 255, 0.6)); }
+.tv-pf-avatar {
+  display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; border-radius: 3.6rem;
+  background: radial-gradient(circle at 25% 15%, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 55%), var(--pf, #8b5cf6);
+  box-shadow: inset 0 0 0 0.15rem rgba(255, 255, 255, 0.18), inset 0 -2.4rem 3rem rgba(5, 5, 10, 0.35);
+  line-height: 1;
+}
+.tv-pf-avatar .e { font-size: 7rem; }
+.tv-pf-avatar b { font-size: 6rem; font-weight: 800; color: #07070c; }
+.tv-pf-avatar.add { background: rgba(255, 255, 255, 0.07); color: var(--tv-muted); box-shadow: inset 0 0 0 0.15rem rgba(255, 255, 255, 0.15); }
+.tv-pf-avatar.big { width: 9rem; height: 9rem; flex: none; border-radius: 2.4rem; }
+.tv-pf-avatar.big .e { font-size: 4.6rem; }
+.tv-pf-avatar.big b { font-size: 4rem; }
+.tv-pf-edit { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; border-radius: 3.6rem; background: rgba(5, 5, 10, 0.55); }
+.tv-pf-name { margin-top: 1.4rem; font-size: 1.6rem; font-weight: 600; color: var(--tv-soft); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-pf-tile:focus .tv-pf-name { color: var(--tv-text); }
+.tv-pf-tags { display: flex; align-items: center; height: 2.4rem; margin-top: 0.4rem; color: var(--tv-muted); }
+.tv-pf-tags svg { margin-left: 0.6rem; }
+.tv-pf-kids { padding: 0.2rem 0.8rem; border-radius: 0.6rem; font-size: 1rem; font-weight: 800; letter-spacing: 0.08em; color: #07070c; background: var(--tv-neon); }
+.tv-pf-actions { position: relative; margin-top: 3rem; justify-content: center; }
+
+.tv-pf-pin { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 25; display: flex; align-items: center; justify-content: center; background: rgba(2, 2, 6, 0.8); }
+.tv-pf-pin-card { display: flex; flex-direction: column; align-items: center; padding: 3rem 4rem; border-radius: 2rem; background: #0d0d16; box-shadow: 0 3rem 7rem rgba(0, 0, 0, 0.9), inset 0 0 0 1px rgba(139, 92, 246, 0.45); animation: tv-fade 0.2s var(--tv-ease); }
+.tv-pf-pin-card .tv-modal-title { margin: 0 0 0.6rem; }
+.tv-pf-dots { display: flex; margin: 1.6rem 0 0.6rem; }
+.tv-pf-dots span { width: 1.4rem; height: 1.4rem; margin: 0 0.8rem; border-radius: 50%; background: rgba(255, 255, 255, 0.14); }
+.tv-pf-dots span.on { background: var(--tv-cyan); box-shadow: 0 0 1rem rgba(34, 228, 255, 0.8); }
+.tv-pf-pin .tv-error.hide { visibility: hidden; }
+.tv-pf-keys { margin-top: 1rem; }
+.tv-pf-keyrow { display: flex; justify-content: center; }
+.tv-pf-key { display: flex; align-items: center; justify-content: center; width: 6.4rem; height: 5.2rem; margin: 0.4rem; border-radius: 1rem; font-size: 2rem; font-weight: 700; background: rgba(255, 255, 255, 0.07); text-align: center !important; }
+.tv-pf-key.fn { color: var(--tv-muted); }
+
+.tv-pf-editor { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 22; display: flex; justify-content: center; background: rgba(2, 2, 6, 0.86); }
+.tv-pf-editor-panel { width: 92rem; height: 100%; padding: 4rem 3rem; background: #0b0b14; box-shadow: 0 0 6rem rgba(0, 0, 0, 0.8), inset 0 0 0 1px rgba(139, 92, 246, 0.3); animation: tv-fade 0.2s var(--tv-ease); }
+.tv-pf-editor-head { display: flex; align-items: center; margin-bottom: 2rem; }
+.tv-pf-editor-name { flex: 1; min-width: 0; margin-left: 2rem; }
+.tv-pf-editor-name .tv-modal-title { margin: 0 0 0.8rem; }
+.tv-pf-input { width: 100%; height: 4.4rem; padding: 0 1.4rem; border-radius: 1rem; font-size: 1.6rem; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); color: var(--tv-text); }
+.tv-pf-input:focus { border-color: var(--tv-cyan); background: rgba(255, 255, 255, 0.1); box-shadow: 0 0 1.4rem rgba(34, 228, 255, 0.35); }
+.tv-pf-field { margin-bottom: 1.8rem; }
+.tv-pf-label { margin: 0 0 0.8rem 0.3rem; font-size: 1.15rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tv-muted); }
+.tv-pf-choices { display: flex; padding: 0.5rem 0.3rem; }
+.tv-pf-choices > * { flex: none; margin-right: 0.9rem; }
+.tv-pf-choice { display: flex; align-items: center; justify-content: center; width: 4.6rem; height: 4.6rem; border-radius: 1.2rem; background: rgba(255, 255, 255, 0.07); text-align: center !important; transition: transform var(--tv-fast) var(--tv-ease); }
+.tv-pf-choice .e { font-size: 2.6rem; line-height: 1; }
+.tv-pf-choice b { font-size: 2rem; }
+.tv-pf-choice.on { box-shadow: inset 0 0 0 0.16rem var(--tv-cyan), 0 0 1rem rgba(34, 228, 255, 0.35); }
+.tv-pf-choice:focus { transform: scale(1.15); box-shadow: var(--tv-glow); }
+.tv-pf-swatch { display: block; width: 2.8rem; height: 2.8rem; border-radius: 50%; }
+.tv-btn.chip.tv-pf-level .d { margin-left: 0.8rem; font-weight: 500; opacity: 0.7; }
+.tv-pf-note { margin: 0 0 1.4rem 0.3rem; max-width: 70rem; }
+.tv-pf-editor-actions { margin-top: 1rem; }
+.tv-avatar.pf { background: var(--pf); font-size: 2.2rem; text-transform: none; }
+.tv-avatar.pf b { font-size: 1.7rem; color: #07070c; }

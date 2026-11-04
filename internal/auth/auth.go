@@ -24,13 +24,31 @@ const (
 )
 
 type User struct {
+	// ID is the active viewer: the account itself, or one of its profiles.
+	// Everything per-user (watch state, watchlist, library prefs) keys on it.
 	ID       int64  `json:"id"`
 	Username string `json:"username"`
 	IsAdmin  bool   `json:"isAdmin"`
 	// AllLibraries users (and admins) see everything; others only Libraries.
+	// Profiles inherit their account's access.
 	AllLibraries bool    `json:"allLibraries"`
 	Libraries    []int64 `json:"libraries"`
+
+	// AccountID is the signed-in account; it differs from ID while a
+	// profile is active.
+	AccountID int64  `json:"accountId"`
+	IsProfile bool   `json:"isProfile"`
+	Name      string `json:"name"`
+	Avatar    string `json:"avatar"`
+	Color     string `json:"color"`
+	// MaxAge is set for kids profiles: only titles rated for that age or
+	// younger are shown, and unrated titles are hidden.
+	MaxAge *int `json:"maxAge,omitempty"`
+	Kids   bool `json:"kids"`
 }
+
+// CanManageProfiles is true for the account itself (not one of its profiles).
+func (u User) CanManageProfiles() bool { return !u.IsProfile }
 
 // CanSee reports whether the user may access a library.
 func (u User) CanSee(libraryID int64) bool {
@@ -133,7 +151,7 @@ func (a *Auth) CreateUser(ctx context.Context, username, password string, admin 
 		return User{}, err
 	}
 	id, _ := res.LastInsertId()
-	return User{ID: id, Username: username, IsAdmin: admin, AllLibraries: true, Libraries: []int64{}}, nil
+	return User{ID: id, Username: username, IsAdmin: admin, AllLibraries: true, Libraries: []int64{}, AccountID: id, Name: username}, nil
 }
 
 func (a *Auth) SetPassword(ctx context.Context, userID int64, password string) error {
@@ -151,7 +169,7 @@ func (a *Auth) SetPassword(ctx context.Context, userID int64, password string) e
 func (a *Auth) Login(ctx context.Context, username, password string) (string, User, error) {
 	var u User
 	var hash string
-	err := a.db.R.QueryRowContext(ctx, `SELECT id, username, is_admin, password_hash FROM users WHERE username = ?`,
+	err := a.db.R.QueryRowContext(ctx, `SELECT id, username, is_admin, password_hash FROM users WHERE username = ? AND parent_id IS NULL`,
 		strings.TrimSpace(username)).Scan(&u.ID, &u.Username, &u.IsAdmin, &hash)
 	if err != nil {
 		// Spend similar time as a real check to avoid user enumeration.
@@ -164,6 +182,7 @@ func (a *Auth) Login(ctx context.Context, username, password string) (string, Us
 	if err := LoadAccess(ctx, a.db.R, &u); err != nil {
 		return "", User{}, err
 	}
+	a.loadLook(ctx, &u)
 	tok, err := a.newSession(ctx, u.ID)
 	return tok, u, err
 }
@@ -204,14 +223,14 @@ func (a *Auth) Lookup(ctx context.Context, token string) (User, bool) {
 	if ok && time.Now().Before(c.expires) {
 		return c.user, true
 	}
-	var u User
-	var exp int64
-	err := a.db.R.QueryRowContext(ctx, `SELECT u.id, u.username, u.is_admin, s.expires_at FROM sessions s
-		JOIN users u ON u.id = s.user_id WHERE s.token = ?`, token).Scan(&u.ID, &u.Username, &u.IsAdmin, &exp)
+	var accountID, profileID, exp int64
+	err := a.db.R.QueryRowContext(ctx, `SELECT user_id, COALESCE(profile_id, 0), expires_at FROM sessions WHERE token = ?`,
+		token).Scan(&accountID, &profileID, &exp)
 	if err != nil || time.Now().Unix() > exp {
 		return User{}, false
 	}
-	if err := LoadAccess(ctx, a.db.R, &u); err != nil {
+	u, err := a.viewer(ctx, accountID, profileID)
+	if err != nil {
 		return User{}, false
 	}
 	a.mu.Lock()
@@ -239,6 +258,61 @@ func WithUser(ctx context.Context, u User) context.Context {
 func UserFrom(ctx context.Context) (User, bool) {
 	u, ok := ctx.Value(ctxKey{}).(User)
 	return u, ok
+}
+
+// ByID loads a viewer by id: an account, or a profile with its account's
+// access. Used to re-check signed stream links.
+func (a *Auth) ByID(ctx context.Context, id int64) (User, error) {
+	var parent int64
+	if err := a.db.R.QueryRowContext(ctx, `SELECT COALESCE(parent_id, 0) FROM users WHERE id = ?`, id).Scan(&parent); err != nil {
+		return User{}, err
+	}
+	if parent != 0 {
+		return a.viewer(ctx, parent, id)
+	}
+	return a.viewer(ctx, id, 0)
+}
+
+// viewer builds the active user for an account, switched to profileID when
+// that is one of the account's profiles.
+func (a *Auth) viewer(ctx context.Context, accountID, profileID int64) (User, error) {
+	u := User{ID: accountID}
+	if err := a.db.R.QueryRowContext(ctx, `SELECT username, is_admin FROM users WHERE id = ? AND parent_id IS NULL`, accountID).
+		Scan(&u.Username, &u.IsAdmin); err != nil {
+		return User{}, err
+	}
+	if err := LoadAccess(ctx, a.db.R, &u); err != nil {
+		return User{}, err
+	}
+	a.loadLook(ctx, &u)
+	if profileID == 0 || profileID == accountID {
+		return u, nil
+	}
+	var p Profile
+	var maxAge sql.NullInt64
+	err := a.db.R.QueryRowContext(ctx, `SELECT id, COALESCE(display_name, ''), COALESCE(avatar, ''), COALESCE(color, ''), max_age
+		FROM users WHERE id = ? AND parent_id = ?`, profileID, accountID).Scan(&p.ID, &p.Name, &p.Avatar, &p.Color, &maxAge)
+	if err != nil {
+		// Profile deleted: fall back to the account.
+		return u, nil
+	}
+	u.ID, u.IsAdmin, u.IsProfile = p.ID, false, true
+	u.Name, u.Avatar, u.Color = p.Name, p.Avatar, p.Color
+	if maxAge.Valid {
+		n := int(maxAge.Int64)
+		u.MaxAge, u.Kids = &n, true
+	}
+	return u, nil
+}
+
+// loadLook fills an account's profile name, avatar and colour.
+func (a *Auth) loadLook(ctx context.Context, u *User) {
+	u.AccountID = u.ID
+	a.db.R.QueryRowContext(ctx, `SELECT COALESCE(display_name, ''), COALESCE(avatar, ''), COALESCE(color, '') FROM users WHERE id = ?`, u.ID).
+		Scan(&u.Name, &u.Avatar, &u.Color)
+	if u.Name == "" {
+		u.Name = u.Username
+	}
 }
 
 func (a *Auth) PruneSessions(ctx context.Context) {

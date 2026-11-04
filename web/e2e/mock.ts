@@ -171,7 +171,15 @@ ${wide ? "" : `<text x="50%" y="50%" fill="rgba(255,255,255,.35)" font-family="s
 export interface MockOptions {
   /** Requests the mock has no answer for, collected so specs can fail on them. */
   unhandled?: string[];
+  /** Give the account profiles (a kids one, and a PIN on the main one), so "Who's watching?" shows. */
+  profiles?: boolean;
 }
+
+const LEVELS = [
+  { maxAge: 0, label: "Little kids", detail: "G, TV-Y, TV-G, U" },
+  { maxAge: 8, label: "Kids", detail: "Up to PG, TV-Y7, TV-PG" },
+  { maxAge: 14, label: "Teens", detail: "Up to PG-13, TV-14, 12A" },
+];
 
 export async function mockServer(page: Page, opts: MockOptions = {}) {
   const json = (route: Route, body: unknown, status = 200) =>
@@ -205,6 +213,17 @@ addEventListener("message", function (e) {
   // Per-test copy: the settings screen changes library choices.
   const libs = libraries.map((l) => ({ ...l, hidden: false, hiddenHome: false }));
   const st: UserState = { hiddenContinue: new Set(), watchlist: [] };
+  const account = { id: 1, name: "daniel", avatar: "", color: "cyan", kids: false, hasPin: !!opts.profiles, isAccount: true };
+  const profiles = opts.profiles
+    ? [account, { id: 2, name: "Mia", avatar: "🦊", color: "magenta", kids: true, maxAge: 8, hasPin: false, isAccount: false },
+      { id: 3, name: "Sam", avatar: "🚀", color: "lime", kids: false, hasPin: false, isAccount: false }]
+    : [account];
+  let current = 1;
+  const me = () => {
+    const p = profiles.find((x) => x.id === current)!;
+    return { id: p.id, username: "daniel", isAdmin: p.isAccount, allLibraries: true, libraries: [], accountId: 1, isProfile: !p.isAccount,
+      name: p.name, avatar: p.avatar, color: p.color, kids: p.kids, maxAge: p.kids ? 8 : undefined };
+  };
 
   await page.route("**/api/**", (route) => {
     const u = new URL(route.request().url());
@@ -212,7 +231,36 @@ addEventListener("message", function (e) {
     const m = route.request().method();
     let mm: RegExpMatchArray | null;
     if (p === "/api/status") return json(route, { setupRequired: false });
-    if (p === "/api/me") return json(route, { id: 1, username: "daniel", isAdmin: true, allLibraries: true, libraries: [] });
+    if (p === "/api/me") return json(route, me());
+    if (p === "/api/profiles" && m === "GET") {
+      return json(route, { profiles, current, canManage: current === 1, levels: LEVELS, max: 8 });
+    }
+    if ((mm = p.match(/^\/api\/profiles\/(\d+)\/switch$/)) && m === "POST") {
+      const target = profiles.find((x) => x.id === Number(mm![1]));
+      if (!target) return json(route, { error: "profile not found" }, 404);
+      const fromMain = current === 1 && !target.isAccount;
+      if (target.hasPin && target.id !== current && !fromMain && route.request().postDataJSON()?.pin !== "1234") {
+        return json(route, { error: "wrong PIN" }, 403);
+      }
+      current = target.id;
+      return json(route, me());
+    }
+    if ((mm = p.match(/^\/api\/profiles\/(\d+)$/)) && m === "PUT") {
+      const target = profiles.find((x) => x.id === Number(mm![1]));
+      if (!target) return json(route, { error: "profile not found" }, 404);
+      const b = route.request().postDataJSON();
+      Object.assign(target, { name: b.name ?? target.name, avatar: b.avatar ?? target.avatar, color: b.color ?? target.color });
+      if (b.kids !== undefined) Object.assign(target, { kids: b.kids, maxAge: b.kids ? b.maxAge : undefined });
+      if (b.pin !== undefined) target.hasPin = b.pin !== "";
+      return json(route, { ok: true });
+    }
+    if (p === "/api/profiles" && m === "POST") {
+      const b = route.request().postDataJSON();
+      const np = { id: 10 + profiles.length, name: b.name, avatar: b.avatar || "", color: b.color || "", kids: !!b.kids,
+        maxAge: b.kids ? b.maxAge : undefined, hasPin: !!b.pin, isAccount: false };
+      profiles.push(np);
+      return json(route, np);
+    }
     if (p === "/api/libraries") return json(route, libs);
     if ((mm = p.match(/^\/api\/me\/libraries\/(\d+)$/)) && m === "PUT") {
       const l = libs.find((x) => x.id === Number(mm![1]));

@@ -13,8 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/sfxhewitt/plexodus/internal/auth"
 )
 
 // Plexodus only does direct play: files are streamed byte-for-byte with
@@ -70,7 +68,7 @@ func (s *Server) handlePlay(w http.ResponseWriter, r *http.Request) {
 	err := s.db.R.QueryRowContext(r.Context(), `SELECT path, item_id, library_id, probed_at IS NOT NULL AND (streams IS NOT NULL OR probe_error IS NOT NULL)
 		FROM media_files WHERE id = ?`, fileID).
 		Scan(&path, &itemID, &libID, &probed)
-	if err != nil || !currentUser(r).CanSee(libID) {
+	if err != nil || !currentUser(r).CanSee(libID) || !s.itemVisible(r, itemID) {
 		writeErr(w, 404, "file not found")
 		return
 	}
@@ -122,18 +120,15 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var path string
-	var libID int64
-	if err := s.db.R.QueryRowContext(r.Context(), `SELECT path, library_id FROM media_files WHERE id = ?`, fileID).Scan(&path, &libID); err != nil {
+	var libID, itemID int64
+	if err := s.db.R.QueryRowContext(r.Context(), `SELECT path, library_id, item_id FROM media_files WHERE id = ?`, fileID).Scan(&path, &libID, &itemID); err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	// Re-check access so revoking a library also stops links already handed out.
-	u := auth.User{ID: uid}
-	if err := s.db.R.QueryRowContext(r.Context(), `SELECT is_admin FROM users WHERE id = ?`, uid).Scan(&u.IsAdmin); err != nil {
-		http.Error(w, "invalid or expired link", http.StatusForbidden)
-		return
-	}
-	if auth.LoadAccess(r.Context(), s.db.R, &u) != nil || !u.CanSee(libID) {
+	// Re-check access so revoking a library also stops links already handed
+	// out (uid may be a profile, which takes its account's access).
+	u, err := s.auth.ByID(r.Context(), uid)
+	if err != nil || !u.CanSee(libID) || !s.canView(r.Context(), u, itemID) {
 		http.Error(w, "invalid or expired link", http.StatusForbidden)
 		return
 	}

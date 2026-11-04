@@ -98,6 +98,11 @@ func (s *Server) Handler() http.Handler {
 	admin := func(p string, h http.HandlerFunc) { mux.Handle(p, s.requireAdmin(h)) }
 
 	user("GET /api/me", s.handleMe)
+	user("GET /api/profiles", s.handleProfiles)
+	user("POST /api/profiles", s.handleCreateProfile)
+	user("PUT /api/profiles/{id}", s.handleUpdateProfile)
+	user("DELETE /api/profiles/{id}", s.handleDeleteProfile)
+	user("POST /api/profiles/{id}/switch", s.handleSwitchProfile)
 	user("PUT /api/me/password", s.handleMyPassword)
 	user("GET /api/home", s.handleHome)
 	user("GET /api/libraries", s.handleLibraries)
@@ -352,6 +357,10 @@ func (s *Server) handleMyPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := currentUser(r)
+	if u.IsProfile {
+		writeErr(w, http.StatusForbidden, "profiles don't have a password")
+		return
+	}
 	if _, _, err := s.auth.Login(r.Context(), u.Username, body.Current); err != nil {
 		writeErr(w, http.StatusForbidden, "current password is wrong")
 		return

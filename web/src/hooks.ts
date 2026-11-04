@@ -34,7 +34,12 @@ export function useDebounced<T>(value: T, ms: number) {
   return v;
 }
 
-export const UserContext = createContext<{ user: User | null; setUser: (u: User | null) => void }>({
+export const UserContext = createContext<{
+  user: User | null;
+  setUser: (u: User | null) => void;
+  /** Opens "Who's watching?" (or profile management). */
+  openProfiles?: (manage?: boolean) => void;
+}>({
   user: null,
   setUser: () => {},
 });

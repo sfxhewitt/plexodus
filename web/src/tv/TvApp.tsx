@@ -16,6 +16,8 @@ import SearchPage from "./pages/Search";
 import SettingsPage from "./pages/Settings";
 import { Screensaver } from "./Screensaver";
 import { MenuProvider, useLibraryMenu, useLongPress } from "./menu";
+import { TvWhoIsWatching } from "./profiles";
+import { colorOf, forgetPicked, goHome, initialOf, loadProfiles, shouldPick } from "../profiles";
 import "./tv.css";
 
 document.documentElement.classList.add("tv");
@@ -52,9 +54,10 @@ function TabBar({ hidden }: { hidden: boolean }) {
         ))}
       </div>
       <button data-f data-fk="nav-settings" data-default={loc.pathname.startsWith("/settings") ? "" : undefined}
-        className={`tv-avatar ${loc.pathname.startsWith("/settings") ? "active" : ""}`} aria-label="Settings"
+        className={`tv-avatar pf ${loc.pathname.startsWith("/settings") ? "active" : ""}`} aria-label="Settings"
+        style={{ "--pf": user ? colorOf(user) : undefined } as React.CSSProperties}
         onClick={() => nav("/settings")}>
-        {(user?.username || "?").slice(0, 1).toUpperCase()}
+        {user?.avatar || <b>{initialOf(user?.name || user?.username)}</b>}
       </button>
     </nav>
   );
@@ -288,11 +291,17 @@ function Login({ setup }: { setup: boolean }) {
 
 function App() {
   const [state, setState] = useState<{ loading: boolean; setup: boolean; user: User | null; error?: string }>({ loading: true, setup: false, user: null });
+  // "Who's watching?": on each app start when the account has profiles, or from Settings.
+  const [picker, setPicker] = useState<null | "pick" | "manage" | "start">(null);
 
   const load = useCallback(async () => {
     try {
       const status = await api.get<{ setupRequired: boolean }>("/api/status");
       const user = status.setupRequired ? null : await api.get<User>("/api/me").catch(() => null);
+      if (user) {
+        const info = await loadProfiles().catch(() => null);
+        if (info && shouldPick(info)) setPicker("start");
+      }
       setState({ loading: false, setup: status.setupRequired, user });
     } catch (e) {
       setState({ loading: false, setup: false, user: null, error: (e as Error).message });
@@ -306,7 +315,12 @@ function App() {
     return () => window.removeEventListener("plexodus:unauthorized", onUnauth);
   }, [load]);
 
-  const setUser = (user: User | null) => setState((s) => ({ ...s, user, setup: false }));
+  const setUser = (user: User | null) => {
+    if (!user) forgetPicked();
+    else if (!state.user) loadProfiles().then((info) => shouldPick(info) && setPicker("start"), () => {});
+    setState((s) => ({ ...s, user, setup: false }));
+  };
+  const openProfiles = (manage?: boolean) => setPicker(manage ? "manage" : "pick");
 
   if (state.loading) return <div className="tv-app"><Spinner /></div>;
   if (state.error) {
@@ -322,9 +336,12 @@ function App() {
     );
   }
   return (
-    <UserContext.Provider value={{ user: state.user, setUser }}>
-      {state.user ? (
-        <BrowserRouter>
+    <UserContext.Provider value={{ user: state.user, setUser, openProfiles }}>
+      {state.user && picker ? (
+        <TvWhoIsWatching manage={picker === "manage"} onClose={picker === "start" ? undefined : () => setPicker(null)}
+          onPicked={(u) => (goHome(), setPicker(null), setUser(u))} />
+      ) : state.user ? (
+        <BrowserRouter key={state.user.id}>
           <Shell />
         </BrowserRouter>
       ) : (

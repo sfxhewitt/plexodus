@@ -432,3 +432,52 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
 .up-next.static { position: static; max-width: none; animation: none; }
 .link-btn { background: none; border: 0; cursor: pointer; padding: 6px; color: var(--muted); font: inherit; }
 .link-btn:hover { color: var(--text); }
+
+/* ---------- profiles ---------- */
+.pf-screen { position: fixed; inset: 0; z-index: 90; overflow-y: auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; padding: 48px 16px; background: var(--bg); animation: fade 0.25s; }
+.pf-glow { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(60% 50% at 20% 0%, rgba(34, 211, 238, 0.12), transparent 70%), radial-gradient(60% 50% at 90% 100%, rgba(255, 43, 214, 0.12), transparent 70%); }
+.pf-screen h1 { position: relative; margin: 0; font-size: clamp(28px, 5vw, 48px); font-weight: 800; letter-spacing: -0.02em; }
+.pf-grid { position: relative; display: flex; flex-wrap: wrap; justify-content: center; gap: clamp(16px, 3vw, 36px); max-width: 960px; }
+.pf-tile { display: flex; flex-direction: column; align-items: center; gap: 10px; width: clamp(104px, 22vw, 150px); padding: 0; background: none; border: 0; }
+.pf-tile-art { position: relative; display: grid; place-items: center; border-radius: 28%; transition: transform 0.25s var(--ease), box-shadow 0.25s; }
+.pf-tile:hover .pf-tile-art, .pf-tile:focus-visible .pf-tile-art { transform: translateY(-4px) scale(1.04); box-shadow: 0 0 0 3px #fff, 0 18px 50px -10px var(--pf, rgba(129, 140, 248, 0.8)); }
+.pf-tile:focus-visible { outline: none; }
+.pf-avatar { display: grid; place-items: center; border-radius: 28%; line-height: 1; background: radial-gradient(120% 120% at 20% 10%, color-mix(in srgb, var(--pf) 85%, #fff 15%), color-mix(in srgb, var(--pf) 55%, #06070b) 75%); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset, 0 12px 40px -14px var(--pf); }
+.pf-avatar b { color: #0b0c12; font-weight: 800; }
+.pf-tile .pf-avatar { width: clamp(104px, 22vw, 150px) !important; height: clamp(104px, 22vw, 150px) !important; font-size: clamp(48px, 10vw, 68px) !important; }
+.pf-add { --pf: #3a3f55; color: var(--muted); background: var(--surface-2); box-shadow: 0 0 0 2px var(--border) inset; }
+.pf-edit { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 28%; background: rgba(6, 7, 11, 0.55); }
+.pf-name { font-weight: 600; font-size: 16px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-tags { display: flex; gap: 6px; align-items: center; min-height: 20px; color: var(--muted); }
+.pf-actions { position: relative; display: flex; gap: 12px; }
+.pf-pin { width: min(360px, 100%); align-items: center; text-align: center; }
+.pf-pin h2 { margin: 0; font-size: 20px; }
+.pf-pin input { width: 160px; text-align: center; letter-spacing: 0.6em; font-size: 22px; }
+.pf-dots { display: flex; gap: 12px; }
+.pf-dots span { width: 12px; height: 12px; border-radius: 50%; background: var(--surface-2); }
+.pf-dots span.on { background: var(--accent); }
+.pf-editor { overflow-y: auto; }
+.pf-editor-top { display: flex; align-items: center; gap: 16px; }
+.pf-editor-top input { flex: 1; min-width: 0; }
+.pf-label { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.pf-choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.pf-choice { width: 44px; height: 44px; border-radius: 12px; border: 0; font-size: 24px; font-weight: 800; background: var(--surface-2); display: grid; place-items: center; }
+.pf-choice.on, .pf-swatch.on { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px #fff; }
+.pf-swatch { width: 34px; height: 34px; border-radius: 50%; border: 0; }
+.pf-check { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
+.pf-check input { margin-top: 4px; width: 18px; height: 18px; accent-color: #22d3ee; }
+.pf-check > span { display: flex; flex-direction: column; }
+.pf-levels { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.pf-level { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); text-align: left; }
+.pf-level span { font-size: 12px; color: var(--muted); }
+.pf-level.on { border-color: #22d3ee; background: rgba(34, 211, 238, 0.1); }
+.pf-pin-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.pf-pin-row input { width: 200px; }
+.pf-foot { align-items: center; gap: 10px; }
+.nav-profile { position: relative; }
+.pf-menu { position: absolute; right: 0; top: calc(100% + 10px); z-index: 60; min-width: 230px; padding: 8px; border-radius: 16px; background: rgba(16, 18, 27, 0.97); border: 1px solid var(--border); box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.9); display: flex; flex-direction: column; animation: rise 0.2s var(--ease); }
+.pf-menu button { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 0; border-radius: 10px; background: none; text-align: left; font-weight: 500; }
+.pf-menu button:hover { background: var(--surface-2); }
+.pf-menu button.current { font-weight: 700; }
+.pf-menu hr { width: 100%; border: 0; border-top: 1px solid var(--border); margin: 6px 0; }
+.nav-avatar-btn { padding: 0; border: 0; background: none; border-radius: 28%; }

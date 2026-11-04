@@ -50,3 +50,5 @@ export const Grid = (p: P) => (<Svg {...p}><rect x="3" y="3" width="7" height="7
 export const Sparkle = (p: P) => (
   <Svg {...p}><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9L12 2zm7 11l.9 2.6 2.6.9-2.6.9L19 20l-.9-2.6-2.6-.9 2.6-.9L19 13zM6 15l.7 1.8 1.8.7-1.8.7L6 20l-.7-1.8-1.8-.7 1.8-.7L6 15z" fill="currentColor" stroke="none" /></Svg>
 );
+export const Lock = (p: P) => (<Svg {...p}><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></Svg>);
+export const Pencil = (p: P) => (<Svg {...p}><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="m13.5 6.5 4 4" /></Svg>);
