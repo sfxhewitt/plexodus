@@ -54,6 +54,9 @@ func call(t *testing.T, s *Server, u auth.User, h http.HandlerFunc, method, path
 	r = r.WithContext(auth.WithUser(r.Context(), u))
 	w := httptest.NewRecorder()
 	h(w, r)
+	if w.Code != 200 {
+		t.Logf("%s %s = %d: %s", method, path, w.Code, w.Body.String())
+	}
 	if out != nil && w.Code == 200 {
 		if err := json.Unmarshal(w.Body.Bytes(), out); err != nil {
 			t.Fatalf("%s %s: %v: %s", method, path, err, w.Body.String())
@@ -128,5 +131,83 @@ func TestLibraryPrefs(t *testing.T) {
 
 	if c := call(t, s, u, s.handleLibraryPrefs, "PUT", "/api/me/libraries/99", `{"hidden":true}`, map[string]string{"id": "99"}, nil); c != 404 {
 		t.Fatalf("unknown library = %d, want 404", c)
+	}
+}
+
+func TestWatchlistAndContinueHide(t *testing.T) {
+	s, u := testServer(t)
+	now := db.Now()
+	for _, q := range []string{
+		`INSERT INTO items(id, library_id, kind, guid, title, sort_title, added_at, updated_at) VALUES
+			(30, 1, 'show', 's30', 'The Wire', 'wire', 0, 0)`,
+		`INSERT INTO items(id, library_id, kind, guid, title, sort_title, parent_id, season_number, added_at, updated_at) VALUES
+			(31, 1, 'season', 's31', 'Season 1', 'season 1', 30, 1, 0, 0)`,
+		`INSERT INTO items(id, library_id, kind, guid, title, sort_title, parent_id, season_number, episode_number, added_at, updated_at) VALUES
+			(32, 1, 'episode', 'e32', 'The Target', 'target', 31, 1, 1, 0, 0),
+			(33, 1, 'episode', 'e33', 'The Detail', 'detail', 31, 1, 2, 0, 0)`,
+		`INSERT INTO watch_state(user_id, item_id, position, duration, watched, updated_at) VALUES
+			(?1, 10, 600, 6000, 0, ?2 - 100), (?1, 32, 0, 0, 1, ?2 - 50)`,
+	} {
+		if _, err := s.db.W.Exec(q, u.ID, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	type homeT struct {
+		Rows []Row `json:"rows"`
+	}
+	row := func(title string) []Card {
+		var h homeT
+		call(t, s, u, s.handleHome, "GET", "/api/home", "", nil, &h)
+		for _, r := range h.Rows {
+			if r.Title == title {
+				return r.Items
+			}
+		}
+		return nil
+	}
+	ids := func(cs []Card) (out []int64) {
+		for _, c := range cs {
+			out = append(out, c.ID)
+		}
+		return
+	}
+	post := func(h http.HandlerFunc, path, id, body string) {
+		if c := call(t, s, u, h, "POST", path, body, map[string]string{"id": id}, nil); c != 200 {
+			t.Fatalf("POST %s = %d", path, c)
+		}
+	}
+
+	if got := ids(row("Continue Watching")); len(got) != 2 || got[0] != 10 || got[1] != 33 {
+		t.Fatalf("continue watching = %v, want [10 33]", got)
+	}
+
+	// Remove the film: gone, and back once it's played again.
+	post(s.handleHideContinue, "/api/items/10/continue/hide", "10", "")
+	if got := ids(row("Continue Watching")); len(got) != 1 || got[0] != 33 {
+		t.Fatalf("after hiding the film = %v, want [33]", got)
+	}
+	s.db.W.Exec(`UPDATE watch_state SET position = 900, updated_at = ? WHERE item_id = 10`, now+10)
+	if got := ids(row("Continue Watching")); len(got) != 2 {
+		t.Fatalf("after playing the film again = %v, want it back", got)
+	}
+
+	// Remove the next episode: the show's Up Next goes too.
+	post(s.handleHideContinue, "/api/items/33/continue/hide", "33", "")
+	if got := ids(row("Continue Watching")); len(got) != 1 || got[0] != 10 {
+		t.Fatalf("after hiding the episode = %v, want [10]", got)
+	}
+
+	// Watchlist.
+	if row("Watchlist") != nil {
+		t.Fatal("watchlist row should be absent when empty")
+	}
+	post(s.handleWatchlist, "/api/items/20/watchlist", "20", `{"on":true}`)
+	wl := row("Watchlist")
+	if len(wl) != 1 || wl[0].ID != 20 || !wl[0].Watchlisted {
+		t.Fatalf("watchlist = %+v", wl)
+	}
+	post(s.handleWatchlist, "/api/items/20/watchlist", "20", `{"on":false}`)
+	if row("Watchlist") != nil {
+		t.Fatal("watchlist row should be gone after removing")
 	}
 }

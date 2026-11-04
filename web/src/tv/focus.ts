@@ -271,7 +271,55 @@ export function handleBack(): "handled" | "exit" {
 
 // ---- Global key handling ----
 
+// After an action removes the focused card (Remove from Continue Watching),
+// focus goes to one of these neighbours instead of the top of the page.
+let fallback: { fks: string[]; until: number } | null = null;
+export function setFocusFallback(fks: string[]) {
+  fallback = fks.length ? { fks, until: performance.now() + 5000 } : null;
+  // A removed element doesn't always fire focusout: keep an eye out meanwhile.
+  const t = setInterval(() => {
+    recoverFocus();
+    if (!fallback) clearInterval(t);
+  }, 100);
+  setTimeout(() => clearInterval(t), 5000);
+}
+
+/** If focus fell to <body>, put it on the fallback neighbour or the page's start. */
+function recoverFocus() {
+  const a = document.activeElement as HTMLElement | null;
+  if (a && a !== document.body && a.isConnected) return;
+  if (!document.hasFocus()) return;
+  const all = focusables();
+  const near = fallback && performance.now() < fallback.until
+    ? fallback.fks.map((k) => all.find((el) => el.dataset.fk === k)).find(Boolean)
+    : undefined;
+  fallback = null;
+  focusEl(near || initialTarget(all), true);
+}
+
+// After a long press opens a menu, OK is still held: its repeats and its
+// release must not press whatever the menu focused.
+let swallowSelect = false;
+export function swallowSelectUntilRelease() {
+  swallowSelect = true;
+}
+
 export function installKeys() {
+  const isSelectKey = (e: KeyboardEvent) => e.key === "Enter" || e.keyCode === 23;
+  window.addEventListener("keydown", (e) => {
+    if (swallowSelect && isSelectKey(e)) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
+  window.addEventListener("keyup", (e) => {
+    if (swallowSelect && isSelectKey(e)) {
+      swallowSelect = false;
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
+
   // The Android app calls this when the remote's Back is pressed.
   (window as unknown as { __plexodusBack?: () => string }).__plexodusBack = handleBack;
 
@@ -311,11 +359,7 @@ export function installKeys() {
 
   // Never leave focus stranded on <body> (e.g. after the focused card is removed).
   window.addEventListener("focusout", () => {
-    setTimeout(() => {
-      if (document.activeElement === document.body || !document.activeElement) {
-        if (document.hasFocus()) focusEl(initialTarget(), true);
-      }
-    }, 50);
+    setTimeout(recoverFocus, 50);
   });
 }
 

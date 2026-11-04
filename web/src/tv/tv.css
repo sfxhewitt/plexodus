@@ -411,6 +411,14 @@ html.tv [data-hscroll]::-webkit-scrollbar, html.tv [data-vscroll]::-webkit-scrol
 .tv-list-item:focus { background: #fff; color: #07070c; box-shadow: 0 0 1.2rem rgba(34, 228, 255, 0.5); }
 .tv-list-item:focus .tv-muted, .tv-list-item:focus svg { color: #07070c; }
 
+.tv-menu .tv-modal-panel { justify-content: flex-start; }
+.tv-menu-head { margin: 0 0 1.2rem 1.2rem; }
+.tv-menu-head .tv-modal-title { margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tv-menu-sub { margin-top: 0.4rem; font-size: 1.2rem; }
+.tv-menu-item { height: 4.2rem; font-size: 1.45rem; }
+.tv-menu-item svg { flex: none; margin-right: 1.1rem; }
+.tv-menu-item > span:first-of-type { flex: 1; }
+
 .tv-upnext { position: fixed; right: 4rem; bottom: 4rem; z-index: 15; animation: tv-fade 0.4s var(--tv-ease); }
 .tv-upnext-card {
   display: flex; width: 66rem; overflow: hidden; border-radius: 1.2rem; background: rgba(13, 13, 22, 0.97);

@@ -1,6 +1,7 @@
 import { createContext, memo, ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { art, Card, episodeLabel } from "../api";
 import { Check, Play } from "../components/Icons";
+import { CardMenuOptions, useCardMenu, useLongPress } from "./menu";
 
 // ---------- shared backdrop ----------
 
@@ -102,9 +103,13 @@ export interface CardProps {
   autoFocus?: boolean;
   /** Where focus lands the first time you move into this card's row. */
   isDefault?: boolean;
+  /** Hold OK (or Menu) for the action menu; false turns it off. */
+  menu?: CardMenuOptions | false;
 }
 
-export const TvCard = memo(function TvCard({ c, shape, onSelect, onPlay, onFocusCard, title, sub, label, autoFocus, isDefault }: CardProps) {
+export const TvCard = memo(function TvCard({ c, shape, onSelect, onPlay, onFocusCard, title, sub, label, autoFocus, isDefault, menu }: CardProps) {
+  const openMenu = useCardMenu();
+  const press = useLongPress(() => onSelect(c), menu === false ? undefined : (el) => openMenu(c, menu || {}, el));
   const isEp = c.kind === "episode";
   const img = shape === "poster"
     ? art(c.poster || c.showPoster, "w342")
@@ -120,11 +125,16 @@ export const TvCard = memo(function TvCard({ c, shape, onSelect, onPlay, onFocus
       data-default={isDefault ? "" : undefined}
       onClick={() => onSelect(c)}
       onFocus={() => onFocusCard?.(c)}
+      onKeyUp={press.onKeyUp}
+      onBlur={press.onBlur}
+      onContextMenu={press.onContextMenu}
       onKeyDown={(e) => {
         if (onPlay && (e.key === "MediaPlayPause" || e.key === "MediaPlay" || e.key === "p")) {
           e.preventDefault();
           onPlay(c);
+          return;
         }
+        press.onKeyDown?.(e);
       }}
     >
       <div className="tv-card-frame">

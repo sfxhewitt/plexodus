@@ -25,6 +25,8 @@ export interface Card {
   leafCount?: number;
   viewedLeafCount?: number;
   overview?: string;
+  /** On the signed-in user's watchlist. */
+  watchlisted?: boolean;
 }
 
 export interface Stream {
