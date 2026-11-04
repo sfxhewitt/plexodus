@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useContext, useEffect, useRef, useState } from "react";
+import { createContext, memo, ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { art, Card, episodeLabel } from "../api";
 import { Check, Play } from "../components/Icons";
 
@@ -104,7 +104,7 @@ export interface CardProps {
   isDefault?: boolean;
 }
 
-export function TvCard({ c, shape, onSelect, onPlay, onFocusCard, title, sub, label, autoFocus, isDefault }: CardProps) {
+export const TvCard = memo(function TvCard({ c, shape, onSelect, onPlay, onFocusCard, title, sub, label, autoFocus, isDefault }: CardProps) {
   const isEp = c.kind === "episode";
   const img = shape === "poster"
     ? art(c.poster || c.showPoster, "w342")
@@ -140,7 +140,7 @@ export function TvCard({ c, shape, onSelect, onPlay, onFocusCard, title, sub, la
       </div>
     </button>
   );
-}
+});
 
 // ---------- rows ----------
 

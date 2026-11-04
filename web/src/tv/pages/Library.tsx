@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, art, Card } from "../../api";
 import { Check } from "../../components/Icons";
 import { useApi } from "../../hooks";
-import { Spinner, TvButton, TvCard, useBackdrop } from "../components";
+import { BackdropCtx, Spinner, TvButton, TvCard } from "../components";
 import { focusInitial, focusKey, onBack } from "../focus";
 import { useLibraries, usePageFocus, useRefresh, useToast } from "../hooks";
 import { playCard } from "../play";
@@ -94,8 +94,15 @@ export default function LibraryPage() {
   }, [base]);
   useRefresh(refresh);
 
-  const [focused, setFocused] = useState<Card>();
-  useBackdrop(art(focused?.backdrop, "w1280"), 350);
+  // The focused title's art fades in behind the grid once you pause on it.
+  // Set directly rather than through state: re-rendering the page on every
+  // move re-rendered every poster in the grid.
+  const setBackdrop = useContext(BackdropCtx);
+  const bdTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => {
+    clearTimeout(bdTimer.current);
+    setBackdrop(undefined);
+  }, [setBackdrop]);
   usePageFocus(state.total >= 0);
 
   const set = (k: string, v: string, fk: string) => {
@@ -106,10 +113,16 @@ export default function LibraryPage() {
     setParams(p, { replace: true, state: { focus: fk } });
   };
 
-  const onFocusCard = (c: Card, i: number) => {
-    setFocused(c);
-    if (i > state.items.length - 40 && state.items.length < state.total) load(state.items.length);
-  };
+  const latest = useRef({ state, load });
+  latest.current = { state, load };
+  const onFocusCard = useCallback((c: Card) => {
+    clearTimeout(bdTimer.current);
+    bdTimer.current = setTimeout(() => setBackdrop(art(c.backdrop, "w1280")), 350);
+    const { state: st, load: ld } = latest.current;
+    if (st.items.length < st.total && st.items.indexOf(c) > st.items.length - 40) ld(st.items.length);
+  }, [setBackdrop]);
+  const open = useCallback((c: Card) => nav(`/item/${c.id}`), [nav]);
+  const playIt = useCallback((c: Card) => playCard(c).catch((e: Error) => toast(e.message)), [toast]);
 
   const closePicker = useCallback(() => {
     setPicking(false);
@@ -146,8 +159,7 @@ export default function LibraryPage() {
         <div className="tv-grid">
           {state.items.map((c, i) => (
             <div key={c.id} data-row>
-              <TvCard c={c} shape="poster" autoFocus={i === 0} onSelect={() => nav(`/item/${c.id}`)}
-                onPlay={(x) => playCard(x).catch((e: Error) => toast(e.message))} onFocusCard={(x) => onFocusCard(x, i)} />
+              <TvCard c={c} shape="poster" autoFocus={i === 0} onSelect={open} onPlay={playIt} onFocusCard={onFocusCard} />
             </div>
           ))}
         </div>

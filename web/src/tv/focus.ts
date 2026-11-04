@@ -19,7 +19,6 @@ type Dir = "up" | "down" | "left" | "right";
 const OPPOSITE: Record<Dir, Dir> = { up: "down", down: "up", left: "right", right: "left" };
 
 const lastInGroup = new Map<string, string>();
-let lastMove = 0;
 
 function visible(el: HTMLElement) {
   if ((el as HTMLButtonElement).disabled) return false;
@@ -161,22 +160,70 @@ function remPx(v: string | undefined) {
   return v.endsWith("rem") ? n * parseFloat(getComputedStyle(document.documentElement).fontSize) : n;
 }
 
+// ---- scrolling ----
+//
+// Rows and pages scroll with our own short ease-out instead of the browser's
+// smooth scroll, which takes up to ~0.6 s per move in Android WebViews and
+// queues up behind fast presses. The scrollers are overflow:scroll (with the
+// scrollbar hidden) so the WebView composites them: moving one is a cheap
+// offset change, not a repaint of every card in it.
+
+const SCROLL_MS = 180;
+const anims = new Map<HTMLElement, { raf: number; axis: "left" | "top"; to: number }>();
+const instantScroll = () =>
+  (window as unknown as { __plexodusInstantScroll?: boolean }).__plexodusInstantScroll === true ||
+  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+/** Where `sc` is heading (the end of a running animation), else where it is. */
+function scrollPos(sc: HTMLElement, axis: "left" | "top") {
+  const a = anims.get(sc);
+  if (a && a.axis === axis) return a.to;
+  return axis === "left" ? sc.scrollLeft : sc.scrollTop;
+}
+
+function scrollToPos(sc: HTMLElement, axis: "left" | "top", to: number, instant: boolean) {
+  const prev = anims.get(sc);
+  if (prev) cancelAnimationFrame(prev.raf);
+  anims.delete(sc);
+  const set = (v: number) => (axis === "left" ? (sc.scrollLeft = v) : (sc.scrollTop = v));
+  const from = axis === "left" ? sc.scrollLeft : sc.scrollTop;
+  if (instant || instantScroll() || Math.abs(to - from) < 2) {
+    set(to);
+    return;
+  }
+  const t0 = performance.now();
+  const a = { raf: 0, axis, to };
+  const step = (t: number) => {
+    const k = Math.min(1, (t - t0) / SCROLL_MS);
+    const e = 1 - Math.pow(1 - k, 3); // ease-out cubic
+    set(from + (to - from) * e);
+    if (k < 1) a.raf = requestAnimationFrame(step);
+    else anims.delete(sc);
+  };
+  a.raf = requestAnimationFrame(step);
+  anims.set(sc, a);
+}
+
 function scrollIntoPlace(el: HTMLElement, instant: boolean) {
-  const behavior: ScrollBehavior = instant ? "auto" : "smooth";
 
   const track = el.closest<HTMLElement>("[data-hscroll]");
   if (track) {
     const tr = track.getBoundingClientRect();
     const er = el.getBoundingClientRect();
     const pad = parseFloat(getComputedStyle(track).paddingLeft) || 0;
-    let left = track.scrollLeft + (er.left - tr.left) - pad;
+    // Measure against where the track is heading, so quick presses during an
+    // animation still land each card in place.
+    const cur = scrollPos(track, "left");
+    const shift = cur - track.scrollLeft;
+    let left = cur + (er.left - shift - tr.left) - pad;
     if (track.dataset.hscroll === "reveal") {
       // Only scroll as far as needed to show it (the tab bar).
-      left = track.scrollLeft;
-      if (er.right + pad > tr.right) left += er.right + pad - tr.right;
-      if (er.left - pad < tr.left) left -= tr.left - (er.left - pad);
+      left = cur;
+      if (er.right - shift + pad > tr.right) left += er.right - shift + pad - tr.right;
+      if (er.left - shift - pad < tr.left) left -= tr.left - (er.left - shift - pad);
     }
-    if (Math.abs(left - track.scrollLeft) > 1) track.scrollTo({ left, behavior });
+    left = Math.max(0, Math.min(left, track.scrollWidth - track.clientWidth));
+    if (Math.abs(left - cur) > 1) scrollToPos(track, "left", left, instant);
   }
 
   const sc = el.closest<HTMLElement>("[data-vscroll]");
@@ -185,18 +232,20 @@ function scrollIntoPlace(el: HTMLElement, instant: boolean) {
     const row = (el.closest<HTMLElement>("[data-row]") as HTMLElement | null) || el;
     const sr = sc.getBoundingClientRect();
     const rr = row.getBoundingClientRect();
-    const top = sc.scrollTop + rr.top - sr.top;
-    let target = sc.scrollTop;
+    const cur = scrollPos(sc, "top");
+    const shift = cur - sc.scrollTop;
+    const top = cur + rr.top - shift - sr.top;
+    let target = cur;
     if (row.hasAttribute("data-row-top")) target = 0;
     else if (mode === "pin") target = top - remPx(sc.dataset.pin);
     else if (mode === "center") target = top - (sc.clientHeight - rr.height) / 2;
     else {
       const m = remPx(sc.dataset.margin || "3rem");
-      if (rr.bottom + m > sr.bottom) target = top + rr.height + m - sc.clientHeight;
-      if (rr.top - m < sr.top) target = top - m;
+      if (rr.bottom - shift + m > sr.bottom) target = top + rr.height + m - sc.clientHeight;
+      if (rr.top - shift - m < sr.top) target = top - m;
     }
     target = Math.max(0, Math.min(target, sc.scrollHeight - sc.clientHeight));
-    if (Math.abs(target - sc.scrollTop) > 1) sc.scrollTo({ top: target, behavior });
+    if (Math.abs(target - cur) > 1) scrollToPos(sc, "top", target, instant);
   }
 }
 
@@ -238,11 +287,9 @@ export function installKeys() {
         if ((dir === "left" && !atStart) || (dir === "right" && !atEnd)) return;
       }
       e.preventDefault();
-      const now = performance.now();
-      // Held-down keys repeat fast; skip the smooth scroll so it keeps up.
-      const instant = e.repeat || now - lastMove < 140;
-      lastMove = now;
-      move(dir, instant);
+      // Held-down keys repeat fast; skip the scroll animation so it keeps up.
+      // Quick taps just retarget the running animation.
+      move(dir, e.repeat);
       return;
     }
     if (e.key === "Enter" && (document.activeElement === document.body || !document.activeElement)) {
