@@ -39,6 +39,7 @@ type Server struct {
 	prober   *probe.Worker
 	streams  *stream.Manager
 	importer *plex.Importer
+	plexSync *plex.Syncer
 	web      fs.FS
 	signKey  []byte
 	baseCtx  context.Context
@@ -56,6 +57,7 @@ func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner,
 		key = randomHex(32)
 		d.SetSetting(ctx, "stream_sign_key", key)
 	}
+	s.plexSync = plex.NewSyncer(d, s.plexClient, func() bool { return s.importer.Status().Running })
 	s.signKey, _ = hex.DecodeString(key)
 	if d.Setting(ctx, "api_key") == "" {
 		d.SetSetting(ctx, "api_key", randomHex(16))
@@ -134,6 +136,7 @@ func (s *Server) Handler() http.Handler {
 	admin("PUT /api/plex", s.handlePlexPut)
 	admin("POST /api/plex/test", s.handlePlexTest)
 	admin("POST /api/plex/import", s.handlePlexImport)
+	admin("POST /api/plex/sync", s.handlePlexSync)
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not found")

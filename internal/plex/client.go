@@ -34,7 +34,13 @@ func (c *Client) get(ctx context.Context, path string, q url.Values, out any) er
 	if q == nil {
 		q = url.Values{}
 	}
-	req, err := http.NewRequestWithContext(ctx, "GET", c.base+path+"?"+q.Encode(), nil)
+	return c.getRaw(ctx, path, q.Encode(), out)
+}
+
+// getRaw takes a pre-built query string, for Plex filters such as
+// viewedAt>=N that url.Values can't express.
+func (c *Client) getRaw(ctx context.Context, path, rawQuery string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.base+path+"?"+rawQuery, nil)
 	if err != nil {
 		return err
 	}
