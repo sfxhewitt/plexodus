@@ -138,4 +138,23 @@ test("settings", async ({ page, openTv }, info) => {
   await openTv("/settings");
   await waitForFocus(page, "reload");
   await snap(page, info, "01 settings");
+
+  // Down to the library choices: hide TV Shows from the menu.
+  const tabs = page.locator(".tv-nav .tv-tab-btn");
+  await expect(tabs.filter({ hasText: "TV Shows" })).toHaveCount(1);
+  let f = await press(page, "down");
+  expect(f.fk, "Down from the buttons reaches the first library").toBe("lib-1-menu");
+  f = await press(page, "down");
+  expect(f.fk).toBe("lib-2-menu");
+  expect((await press(page, "right")).fk, "Right moves to the Home switch").toBe("lib-2-home");
+  await press(page, "left");
+  await press(page, "Enter");
+  await expect(page.locator('[data-fk="lib-2-menu"]')).toHaveAttribute("aria-pressed", "false");
+  await expect(tabs.filter({ hasText: "TV Shows" }), "hidden library leaves the tab bar").toHaveCount(0);
+  expect(await focused(page).then((x) => x.fk), "focus stays on the switch").toBe("lib-2-menu");
+  await snap(page, info, "02 library hidden");
+
+  // And back again.
+  await press(page, "Enter");
+  await expect(tabs.filter({ hasText: "TV Shows" })).toHaveCount(1);
 });

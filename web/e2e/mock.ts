@@ -178,6 +178,9 @@ export async function mockServer(page: Page, opts: MockOptions = {}) {
     return route.fulfill({ status: 200, contentType: "image/svg+xml", body: artSvg(u.pathname + u.search) });
   });
 
+  // Per-test copy: the settings screen changes library choices.
+  const libs = libraries.map((l) => ({ ...l, hidden: false, hiddenHome: false }));
+
   await page.route("**/api/**", (route) => {
     const u = new URL(route.request().url());
     const p = u.pathname;
@@ -185,7 +188,13 @@ export async function mockServer(page: Page, opts: MockOptions = {}) {
     let mm: RegExpMatchArray | null;
     if (p === "/api/status") return json(route, { setupRequired: false });
     if (p === "/api/me") return json(route, { id: 1, username: "daniel", isAdmin: true, allLibraries: true, libraries: [] });
-    if (p === "/api/libraries") return json(route, libraries);
+    if (p === "/api/libraries") return json(route, libs);
+    if ((mm = p.match(/^\/api\/me\/libraries\/(\d+)$/)) && m === "PUT") {
+      const l = libs.find((x) => x.id === Number(mm![1]));
+      if (!l) return json(route, { error: "not found" }, 404);
+      Object.assign(l, route.request().postDataJSON());
+      return json(route, { ok: true });
+    }
     if (p === "/api/home") return json(route, home());
     if ((mm = p.match(/^\/api\/libraries\/(\d+)\/genres$/))) return json(route, GENRES.map((name, i) => ({ name, count: 40 - i * 5 })));
     if ((mm = p.match(/^\/api\/libraries\/(\d+)\/items$/))) return json(route, libraryItems(Number(mm[1]), u.searchParams));

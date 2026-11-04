@@ -35,7 +35,7 @@ function TabBar({ hidden }: { hidden: boolean }) {
   const tabs: { key: string; to: string; label?: string; icon?: JSX.Element }[] = [
     { key: "search", to: "/search", icon: <SearchIcon size={24} /> },
     { key: "home", to: "/", label: "Home" },
-    ...(libs || []).map((l) => ({ key: `lib${l.id}`, to: `/library/${l.id}`, label: l.name })),
+    ...(libs || []).filter((l) => !l.hidden).map((l) => ({ key: `lib${l.id}`, to: `/library/${l.id}`, label: l.name })),
   ];
   const active = (to: string) => (to === "/" ? loc.pathname === "/" : loc.pathname.startsWith(to));
   const anyActive = tabs.some((t) => active(t.to)) || loc.pathname.startsWith("/settings");

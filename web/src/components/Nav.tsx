@@ -15,7 +15,11 @@ export function Logo() {
 
 export function Nav() {
   const { user, setUser } = useUser();
-  const { data: libs } = useApi<Library[]>("/api/libraries");
+  const { data: libs, reload: reloadLibs } = useApi<Library[]>("/api/libraries");
+  useEffect(() => {
+    window.addEventListener("plexodus:library-prefs", reloadLibs);
+    return () => window.removeEventListener("plexodus:library-prefs", reloadLibs);
+  }, [reloadLibs]);
   const nav = useNavigate();
   const loc = useLocation();
   const [scrolled, setScrolled] = useState(false);
@@ -63,7 +67,7 @@ export function Nav() {
       <nav className="nav-links">
         <NavLink to="/" end><Home size={18} /><span>Home</span></NavLink>
         <NavLink to="/libraries" end><Grid size={18} /><span>Libraries</span></NavLink>
-        {libs?.map((l) => (
+        {libs?.filter((l) => !l.hidden).map((l) => (
           <NavLink key={l.id} to={`/library/${l.id}`} className="lib-link">
             {l.kind === "movies" ? <Film size={18} /> : <Tv size={18} />}
             <span>{l.name}</span>

@@ -373,6 +373,16 @@ html.tv :focus { outline: none; }
 .tv-settings-actions { display: flex; flex-wrap: wrap; }
 .tv-settings-actions > * { margin: 0 1rem 1rem 0; }
 .tv-note { font-size: 1.2rem; margin-top: 2.4rem; }
+.tv-lib-prefs { margin-top: 2.6rem; max-width: 84rem; }
+.tv-section-title { font-size: 2.2rem; font-weight: 800; letter-spacing: -0.02em; }
+.tv-section-note { font-size: 1.25rem; margin: 0.4rem 0 1.4rem; }
+.tv-pref-row { display: flex; align-items: center; padding: 0.7rem 0; border-top: 1px solid var(--tv-line); }
+.tv-pref-name { flex: 1; min-width: 0; display: flex; align-items: baseline; }
+.tv-pref-name span:first-child { font-size: 1.5rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tv-pref-name .tv-muted { margin-left: 1.2rem; font-size: 1.15rem; white-space: nowrap; }
+.tv-pref-row .tv-toggle { margin-left: 1rem; min-width: 12.5rem; }
+.tv-btn.chip.tv-toggle svg + span { margin-left: 0.5rem; }
+.tv-btn.chip.tv-toggle:not(.on) { color: var(--tv-muted); }
 
 /* ---------- overlays ---------- */
 

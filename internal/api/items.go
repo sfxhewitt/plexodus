@@ -128,6 +128,9 @@ type Library struct {
 	Pending       int      `json:"pendingMetadata"`
 	TotalSize     int64    `json:"totalSize"`
 	Backdrop      string   `json:"backdrop,omitempty"`
+	// The signed-in user's display choices (see user_library_prefs).
+	Hidden     bool `json:"hidden"`
+	HiddenHome bool `json:"hiddenHome"`
 }
 
 func (s *Server) handleLibraries(w http.ResponseWriter, r *http.Request) {
@@ -138,8 +141,10 @@ func (s *Server) handleLibraries(w http.ResponseWriter, r *http.Request) {
 		(SELECT COUNT(*) FROM items i WHERE i.library_id = l.id AND i.kind IN ('movie', 'show') AND i.meta_state = 'pending'),
 		(SELECT COALESCE(SUM(size), 0) FROM media_files m WHERE m.library_id = l.id),
 		COALESCE((SELECT backdrop FROM items i WHERE i.library_id = l.id AND i.kind IN ('movie', 'show') AND i.backdrop IS NOT NULL
-			ORDER BY i.added_at DESC LIMIT 1), '')
-		FROM libraries l`+libACL(currentUser(r))+` ORDER BY l.name`)
+			ORDER BY i.added_at DESC LIMIT 1), ''),
+		COALESCE(p.hide_nav, 0), COALESCE(p.hide_home, 0)
+		FROM libraries l LEFT JOIN user_library_prefs p ON p.library_id = l.id AND p.user_id = ?`+libACL(currentUser(r))+` ORDER BY l.name`,
+		currentUser(r).ID)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -149,7 +154,7 @@ func (s *Server) handleLibraries(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var l Library
 		var paths string
-		rows.Scan(&l.ID, &l.Name, &l.Kind, &paths, &l.TrustDirMtime, &l.LastScanAt, &l.Count, &l.FileCount, &l.Unprobed, &l.Pending, &l.TotalSize, &l.Backdrop)
+		rows.Scan(&l.ID, &l.Name, &l.Kind, &paths, &l.TrustDirMtime, &l.LastScanAt, &l.Count, &l.FileCount, &l.Unprobed, &l.Pending, &l.TotalSize, &l.Backdrop, &l.Hidden, &l.HiddenHome)
 		json.Unmarshal([]byte(paths), &l.Paths)
 		out = append(out, l)
 	}
@@ -275,6 +280,9 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		rows = append(rows, Row{Title: "Continue Watching", Kind: "landscape", Items: cont})
 	}
 
+	// Libraries the user hid from Home get no rows there (Continue Watching
+	// still includes them).
+	hiddenHome := s.hiddenHomeLibraries(r)
 	libs, err := s.db.R.QueryContext(ctx, `SELECT l.id, l.name, l.kind FROM libraries l`+libACL(currentUser(r))+` ORDER BY l.name`)
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -288,7 +296,9 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	for libs.Next() {
 		var l lib
 		libs.Scan(&l.id, &l.name, &l.kind)
-		ls = append(ls, l)
+		if !hiddenHome[l.id] {
+			ls = append(ls, l)
+		}
 	}
 	libs.Close()
 
@@ -311,7 +321,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 
 	// Hero: recent, well-rated titles that have artwork worth showing.
 	hero, err := s.cards(r, `WHERE i.kind IN ('movie', 'show') AND i.backdrop IS NOT NULL AND i.overview IS NOT NULL
-		AND i.id IN (SELECT id FROM items WHERE kind IN ('movie', 'show') AND backdrop IS NOT NULL ORDER BY added_at DESC LIMIT 60)
+		AND i.id IN (SELECT id FROM items WHERE kind IN ('movie', 'show') AND backdrop IS NOT NULL`+notInLibs(hiddenHome)+` ORDER BY added_at DESC LIMIT 60)
 		ORDER BY RANDOM() LIMIT 6`)
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -322,7 +332,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Top rated row for variety.
-	top, _ := s.cards(r, `WHERE i.id IN (SELECT id FROM items WHERE kind IN ('movie', 'show') AND rating >= 7.5 AND poster IS NOT NULL
+	top, _ := s.cards(r, `WHERE i.id IN (SELECT id FROM items WHERE kind IN ('movie', 'show') AND rating >= 7.5 AND poster IS NOT NULL`+notInLibs(hiddenHome)+`
 		ORDER BY RANDOM() LIMIT 24)`)
 	if len(top) >= 6 {
 		rows = append(rows, Row{Title: "Critically Acclaimed", Kind: "poster", Items: top})

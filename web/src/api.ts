@@ -84,6 +84,19 @@ export interface Library {
   pendingMetadata: number;
   totalSize: number;
   backdrop?: string;
+  /** The signed-in user hid it from the menu / from Home. */
+  hidden?: boolean;
+  hiddenHome?: boolean;
+}
+
+export type LibraryPrefs = Pick<Library, "hidden" | "hiddenHome">;
+
+/** Saves the signed-in user's display choices for a library and tells open views. */
+export async function setLibraryPrefs(id: number, prefs: LibraryPrefs) {
+  await api.put(`/api/me/libraries/${id}`, prefs);
+  api.invalidate("/api/libraries");
+  api.invalidate("/api/home");
+  window.dispatchEvent(new CustomEvent("plexodus:library-prefs", { detail: { id, prefs } }));
 }
 
 export interface User {
