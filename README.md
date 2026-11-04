@@ -115,7 +115,7 @@ address. See [android/README.md](android/README.md).
 
 ## Importing from Plex
 
-If you already run Plex, Plexodus can import everything from it in one pass: libraries, titles, artwork, descriptions, ratings, file details, your watch history and progress, and Plex's intro and credit markers (used for **Skip intro**). Media files aren't read, so this takes minutes even for very large cloud libraries. Afterwards Plexodus keeps itself up to date with its own scans, and Plex is optional.
+If you already run Plex, Plexodus can import everything from it in one pass: libraries, titles, artwork, descriptions, ratings, file details, your watch history and progress, and Plex's intro and credit markers (used for **Skip intro**). Plex has no recap markers, so Plexodus finds those itself (**Skip recap**) when an episode starts playing: from chapter names where the file has them, otherwise by matching the episode's opening minutes against the audio of the episode before it. The same check fills in intros and credits Plex didn't mark. Nothing is read during scans; it can be turned off in Settings → Skip buttons. Media files aren't read, so this takes minutes even for very large cloud libraries. Afterwards Plexodus keeps itself up to date with its own scans, and Plex is optional.
 
 Put your server address and token in `/etc/plexodus.env`, then `sudo systemctl restart plexodus`. That way the token never passes through a browser:
 

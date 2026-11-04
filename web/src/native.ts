@@ -26,8 +26,23 @@ interface Bridge {
   platform(): string;
   /** Newer apps: embedded frames (trailers) stay inside the page. */
   canEmbed?(): boolean;
+  /** Comma-separated player features; missing on older apps. */
+  features?(): string;
 }
 
 export const native: Bridge | undefined = (window as unknown as { PlexodusNative?: Bridge }).PlexodusNative;
 
-export const nativePlay = (req: NativePlayRequest) => native?.play(JSON.stringify(req));
+const nativeFeatures = (): string[] => {
+  try {
+    return typeof native?.features === "function" ? native.features().split(",") : [];
+  } catch {
+    return [];
+  }
+};
+
+export const nativePlay = (req: NativePlayRequest) => {
+  // Apps from before "Skip recap" would treat a recap like closing credits
+  // and jump to the next episode, so only send recaps to apps that know them.
+  const markers = nativeFeatures().includes("recap") ? req.markers : req.markers.filter((m) => m.type !== "recap");
+  native?.play(JSON.stringify({ ...req, markers }));
+};

@@ -17,6 +17,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Display
 import android.view.GestureDetector
 import android.view.KeyEvent
@@ -254,6 +255,34 @@ class PlayerActivity : Activity() {
         media.release()
         player.play()
         updateTime()
+        // The server looks for recaps (and intros Plex didn't mark) once
+        // playback starts; pick up what it finds in the first minutes.
+        ui.removeCallbacksAndMessages(markerRefresh)
+        val id = itemId
+        for (after in longArrayOf(15_000, 40_000, 90_000)) {
+            ui.postAtTime({ refreshMarkers(id) }, markerRefresh, SystemClock.uptimeMillis() + after)
+        }
+    }
+
+    private val markerRefresh = Any()
+
+    private fun refreshMarkers(id: Long) {
+        if (finished || id == 0L || id != itemId || server.isEmpty()) return
+        io.execute {
+            try {
+                val r = Http.request("$server/api/items/$id/markers?recap=1", headers = mapOf("Cookie" to cookie))
+                if (r.code == 200) {
+                    val fresh = parseMarkers(r.body)
+                    ui.post {
+                        if (!finished && id == itemId) {
+                            markers = fresh
+                            updateSkip()
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
     }
 
     // ---- libVLC events (delivered on the main thread) ----
@@ -344,14 +373,23 @@ class PlayerActivity : Activity() {
 
     private fun updateSkip() {
         val m = activeMarker()
-        val show = m != null && !upNextVisible && (m.type == "intro" || (kind == "episode" && next == null))
+        // Credits only get a button when there is no up-next card for them.
+        val show = m != null && !upNextVisible && (m.type != "credits" || (kind == "episode" && next == null))
         skipButton.visibility = if (show) View.VISIBLE else View.GONE
-        if (m != null) skipButton.text = getString(if (m.type == "intro") R.string.skip_intro else R.string.next_episode)
+        if (m != null) {
+            skipButton.text = getString(
+                when (m.type) {
+                    "intro" -> R.string.skip_intro
+                    "recap" -> R.string.skip_recap
+                    else -> R.string.next_episode
+                },
+            )
+        }
     }
 
     private fun skipMarker() {
         val m = activeMarker() ?: return
-        if (m.type == "intro" || kind != "episode") {
+        if (m.type != "credits" || kind != "episode") {
             player.setTime(m.endMs)
             timeMs = m.endMs
             updateTime()
@@ -683,7 +721,7 @@ class PlayerActivity : Activity() {
                 val file = d?.optJSONArray("files")?.optJSONObject(0)
                 val p = file?.let { getJson("/api/play/${it.optLong("id")}?probe=0") }
                 val m = try {
-                    Http.request("$server/api/items/${n.id}/markers", headers = mapOf("Cookie" to cookie)).body
+                    Http.request("$server/api/items/${n.id}/markers?recap=1", headers = mapOf("Cookie" to cookie)).body
                 } catch (_: Exception) {
                     "[]"
                 }
@@ -770,7 +808,7 @@ class PlayerActivity : Activity() {
                 if (controlsVisible) return super.onKeyDown(keyCode, event)
                 val ok = keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER
                 if (ok && skipButton.visibility == View.VISIBLE) {
-                    // "Skip intro" is on screen: OK presses it, like Plex.
+                    // "Skip intro" / "Skip recap" is on screen: OK presses it, like Plex.
                     skipMarker()
                 } else {
                     setControls(true)

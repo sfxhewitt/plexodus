@@ -55,6 +55,7 @@ func main() {
 	go streams.Reap(ctx)
 	go srv.WarmArtwork(ctx)
 	go srv.RunPlexSync(ctx)
+	go srv.RunDetector(ctx)
 
 	go agent.Run(ctx)
 	go prober.Run(ctx)

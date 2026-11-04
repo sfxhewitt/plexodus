@@ -250,7 +250,7 @@ export function episodeLabel(c: Card) {
 }
 
 export interface Marker {
-  type: "intro" | "credits";
+  type: "intro" | "credits" | "recap";
   start: number;
   end: number;
 }

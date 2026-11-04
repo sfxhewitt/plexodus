@@ -196,6 +196,7 @@ export default function Player() {
   // Load item + play info.
   useEffect(() => {
     let cancelled = false;
+    const markerTimers: number[] = [];
     setInfo(undefined);
     setError(undefined);
     setUnsupported(undefined);
@@ -214,7 +215,16 @@ export default function Player() {
         if (cancelled) return;
         setItem(d);
         setMarkers([]);
-        api.get<Marker[]>(`/api/items/${d.id}/markers`).then((m) => !cancelled && setMarkers(m), () => {});
+        api.get<Marker[]>(`/api/items/${d.id}/markers?recap=1`).then((m) => !cancelled && setMarkers(m), () => {});
+        // The server looks for recaps (and intros Plex didn't mark) when
+        // playback starts; pick up what it finds in the first minutes.
+        for (const after of [15, 40, 90]) {
+          markerTimers.push(
+            window.setTimeout(() => {
+              if (!cancelled) api.get<Marker[]>(`/api/items/${d.id}/markers?recap=1`).then((m) => !cancelled && setMarkers(m), () => {});
+            }, after * 1000),
+          );
+        }
         if (!d.files.length) throw new Error("No media file for this item.");
         const file = d.files[0];
         const byName = native ? undefined : notDirectByName(file.name || "");
@@ -233,7 +243,7 @@ export default function Player() {
         }
         if (native) {
           // The app's player handles decoding, so skip the browser checks.
-          const m = await api.get<Marker[]>(`/api/items/${d.id}/markers`).catch(() => [] as Marker[]);
+          const m = await api.get<Marker[]>(`/api/items/${d.id}/markers?recap=1`).catch(() => [] as Marker[]);
           if (cancelled) return;
           const from = params.get("from");
           const t = d.kind === "episode" ? d.showTitle || d.show?.title || d.title : d.title;
@@ -266,6 +276,7 @@ export default function Player() {
     })();
     return () => {
       cancelled = true;
+      markerTimers.forEach(clearTimeout);
     };
   }, [id]);
 
@@ -788,9 +799,9 @@ export default function Player() {
         </div>
       )}
 
-      {activeMarker && !upNext && !unsupported && (activeMarker.type === "intro" || item?.kind === "episode") && (
+      {activeMarker && !upNext && !unsupported && (activeMarker.type !== "credits" || item?.kind === "episode") && (
         <button className="btn glass skip-btn" onClick={skip}>
-          {activeMarker.type === "intro" ? "Skip intro" : "Next episode"}
+          {activeMarker.type === "intro" ? "Skip intro" : activeMarker.type === "recap" ? "Skip recap" : "Next episode"}
         </button>
       )}
 
