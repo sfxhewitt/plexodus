@@ -92,8 +92,10 @@ test("movie page: buttons in a line, nothing below", async ({ page, openTv }, in
   await waitForFocus(page, "play");
   await snap(page, info, "01 movie");
   const along = await walk(page, "right");
-  expect(along.map((x) => x.fk)).toEqual(["play", "watched"]);
-  expect((await press(page, "down")).fk, "nothing below the buttons: stay").toBe("watched");
+  expect(along.map((x) => x.fk)).toEqual(["play", "watched", "watchlist"]);
+  expect((await press(page, "down")).fk, "nothing below the buttons: stay").toBe("watchlist");
+  await press(page, "Enter");
+  await expect(page.locator('[data-fk="watchlist"]')).toHaveText("On your Watchlist");
 });
 
 test("library: grid, filters and the genre picker", async ({ page, openTv }, info) => {

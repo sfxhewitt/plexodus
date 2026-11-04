@@ -114,13 +114,20 @@ function detail(c: Card): Detail {
   return { ...base, files: [file(c)], parent: season, show: byId.get(c.showId!), siblings: episodes.get(season.id) };
 }
 
-function home(): { hero: Card[]; rows: Row[] } {
-  const continuing = [...movies, ...allEpisodes].filter((c) => c.position);
+interface UserState {
+  hiddenContinue: Set<number>;
+  watchlist: number[];
+}
+
+function home(st: UserState = { hiddenContinue: new Set(), watchlist: [] }): { hero: Card[]; rows: Row[] } {
+  const continuing = [...movies, ...allEpisodes].filter((c) => c.position && !st.hiddenContinue.has(c.id));
+  const wl = st.watchlist.map((id) => ({ ...byId.get(id)!, watchlisted: true }));
   const onDeck = shows.slice(1, 6).map((s) => episodes.get(seasons.get(s.id)![0].id)![0]);
   return {
     hero: movies.slice(0, 5),
     rows: [
       { title: "Continue Watching", kind: "landscape", items: continuing },
+      ...(wl.length ? [{ title: "Watchlist", kind: "poster" as const, items: wl }] : []),
       { title: "On Deck", kind: "landscape", items: onDeck },
       { title: "Recently Added Movies", kind: "poster", link: `/library/${MOVIES_LIB}?sort=added`, items: movies.slice(0, 20) },
       { title: "Recently Added TV", kind: "poster", link: `/library/${SHOWS_LIB}?sort=added`, items: shows },
@@ -180,6 +187,7 @@ export async function mockServer(page: Page, opts: MockOptions = {}) {
 
   // Per-test copy: the settings screen changes library choices.
   const libs = libraries.map((l) => ({ ...l, hidden: false, hiddenHome: false }));
+  const st: UserState = { hiddenContinue: new Set(), watchlist: [] };
 
   await page.route("**/api/**", (route) => {
     const u = new URL(route.request().url());
@@ -195,14 +203,24 @@ export async function mockServer(page: Page, opts: MockOptions = {}) {
       Object.assign(l, route.request().postDataJSON());
       return json(route, { ok: true });
     }
-    if (p === "/api/home") return json(route, home());
+    if (p === "/api/home") return json(route, home(st));
+    if ((mm = p.match(/^\/api\/items\/(\d+)\/continue\/hide$/)) && m === "POST") {
+      st.hiddenContinue.add(Number(mm[1]));
+      return json(route, { ok: true });
+    }
+    if ((mm = p.match(/^\/api\/items\/(\d+)\/watchlist$/)) && m === "POST") {
+      const id = Number(mm[1]);
+      st.watchlist = st.watchlist.filter((x) => x !== id);
+      if (route.request().postDataJSON()?.on) st.watchlist.unshift(id);
+      return json(route, { ok: true });
+    }
     if ((mm = p.match(/^\/api\/libraries\/(\d+)\/genres$/))) return json(route, GENRES.map((name, i) => ({ name, count: 40 - i * 5 })));
     if ((mm = p.match(/^\/api\/libraries\/(\d+)\/items$/))) return json(route, libraryItems(Number(mm[1]), u.searchParams));
     if ((mm = p.match(/^\/api\/items\/(\d+)\/markers$/))) return json(route, []);
     if ((mm = p.match(/^\/api\/items\/(\d+)\/watched$/)) && m === "POST") return json(route, {});
     if ((mm = p.match(/^\/api\/items\/(\d+)$/))) {
       const c = byId.get(Number(mm[1]));
-      return c ? json(route, detail(c)) : json(route, { error: "not found" }, 404);
+      return c ? json(route, { ...detail(c), watchlisted: st.watchlist.includes(c.id) }) : json(route, { error: "not found" }, 404);
     }
     if (p === "/api/search") {
       const q = (u.searchParams.get("q") || "").toLowerCase();

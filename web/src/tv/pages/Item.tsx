@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, art, Card, Detail, episodeLabel, fmtRuntime, fmtTime, resolution } from "../../api";
-import { Check, Eye, Play, Refresh, Tv } from "../../components/Icons";
+import { Check, Eye, Play, Plus, Refresh, Tv, X } from "../../components/Icons";
 import { useApi } from "../../hooks";
 import { Spinner, TvButton, TvCard, TvRow, useBackdrop } from "../components";
 import { usePageFocus, useRefresh, useToast } from "../hooks";
@@ -68,6 +68,17 @@ export default function Item() {
     }
   };
 
+  const toggleWatchlist = async () => {
+    try {
+      await api.post(`/api/items/${d.id}/watchlist`, { on: !d.watchlisted });
+      api.invalidate("/api/home");
+      toast(d.watchlisted ? "Removed from your Watchlist" : "Added to your Watchlist");
+      reload();
+    } catch (e) {
+      toast((e as Error).message);
+    }
+  };
+
   const meta = [
     d.year ? String(d.year) : "",
     d.runtime ? fmtRuntime(d.runtime) : "",
@@ -109,6 +120,11 @@ export default function Item() {
             <TvButton fk="watched" icon={allWatched ? <Eye size={22} /> : <Check size={22} />} onClick={toggleWatched}>
               {allWatched ? "Mark unwatched" : "Mark watched"}
             </TvButton>
+            {(d.kind === "movie" || d.kind === "show") && (
+              <TvButton fk="watchlist" icon={d.watchlisted ? <X size={22} /> : <Plus size={22} />} onClick={toggleWatchlist}>
+                {d.watchlisted ? "On your Watchlist" : "Watchlist"}
+              </TvButton>
+            )}
             {(d.kind === "season" || d.kind === "episode") && showId && (
               <TvButton fk="show" icon={<Tv size={22} />} onClick={() => nav(`/item/${showId}`)}>Go to show</TvButton>
             )}

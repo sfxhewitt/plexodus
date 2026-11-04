@@ -80,6 +80,8 @@ function Hero({ items, onPlay }: { items: Card[]; onPlay: (c: Card) => void }) {
   );
 }
 
+const CONTINUE = { continueRow: true };
+
 export default function Home() {
   const { data, error, reload } = useApi<{ hero: Card[]; rows: RowT[] }>("/api/home");
   useRefresh(reload);
@@ -122,7 +124,7 @@ export default function Home() {
               {r.items.map((c, i) => (
                 <TvCard key={c.id} c={c} shape="land" autoFocus={!hasHero && ri === 0 && i === 0}
                   title={c.kind === "episode" ? c.showTitle || c.title : c.title}
-                  onSelect={(x) => select(x, continuing)} onPlay={play} />
+                  onSelect={(x) => select(x, continuing)} onPlay={play} menu={r.title === "Continue Watching" ? CONTINUE : undefined} />
               ))}
               {r.link && (
                 <button className="tv-card more land" data-f data-fk={`more-${r.title}`} onClick={() => nav(r.link!)}>

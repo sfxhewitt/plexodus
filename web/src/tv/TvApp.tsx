@@ -1,7 +1,7 @@
 import { FormEvent, StrictMode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
-import { api, art, Card, Detail, episodeLabel, User } from "../api";
+import { api, art, Card, Detail, episodeLabel, Library, User } from "../api";
 import { Play, Search as SearchIcon } from "../components/Icons";
 import { UserContext, useUser } from "../hooks";
 import { native, NativeEnded } from "../native";
@@ -14,6 +14,7 @@ import Item from "./pages/Item";
 import LibraryPage from "./pages/Library";
 import SearchPage from "./pages/Search";
 import SettingsPage from "./pages/Settings";
+import { MenuProvider, useLibraryMenu, useLongPress } from "./menu";
 import "./tv.css";
 
 document.documentElement.classList.add("tv");
@@ -32,10 +33,10 @@ function TabBar({ hidden }: { hidden: boolean }) {
   const nav = useNavigate();
   const loc = useLocation();
 
-  const tabs: { key: string; to: string; label?: string; icon?: JSX.Element }[] = [
+  const tabs: { key: string; to: string; label?: string; icon?: JSX.Element; lib?: Library }[] = [
     { key: "search", to: "/search", icon: <SearchIcon size={24} /> },
     { key: "home", to: "/", label: "Home" },
-    ...(libs || []).filter((l) => !l.hidden).map((l) => ({ key: `lib${l.id}`, to: `/library/${l.id}`, label: l.name })),
+    ...(libs || []).filter((l) => !l.hidden).map((l) => ({ key: `lib${l.id}`, to: `/library/${l.id}`, label: l.name, lib: l })),
   ];
   const active = (to: string) => (to === "/" ? loc.pathname === "/" : loc.pathname.startsWith(to));
   const anyActive = tabs.some((t) => active(t.to)) || loc.pathname.startsWith("/settings");
@@ -45,14 +46,8 @@ function TabBar({ hidden }: { hidden: boolean }) {
       <div className="tv-nav-logo"><img src="/favicon.svg" alt="" /><span>plex<b>odus</b></span></div>
       <div className="tv-tabs-pill" data-hscroll="reveal">
         {tabs.map((t) => (
-          <button key={t.key} data-f data-fk={`nav-${t.key}`}
-            data-default={active(t.to) || (!anyActive && t.key === "home") ? "" : undefined}
-            className={`tv-tab-btn ${active(t.to) ? "active" : ""} ${t.icon ? "icon" : ""}`}
-            aria-label={t.label || t.key}
-            onClick={() => (active(t.to) ? focusPage() : nav(t.to))}>
-            {t.icon}
-            {t.label && <span>{t.label}</span>}
-          </button>
+          <Tab key={t.key} fk={`nav-${t.key}`} isDefault={active(t.to) || (!anyActive && t.key === "home")} active={active(t.to)}
+            icon={t.icon} label={t.label} lib={t.lib} onSelect={() => (active(t.to) ? focusPage() : nav(t.to))} />
         ))}
       </div>
       <button data-f data-fk="nav-settings" data-default={loc.pathname.startsWith("/settings") ? "" : undefined}
@@ -61,6 +56,21 @@ function TabBar({ hidden }: { hidden: boolean }) {
         {(user?.username || "?").slice(0, 1).toUpperCase()}
       </button>
     </nav>
+  );
+}
+
+function Tab({ fk, isDefault, active, icon, label, lib, onSelect }: {
+  fk: string; isDefault: boolean; active: boolean; icon?: JSX.Element; label?: string; lib?: Library; onSelect: () => void;
+}) {
+  const libMenu = useLibraryMenu();
+  const press = useLongPress(onSelect, lib ? (el) => libMenu(lib, el) : undefined);
+  return (
+    <button data-f data-fk={fk} data-default={isDefault ? "" : undefined}
+      className={`tv-tab-btn ${active ? "active" : ""} ${icon ? "icon" : ""}`}
+      aria-label={label || fk} onClick={onSelect} {...press}>
+      {icon}
+      {label && <span>{label}</span>}
+    </button>
   );
 }
 
@@ -200,6 +210,7 @@ function Shell() {
   return (
     <ToastCtx.Provider value={toast}>
       <BackdropCtx.Provider value={setBackdrop}>
+        <MenuProvider>
         <div className="tv-app">
           <Backdrop url={backdrop} />
           <main className="tv-main">
@@ -218,6 +229,7 @@ function Shell() {
           {busy && <div className="tv-busy"><Spinner label={busy} /></div>}
           {toastMsg && <div className="tv-toast">{toastMsg}</div>}
         </div>
+        </MenuProvider>
       </BackdropCtx.Provider>
     </ToastCtx.Provider>
   );

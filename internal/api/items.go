@@ -41,6 +41,7 @@ type Card struct {
 	LeafCount     int     `json:"leafCount,omitempty"`
 	ViewedLeaves  int     `json:"viewedLeafCount,omitempty"`
 	Overview      string  `json:"overview,omitempty"`
+	Watchlisted   bool    `json:"watchlisted,omitempty"`
 }
 
 // cardCols selects card fields from items alias i, with the user's watch
@@ -52,7 +53,8 @@ const cardCols = `i.id, i.library_id, i.kind, i.title, COALESCE(i.year, 0), COAL
 	CASE WHEN i.kind = 'show' THEN (SELECT COUNT(*) FROM items s JOIN items e ON e.parent_id = s.id WHERE s.parent_id = i.id) ELSE 0 END,
 	CASE WHEN i.kind = 'show' THEN (SELECT COUNT(*) FROM items s JOIN items e ON e.parent_id = s.id WHERE s.parent_id = i.id
 		AND EXISTS (SELECT 1 FROM watch_state ws WHERE ws.user_id = ?1 AND ws.item_id = e.id AND ws.watched = 1)) ELSE 0 END,
-	CASE WHEN i.kind = 'episode' THEN COALESCE(i.overview, '') ELSE '' END`
+	CASE WHEN i.kind = 'episode' THEN COALESCE(i.overview, '') ELSE '' END,
+	EXISTS (SELECT 1 FROM watchlist wl WHERE wl.user_id = ?1 AND wl.item_id = i.id)`
 
 const cardFrom = `FROM items i
 	LEFT JOIN watch_state w ON w.item_id = i.id AND w.user_id = ?1
@@ -67,7 +69,7 @@ func scanCards(rows *sql.Rows) ([]Card, error) {
 		var sn, en sql.NullInt64
 		if err := rows.Scan(&c.ID, &c.LibraryID, &c.Kind, &c.Title, &c.Year, &c.Poster, &c.Backdrop, &c.Logo, &c.Rating,
 			&c.Runtime, &sn, &en, &c.ParentID, &c.ShowID, &c.ShowTitle, &c.ShowPoster, &c.ShowBackdrop, &c.AddedAt,
-			&c.Position, &c.Duration, &c.Watched, &c.LeafCount, &c.ViewedLeaves, &c.Overview); err != nil {
+			&c.Position, &c.Duration, &c.Watched, &c.LeafCount, &c.ViewedLeaves, &c.Overview, &c.Watchlisted); err != nil {
 			return nil, err
 		}
 		if sn.Valid {
@@ -279,6 +281,15 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	if len(cont) > 0 {
 		rows = append(rows, Row{Title: "Continue Watching", Kind: "landscape", Items: cont})
 	}
+	wl, err := s.cards(r, `JOIN watchlist wl2 ON wl2.item_id = i.id AND wl2.user_id = ?1 WHERE COALESCE(w.watched, 0) = 0
+		ORDER BY wl2.added_at DESC LIMIT 40`)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	if len(wl) > 0 {
+		rows = append(rows, Row{Title: "Watchlist", Kind: "poster", Items: wl})
+	}
 
 	// Libraries the user hid from Home get no rows there (Continue Watching
 	// still includes them).
@@ -351,6 +362,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 func (s *Server) continueWatching(r *http.Request) ([]Card, error) {
 	uid := currentUser(r).ID
 	inProgress, err := s.cards(r, `WHERE w.position > 30 AND w.watched = 0 AND i.kind IN ('movie', 'episode')
+		AND NOT EXISTS (SELECT 1 FROM continue_hidden ch WHERE ch.user_id = ?1 AND ch.item_id = i.id AND ch.hidden_at >= w.updated_at)
 		ORDER BY w.updated_at DESC LIMIT 20`)
 	if err != nil {
 		return nil, err
@@ -363,10 +375,13 @@ func (s *Server) continueWatching(r *http.Request) ([]Card, error) {
 	}
 
 	// Most recently finished episode per show in the last 60 days.
-	rows, err := s.db.R.QueryContext(r.Context(), `SELECT sh.id, MAX(w.updated_at) AS t FROM watch_state w
+	// Shows removed from Continue Watching stay off until watched again.
+	rows, err := s.db.R.QueryContext(r.Context(), `SELECT id, t FROM (SELECT sh.id, MAX(w.updated_at) AS t FROM watch_state w
 		JOIN items e ON e.id = w.item_id AND e.kind = 'episode'
 		JOIN items se ON se.id = e.parent_id JOIN items sh ON sh.id = se.parent_id
-		WHERE w.user_id = ? AND w.watched = 1 AND w.updated_at > ? GROUP BY sh.id ORDER BY t DESC LIMIT 20`,
+		WHERE w.user_id = ?1 AND w.watched = 1 AND w.updated_at > ?2 GROUP BY sh.id) x
+		WHERE NOT EXISTS (SELECT 1 FROM continue_hidden ch WHERE ch.user_id = ?1 AND ch.item_id = x.id AND ch.hidden_at >= x.t)
+		ORDER BY t DESC LIMIT 20`,
 		uid, db.Now()-60*86400)
 	if err != nil {
 		return nil, err

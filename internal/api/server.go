@@ -103,6 +103,8 @@ func (s *Server) Handler() http.Handler {
 	user("GET /api/items/{id}", s.handleItem)
 	user("POST /api/items/{id}/progress", s.handleProgress)
 	user("POST /api/items/{id}/watched", s.handleWatched)
+	user("POST /api/items/{id}/watchlist", s.handleWatchlist)
+	user("POST /api/items/{id}/continue/hide", s.handleHideContinue)
 	user("GET /api/play/{fileId}", s.handlePlay)
 	user("POST /api/hls", s.handleHLSStart)
 	user("POST /api/hls/{sid}/ping", s.handleHLSPing)

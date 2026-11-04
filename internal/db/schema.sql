@@ -175,3 +175,20 @@ CREATE TABLE IF NOT EXISTS user_library_prefs (
     hide_home  INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, library_id)
 );
+
+-- Each user's watchlist.
+CREATE TABLE IF NOT EXISTS watchlist (
+    user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id  INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    added_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, item_id)
+);
+
+-- "Remove from Continue Watching": the item (a film or episode) or show stays
+-- off the row until it's watched again after hidden_at.
+CREATE TABLE IF NOT EXISTS continue_hidden (
+    user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id   INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    hidden_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, item_id)
+);
