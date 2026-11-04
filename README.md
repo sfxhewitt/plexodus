@@ -87,6 +87,24 @@ This needs `ffmpeg` on the server (`sudo apt install ffmpeg`). Without it the
 player offers VLC/Infuse links instead. Segments are written under the data
 directory (`stream/`) and removed a few minutes after playback stops.
 
+## Subtitles in the browser
+
+The web player draws subtitles with libass compiled to WebAssembly
+([JASSUB](https://github.com/ThaUnknown/jassub)), so ASS/SSA anime subtitles
+look the way they were made: typeset signs, positioning, karaoke and the
+fonts the MKV carries as attachments. SRT and other plain subtitles get your
+size, colour and edge presets instead (and you can apply them to ASS tracks
+too by unticking "Keep the file's own styling"). The subtitle menu also has a
+timing slider; keys: `c` on/off, `z` earlier, `x` later.
+
+Tracks come from the file itself and from sidecar files next to it
+(`Show S01E01.en.srt`, `Subs/` folders). Nothing is read during scans. The
+first time a file's embedded subtitles are shown, ffmpeg reads the whole file
+once to pull out every text track, which can take a little while on a cloud
+mount; after that they're cached under the data directory (`subs/`, capped
+at 4 GB). Picture-based subtitles (PGS, VobSub) can't be shown in the
+browser; use the Android app or an external player for those.
+
 ## Android app
 
 The same UI as the browser, plus a built-in player that direct-plays

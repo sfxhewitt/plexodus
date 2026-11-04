@@ -2,8 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import Hls from "hls.js";
 import { api, Card, Detail, episodeLabel, fmtTime, Marker, MediaFile, PlayInfo } from "../api";
-import { Back, Copy, External, Forward, Fullscreen, Mute, Pause, Play, Rewind, Volume } from "../components/Icons";
+import { Back, Copy, External, Forward, Fullscreen, Mute, Pause, Play, Rewind, Subtitles, Volume } from "../components/Icons";
 import { native, NativeEnded, nativePlay } from "../native";
+import {
+  backgrounds, BackgroundKey, colors, ColorKey, fetchTrack, langOf, LoadedTrack, loadDelay, loadPrefs, pickTrack, saveDelay, savePrefs,
+  sizes, SizeKey, SubPrefs, SubRenderer, SubTrack, trackLabel, trackTags,
+} from "../subtitles";
 
 // Plexodus never re-encodes video. The browser gets the file as it is when
 // it can play it. When it can't (Safari has no MKV support, few browsers
@@ -146,6 +150,19 @@ export default function Player() {
   const [markers, setMarkers] = useState<Marker[]>([]);
   const nativeMode = !!native;
 
+  // Subtitles (see ../subtitles.ts).
+  const [subTracks, setSubTracks] = useState<SubTrack[]>([]);
+  const [subTrack, setSubTrack] = useState<SubTrack>();
+  const [subLoaded, setSubLoaded] = useState<LoadedTrack & { id: string }>();
+  const [subState, setSubState] = useState<{ loading?: boolean; error?: string }>({});
+  const [subPrefs, setSubPrefsState] = useState<SubPrefs>(loadPrefs);
+  const [subDelay, setSubDelayState] = useState(0);
+  const [subMenu, setSubMenu] = useState(false);
+  const [toast, setToast] = useState<string>();
+  const subLayer = useRef<HTMLDivElement>(null);
+  const subRenderer = useRef<SubRenderer>();
+  const lastSubTrack = useRef<SubTrack>();
+
   // Browser fallback (HLS remux) state. `session.start` is where in the
   // file the stream begins, so absolute time = start + video.currentTime.
   const [hlsPlan, setHlsPlan] = useState<Extract<Plan, { mode: "hls" }>>();
@@ -187,6 +204,10 @@ export default function Player() {
     setWaiting(true);
     setSession(undefined);
     setHlsPlan(undefined);
+    setSubTracks([]);
+    setSubTrack(undefined);
+    setSubLoaded(undefined);
+    setSubState({});
     (async () => {
       try {
         const d = await api.get<Detail>(`/api/items/${id}`);
@@ -293,6 +314,118 @@ export default function Player() {
 
   // Absolute position in the file (the HLS stream may start mid-file).
   const offset = session && !session.vod ? session.start : 0;
+
+  // Subtitles: list the tracks once the file is known to play here, and
+  // pick one if the viewer's preferences call for it.
+  const fileId = info?.file.id;
+  const playable = !!info && !unsupported && !nativeMode;
+  useEffect(() => {
+    if (!playable || !fileId || !info) return;
+    let cancelled = false;
+    setSubDelayState(loadDelay(fileId));
+    api.get<{ tracks: SubTrack[] }>(`/api/subs/${fileId}`).then((d) => {
+      if (cancelled) return;
+      setSubTracks(d.tracks);
+      const audio = (info.file.streams || []).filter((s) => s.type === "audio");
+      const a = audio.find((s) => s.default) || audio[0];
+      const t = pickTrack(d.tracks, loadPrefs(), a?.language, info.file.size || 0);
+      if (t) setSubTrack(t);
+    }, () => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [playable, fileId]);
+
+  // Fetch the chosen track (the first one from a file can take a while: the
+  // server reads the file once for all of its subtitle tracks).
+  useEffect(() => {
+    setSubLoaded(undefined);
+    if (!subTrack || !fileId) {
+      setSubState({});
+      return;
+    }
+    lastSubTrack.current = subTrack;
+    const ac = new AbortController();
+    setSubState({ loading: true });
+    fetchTrack(fileId, subTrack, ac.signal).then(
+      (l) => {
+        setSubLoaded({ ...l, id: subTrack.id });
+        setSubState({});
+      },
+      (e: Error) => {
+        if (!ac.signal.aborted) setSubState({ error: e.message });
+      },
+    );
+    return () => ac.abort();
+  }, [subTrack, fileId]);
+
+  // Draw the track over the video. Every renderer gets a fresh <canvas>
+  // (it takes the canvas over for good), made here rather than by React.
+  const subKey = subLoaded && `${session?.id || "direct"}:${subLoaded.id}`;
+  useEffect(() => {
+    const v = video.current;
+    const layer = subLayer.current;
+    if (!subKey || !subLoaded || !subTrack || !v || !layer) return;
+    const c = document.createElement("canvas");
+    c.className = "sub-canvas";
+    layer.appendChild(c);
+    const r = new SubRenderer(v, c, subTrack, subLoaded, subPrefs, offset - subDelay);
+    subRenderer.current = r;
+    r.ready.catch((e: Error) => setSubState({ error: `Couldn't start the subtitle renderer: ${e.message}` }));
+    return () => {
+      r.destroy();
+      c.remove();
+      if (subRenderer.current === r) subRenderer.current = undefined;
+    };
+  }, [subKey]);
+  useEffect(() => {
+    subRenderer.current?.setOffset(offset - subDelay);
+  }, [offset, subDelay]);
+  useEffect(() => {
+    subRenderer.current?.setStyle(subPrefs).catch(() => {});
+  }, [subPrefs]);
+
+  const setSubPrefs = (p: Partial<SubPrefs>) => {
+    setSubPrefsState((cur) => {
+      const next = { ...cur, ...p };
+      savePrefs(next);
+      return next;
+    });
+  };
+  const chooseSub = (t?: SubTrack) => {
+    setSubTrack(t);
+    if (t) setSubPrefs({ mode: "auto", ...(t.language ? { lang: langOf(t.language) } : {}) });
+    else setSubPrefs({ mode: "off" });
+  };
+  const flash = useRef<ReturnType<typeof setTimeout>>();
+  const showToast = (msg: string) => {
+    setToast(msg);
+    clearTimeout(flash.current);
+    flash.current = setTimeout(() => setToast(undefined), 1500);
+  };
+  const setSubDelay = (d: number) => {
+    d = Math.round(Math.max(-30, Math.min(30, d)) * 10) / 10;
+    setSubDelayState(d);
+    if (fileId) saveDelay(fileId, d);
+  };
+  const nudgeSubDelay = (by: number) => {
+    const d = Math.round((subDelay + by) * 10) / 10;
+    setSubDelay(d);
+    showToast(`Subtitle delay ${fmtDelay(d)}`);
+  };
+  const toggleSubs = () => {
+    if (subTrack) {
+      chooseSub(undefined);
+      showToast("Subtitles off");
+    } else {
+      const usable = subTracks.filter((t) => t.format !== "image");
+      const t = (lastSubTrack.current && usable.find((x) => x.id === lastSubTrack.current!.id)) || pickTrack(usable, { ...subPrefs, mode: "auto" }, "und", 0) || usable[0];
+      if (t) {
+        chooseSub(t);
+        showToast(`Subtitles: ${trackLabel(t, subTracks)}`);
+      } else showToast("No subtitles for this video");
+    }
+  };
   const absTime = () => offset + (video.current?.currentTime || 0);
 
   const report = useCallback(
@@ -520,8 +653,18 @@ export default function Player() {
             setMuted(video.current.muted);
           }
           break;
+        case "c":
+          toggleSubs();
+          break;
+        case "z":
+          if (subTrack) nudgeSubDelay(-0.1);
+          break;
+        case "x":
+          if (subTrack) nudgeSubDelay(0.1);
+          break;
         case "Escape":
-          if (!document.fullscreenElement) goBack();
+          if (subMenu) setSubMenu(false);
+          else if (!document.fullscreenElement) goBack();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -575,7 +718,7 @@ export default function Player() {
   const showVideo = info && !unsupported && (!hlsPlan || !!session);
 
   return (
-    <div ref={wrap} className={`player ${idle && playing ? "idle" : ""}`}>
+    <div ref={wrap} className={`player ${idle && playing && !subMenu ? "idle" : ""}`}>
       {showVideo && (
         <video
           key={session?.id || "direct"}
@@ -611,6 +754,8 @@ export default function Player() {
           }}
         />
       )}
+      {showVideo && <div ref={subLayer} className="sub-layer" />}
+      {toast && <div className="player-toast">{toast}</div>}
 
       {(!info || waiting) && !unsupported && (
         <div className="player-spinner">
@@ -683,10 +828,119 @@ export default function Player() {
             <div className="spacer" />
             {inHls && <span className="ends-at muted">Converted for this browser</span>}
             {endsAt && <span className="ends-at">Ends at {endsAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>}
+            <div className="sub-wrap">
+              <button className={`icon-btn ${subTrack ? "on" : ""} ${subState.loading ? "busy" : ""}`} onClick={() => setSubMenu((o) => !o)}
+                aria-label="Subtitles" aria-expanded={subMenu} title="Subtitles (c)">
+                <Subtitles size={22} />
+              </button>
+              {subMenu && (
+                <SubtitleMenu
+                  tracks={subTracks} current={subTrack} state={subState} prefs={subPrefs} delay={subDelay}
+                  onPick={chooseSub} onPrefs={setSubPrefs} onDelay={setSubDelay} onClose={() => setSubMenu(false)}
+                />
+              )}
+            </div>
             <button className="icon-btn" onClick={fullscreen} aria-label="Fullscreen"><Fullscreen /></button>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function fmtDelay(d: number) {
+  if (!d) return "0.0 s";
+  return `${d > 0 ? "+" : "−"}${Math.abs(d).toFixed(1)} s`;
+}
+
+function SubtitleMenu(props: {
+  tracks: SubTrack[];
+  current?: SubTrack;
+  state: { loading?: boolean; error?: string };
+  prefs: SubPrefs;
+  delay: number;
+  onPick: (t?: SubTrack) => void;
+  onPrefs: (p: Partial<SubPrefs>) => void;
+  onDelay: (d: number) => void;
+  onClose: () => void;
+}) {
+  const { tracks, current, state, prefs, delay, onPick, onPrefs, onDelay } = props;
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as HTMLElement;
+      if (!ref.current?.contains(t) && !t.closest(".sub-wrap")) props.onClose();
+    };
+    window.addEventListener("pointerdown", onDown);
+    return () => window.removeEventListener("pointerdown", onDown);
+  });
+  const presetsApply = !current || current.format !== "ass" || !prefs.keepStyling;
+  // Picking a preset while the file's own styling is on means "use mine".
+  const preset = (p: Partial<SubPrefs>) => onPrefs(presetsApply ? p : { ...p, keepStyling: false });
+  return (
+    <div className="sub-menu" ref={ref} role="dialog" aria-label="Subtitles">
+      <div className="sub-sec">
+        <div className="sub-h">Subtitles</div>
+        <button className={`sub-opt ${!current ? "sel" : ""}`} onClick={() => onPick(undefined)}>Off</button>
+        {tracks.map((t) => (
+          <button key={t.id} className={`sub-opt ${current?.id === t.id ? "sel" : ""}`} disabled={t.format === "image"}
+            title={t.format === "image" ? "Picture-based subtitles (PGS/VobSub) can't be shown in the browser" : t.fileName}
+            onClick={() => onPick(t)}>
+            <span className="sub-name">{trackLabel(t, tracks)}</span>
+            <span className="sub-tags">
+              {(t.format === "image" ? ["Picture"] : trackTags(t)).map((x) => <span key={x} className="sub-tag">{x}</span>)}
+            </span>
+          </button>
+        ))}
+        {!tracks.length && <div className="muted small sub-note">This video has no subtitles.</div>}
+        {state.loading && <div className="muted small sub-note"><span className="spinner sm" /> Loading subtitles… the first time, the server reads the whole file once.</div>}
+        {state.error && <div className="sub-note sub-err">{state.error}</div>}
+      </div>
+
+      <div className="sub-sec">
+        <div className="sub-h">Style</div>
+        {current?.format === "ass" && (
+          <label className="sub-toggle">
+            <input type="checkbox" checked={prefs.keepStyling} onChange={(e) => onPrefs({ keepStyling: e.target.checked })} />
+            <span>Keep the file's own styling <span className="muted">(best for anime)</span></span>
+          </label>
+        )}
+        <div className={`sub-presets ${presetsApply ? "" : "dim"}`}>
+          <div className="sub-row">
+            <span className="sub-l">Size</span>
+            {(Object.keys(sizes) as SizeKey[]).map((k) => (
+              <button key={k} className={`sub-chip ${prefs.size === k ? "sel" : ""}`} onClick={() => preset({ size: k })}>{sizes[k].label}</button>
+            ))}
+          </div>
+          <div className="sub-row">
+            <span className="sub-l">Colour</span>
+            {(Object.keys(colors) as ColorKey[]).map((k) => (
+              <button key={k} className={`swatch ${prefs.color === k ? "sel" : ""}`} aria-label={colors[k].label} title={colors[k].label}
+                style={{ background: `#${colors[k].rgb.toString(16).padStart(6, "0")}` }} onClick={() => preset({ color: k })} />
+            ))}
+          </div>
+          <div className="sub-row">
+            <span className="sub-l">Edge</span>
+            {(Object.keys(backgrounds) as BackgroundKey[]).map((k) => (
+              <button key={k} className={`sub-chip ${prefs.background === k ? "sel" : ""}`} onClick={() => preset({ background: k })}>{backgrounds[k]}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="sub-sec">
+        <div className="sub-h">
+          Timing <span className="sub-delay">{fmtDelay(delay)}{delay ? (delay > 0 ? " later" : " earlier") : ""}</span>
+        </div>
+        <div className="sub-row">
+          <button className="sub-chip" onClick={() => onDelay(delay - 0.1)} aria-label="Subtitles 0.1 seconds earlier">−0.1</button>
+          <input type="range" min={-10} max={10} step={0.1} value={Math.max(-10, Math.min(10, delay))} onChange={(e) => onDelay(Number(e.target.value))}
+            style={{ "--p": `${((Math.max(-10, Math.min(10, delay)) + 10) / 20) * 100}%` } as React.CSSProperties} aria-label="Subtitle delay" />
+          <button className="sub-chip" onClick={() => onDelay(delay + 0.1)} aria-label="Subtitles 0.1 seconds later">+0.1</button>
+          <button className="sub-chip" onClick={() => onDelay(0)} disabled={!delay}>Reset</button>
+        </div>
+        <div className="muted small sub-keys">Keys: c on/off · z earlier · x later</div>
+      </div>
     </div>
   );
 }

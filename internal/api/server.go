@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,6 +29,7 @@ import (
 	"github.com/sfxhewitt/plexodus/internal/probe"
 	"github.com/sfxhewitt/plexodus/internal/scanner"
 	"github.com/sfxhewitt/plexodus/internal/stream"
+	"github.com/sfxhewitt/plexodus/internal/subs"
 )
 
 type Server struct {
@@ -39,6 +41,7 @@ type Server struct {
 	art      *metadata.ArtCache
 	prober   *probe.Worker
 	streams  *stream.Manager
+	subs     *subs.Manager
 	importer *plex.Importer
 	plexSync *plex.Syncer
 	claude   *ask.Claude
@@ -54,7 +57,8 @@ type Server struct {
 func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner, agent *metadata.Agent,
 	art *metadata.ArtCache, prober *probe.Worker, streams *stream.Manager, web fs.FS) *Server {
 	s := &Server{cfg: cfg, db: d, auth: auth.New(d), scanner: sc, agent: agent, art: art, prober: prober, streams: streams,
-		importer: plex.NewImporter(d), web: web, baseCtx: ctx, plexArtInflight: map[string]*artFetch{}}
+		importer: plex.NewImporter(d), web: web, baseCtx: ctx, plexArtInflight: map[string]*artFetch{},
+		subs: subs.New(cfg.FFmpeg, cfg.FFprobe, filepath.Join(cfg.DataDir, "subs"))}
 	key := d.Setting(ctx, "stream_sign_key")
 	if key == "" {
 		key = randomHex(32)
@@ -120,6 +124,10 @@ func (s *Server) Handler() http.Handler {
 	user("GET /api/items/{id}/markers", s.handleMarkers)
 	user("GET /api/items/{id}/trailer", s.handleTrailer)
 	user("GET /api/screensaver", s.handleScreensaver)
+	user("GET /api/subs/{fileId}", s.handleSubtitleTracks)
+	user("GET /api/subs/{fileId}/tracks/{track}", s.handleSubtitleTrack)
+	user("GET /api/subs/{fileId}/fonts", s.handleSubtitleFonts)
+	user("GET /api/subs/{fileId}/fonts/{font}", s.handleSubtitleFont)
 
 	admin("POST /api/libraries", s.handleCreateLibrary)
 	admin("PUT /api/libraries/{id}", s.handleUpdateLibrary)
