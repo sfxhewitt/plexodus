@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sfxhewitt/plexodus/internal/ask"
 	"github.com/sfxhewitt/plexodus/internal/auth"
 	"github.com/sfxhewitt/plexodus/internal/config"
 	"github.com/sfxhewitt/plexodus/internal/db"
@@ -40,6 +41,8 @@ type Server struct {
 	streams  *stream.Manager
 	importer *plex.Importer
 	plexSync *plex.Syncer
+	claude   *ask.Claude
+	genres   genreCache
 	web      fs.FS
 	signKey  []byte
 	baseCtx  context.Context
@@ -57,6 +60,7 @@ func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner,
 		key = randomHex(32)
 		d.SetSetting(ctx, "stream_sign_key", key)
 	}
+	s.claude = ask.NewClaude(s.anthropicKey(ctx), cfg.AskModel)
 	s.plexSync = plex.NewSyncer(d, s.plexClient, func() bool { return s.importer.Status().Running })
 	s.signKey, _ = hex.DecodeString(key)
 	if d.Setting(ctx, "api_key") == "" {
@@ -111,6 +115,7 @@ func (s *Server) Handler() http.Handler {
 	user("POST /api/hls/{sid}/stop", s.handleHLSStop)
 	user("GET /api/hls/{sid}/{name}", s.handleHLSFile)
 	user("GET /api/search", s.handleSearch)
+	user("GET /api/ask", s.handleAsk)
 	user("GET /api/scan/status", s.handleScanStatus)
 	user("GET /api/items/{id}/markers", s.handleMarkers)
 	user("GET /api/items/{id}/trailer", s.handleTrailer)

@@ -388,7 +388,43 @@ function PlexSync() {
   );
 }
 
-type SettingsT = { tmdbKeySet: boolean; tmdbKeyMasked: string; tmdbKeyFromEnv: boolean; apiKey: string };
+type SettingsT = {
+  tmdbKeySet: boolean; tmdbKeyMasked: string; tmdbKeyFromEnv: boolean; apiKey: string;
+  anthropicKeySet: boolean; anthropicKeyMasked: string; anthropicKeyFromEnv: boolean; askModel: string;
+};
+
+function AskSettings() {
+  const { data, setData } = useApi<SettingsT>("/api/settings");
+  const [key, setKey] = useState("");
+  const [msg, setMsg] = useState<string>();
+  const save = async (k: string) => {
+    setData(await api.put<SettingsT>("/api/settings", { anthropicKey: k }));
+    setKey("");
+    setMsg(k ? "Saved. Try typing a request in the search box and pressing Enter." : "Key removed. Search falls back to basic mode.");
+  };
+  const stored = data?.anthropicKeySet && !data.anthropicKeyFromEnv;
+  return (
+    <section className="settings-section">
+      <h2>Plain-English search</h2>
+      <form className="card form" onSubmit={(e: FormEvent) => (e.preventDefault(), save(key))}>
+        <label>Anthropic API key
+          <input value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off"
+            placeholder={data?.anthropicKeySet ? `${data.anthropicKeyMasked}${data.anthropicKeyFromEnv ? " (from environment)" : ""}` : "sk-ant-…"} />
+        </label>
+        <p className="muted small">
+          Type a request like “90s heist films under two hours I haven’t seen” or “something like Severance” in search and press Enter.
+          With a key, Claude ({data?.askModel || "claude"}) turns it into a library search and suggests titles; repeated searches are cached.
+          Without one, a built-in parser handles decades, lengths, genres and “haven’t seen”. Keys come from console.anthropic.com → API keys.
+        </p>
+        {msg && <div className="ok">{msg}</div>}
+        <div className="form-actions">
+          {stored && <button type="button" className="btn glass" onClick={() => save("")}>Remove key</button>}
+          <button className="btn primary" disabled={!key.trim()}>Save key</button>
+        </div>
+      </form>
+    </section>
+  );
+}
 
 function Metadata() {
   const { data, setData } = useApi<SettingsT>("/api/settings");
@@ -420,6 +456,7 @@ function Metadata() {
           <div className="form-actions"><button className="btn primary" disabled={!key}>Save key</button></div>
         </form>
       </section>
+      <AskSettings />
       <section className="settings-section">
         <h2>Integrations</h2>
         <div className="card form">

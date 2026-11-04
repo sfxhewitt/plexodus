@@ -363,20 +363,27 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	if envKey {
 		tmdb = s.cfg.TMDBKey
 	}
+	anthropic := s.anthropicKey(r.Context())
+	anthropicEnv := s.cfg.AnthropicKey != "" && s.db.Setting(r.Context(), "anthropic_key") == ""
 	writeJSON(w, map[string]any{
-		"tmdbKeySet":     tmdb != "",
-		"tmdbKeyMasked":  maskKey(tmdb),
-		"tmdbKeyFromEnv": envKey,
-		"apiKey":         s.db.Setting(r.Context(), "api_key"),
-		"probeWorkers":   s.cfg.ProbeWorkers,
-		"scanInterval":   s.cfg.ScanInterval.String(),
+		"tmdbKeySet":          tmdb != "",
+		"tmdbKeyMasked":       maskKey(tmdb),
+		"tmdbKeyFromEnv":      envKey,
+		"apiKey":              s.db.Setting(r.Context(), "api_key"),
+		"anthropicKeySet":     anthropic != "",
+		"anthropicKeyMasked":  maskKey(anthropic),
+		"anthropicKeyFromEnv": anthropicEnv,
+		"askModel":            s.claude.Model(),
+		"probeWorkers":        s.cfg.ProbeWorkers,
+		"scanInterval":        s.cfg.ScanInterval.String(),
 	})
 }
 
 func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		TmdbKey     *string `json:"tmdbKey"`
-		RegenApiKey bool    `json:"regenerateApiKey"`
+		TmdbKey      *string `json:"tmdbKey"`
+		RegenApiKey  bool    `json:"regenerateApiKey"`
+		AnthropicKey *string `json:"anthropicKey"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, 400, err.Error())
@@ -391,6 +398,10 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		s.agent.SetKey(k)
 		// Retry items that failed while no key was configured.
 		s.db.W.ExecContext(r.Context(), `UPDATE items SET meta_state = 'pending' WHERE meta_state IN ('error', 'unmatched') AND kind IN ('movie', 'show')`)
+	}
+	if body.AnthropicKey != nil {
+		s.db.SetSetting(r.Context(), "anthropic_key", strings.TrimSpace(*body.AnthropicKey))
+		s.claude.SetKey(s.anthropicKey(r.Context()))
 	}
 	if body.RegenApiKey {
 		s.db.SetSetting(r.Context(), "api_key", randomHex(16))

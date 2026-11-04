@@ -45,6 +45,7 @@ PLEXODUS_ADDR=:8484
 # PLEX_TOKEN=
 # PLEX_PATH_MAP=
 # TMDB_API_KEY=
+# ANTHROPIC_API_KEY=
 ENV
   chmod 600 /etc/plexodus.env
 fi

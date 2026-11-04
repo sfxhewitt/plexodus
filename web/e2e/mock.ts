@@ -250,6 +250,11 @@ addEventListener("message", function (e) {
       const hit = (c: Card) => c.title.toLowerCase().includes(q) || !!c.showTitle?.toLowerCase().includes(q);
       return json(route, { movies: movies.filter(hit).slice(0, 20), shows: shows.filter(hit), episodes: allEpisodes.filter(hit).slice(0, 20) });
     }
+    if (p === "/api/ask") {
+      // Plain-English search: a canned answer with picks and matches.
+      const q = u.searchParams.get("q") || "";
+      return json(route, { summary: `Results for ${q}`, engine: "claude", picks: movies.slice(0, 6), matches: [...movies.slice(6, 20), ...shows.slice(0, 4)] });
+    }
     if (p === "/api/logout") return json(route, {});
     opts.unhandled?.push(`${m} ${p}`);
     return json(route, { error: "not mocked" }, 404);
