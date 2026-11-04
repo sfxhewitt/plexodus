@@ -20,5 +20,7 @@ export default defineConfig(({ mode }) => {
       proxy: { "/api": proxy, "/art": proxy },
     },
     build: { outDir: "dist", emptyOutDir: false, chunkSizeWarningLimit: 800 },
+    // The subtitle renderer (JASSUB) runs in a module worker.
+    worker: { format: "es" as const },
   };
 });
