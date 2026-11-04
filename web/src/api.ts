@@ -268,3 +268,18 @@ export interface PlexStatus {
   finished?: string;
   error?: string;
 }
+
+/** GET /api/ask: a plain-English request turned into library results. */
+export interface AskResult {
+  summary: string;
+  /** "claude" when Claude translated the request, "basic" for the built-in parser. */
+  engine: "claude" | "basic";
+  notice?: string;
+  /** Claude's suggestions that are in the library, best first. */
+  picks: Card[];
+  /** Everything else matching the filters. */
+  matches: Card[];
+}
+
+/** True when a search reads like a request rather than a title. */
+export const looksLikeQuestion = (q: string) => q.trim().split(/\s+/).length >= 3 || /\b(like|similar|haven'?t|under|from the|[0-9]0'?s)\b/i.test(q);

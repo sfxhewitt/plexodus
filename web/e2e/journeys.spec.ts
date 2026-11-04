@@ -136,6 +136,26 @@ test("search: keyboard to results", async ({ page, openTv }, info) => {
   await snap(page, info, "02 results");
 });
 
+test("search: ask in plain English", async ({ page, openTv }, info) => {
+  await openTv("/search");
+  await waitForFocus(page, "k-a");
+  await snap(page, info, "01 examples");
+  // An example request from the hint, reached by moving right off the keyboard.
+  await page.locator('[data-fk="ex-0"]').focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".tv-ask-title")).toHaveText(/Results for 90s heist films/);
+  await expect(page.locator(".tv-row")).toHaveCount(2);
+  await expect(page).toHaveURL(/ask=1/);
+  await snap(page, info, "02 answer");
+  const f = await walk(page, "down", 4);
+  expect(f.some((x) => /^c\d+$/.test(x.fk)), "Down from the example reaches the answer rows").toBe(true);
+
+  // Typing again goes back to a title search.
+  await page.locator('[data-fk="k-b"]').focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".tv-ask-title")).toHaveCount(0);
+});
+
 test("settings", async ({ page, openTv }, info) => {
   await openTv("/settings");
   await waitForFocus(page, "reload");

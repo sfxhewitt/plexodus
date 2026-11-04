@@ -77,8 +77,12 @@ export function Nav() {
       <div className="nav-right">
         <label className="search-box">
           <Search size={18} />
-          <input ref={input} value={q} placeholder="Search" onChange={(e) => onSearch(e.target.value)}
-            onKeyDown={(e) => e.key === "Escape" && (onSearch(""), input.current?.blur())} />
+          <input ref={input} value={q} placeholder="Search or ask…" onChange={(e) => onSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") onSearch(""), input.current?.blur();
+              // Enter asks in plain English ("90s heist films I haven't seen").
+              if (e.key === "Enter" && q.trim()) nav(`/search?q=${encodeURIComponent(q)}&ask=1`, { replace: loc.pathname.startsWith("/search") });
+            }} />
           <kbd>/</kbd>
         </label>
         {user?.isAdmin && <NavLink to="/settings" className="icon-btn" aria-label="Settings"><Settings /></NavLink>}

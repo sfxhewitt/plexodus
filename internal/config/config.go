@@ -25,6 +25,8 @@ type Config struct {
 	PlexURL      string
 	PlexToken    string
 	PlexPathMap  string
+	AnthropicKey string
+	AskModel     string
 }
 
 func env(key, def string) string {
@@ -63,6 +65,8 @@ func Load() *Config {
 	flag.StringVar(&c.PlexURL, "plex-url", env("PLEX_URL", ""), "Plex server URL to import from, e.g. http://127.0.0.1:32400")
 	flag.StringVar(&c.PlexToken, "plex-token", env("PLEX_TOKEN", ""), "Plex token for importing")
 	flag.StringVar(&c.PlexPathMap, "plex-path-map", env("PLEX_PATH_MAP", ""), "rewrite Plex file paths: plexPrefix=localPrefix[,...]")
+	flag.StringVar(&c.AnthropicKey, "anthropic-key", env("ANTHROPIC_API_KEY", ""), "Anthropic API key for plain-English search; can also be set in the UI")
+	flag.StringVar(&c.AskModel, "ask-model", env("PLEXODUS_ASK_MODEL", ""), "Claude model for plain-English search (default claude-opus-5-5)")
 	flag.Parse()
 
 	c.DBPath = filepath.Join(c.DataDir, "plexodus.db")

@@ -62,6 +62,10 @@ make build            # builds web/dist and the ./plexodus binary (needs Go 1.24
 
 Every push to `main` builds fresh binaries into the rolling [`latest` release](https://github.com/sfxhewitt/plexodus/releases/tag/latest). Tagging `v*` publishes a versioned release.
 
+## Ask in plain English
+
+Type a request in search and press Enter (on TV: the Ask key, Enter on the remote keyboard, or voice search): “90s heist films under two hours I haven't seen”, “something like Severance”, “funny shows I haven't started”. With an Anthropic API key (Settings → Plain-English search, or `ANTHROPIC_API_KEY`), Claude turns the request into library filters plus a list of fitting titles, and Plexodus shows the ones you have. Answers are cached for six hours, so repeating a search is free. Without a key, a built-in parser understands decades, years, lengths, genres, ratings and “haven't seen”.
+
 ## Browser fallback (remux, never transcode)
 
 Browsers can't play everything as it is: Safari has no MKV support, and few
@@ -151,6 +155,8 @@ Flags override environment variables.
 | `-addr` | `PLEXODUS_ADDR` | `:8484` | Listen address |
 | `-data` | `PLEXODUS_DATA` | `./data` | Database and artwork cache |
 | `-tmdb-key` | `TMDB_API_KEY` | | TMDB v3 key or v4 read token (can also be set in Settings) |
+| `-anthropic-key` | `ANTHROPIC_API_KEY` | | Anthropic API key for plain-English search (can also be set in Settings; without one a built-in parser is used) |
+| `-ask-model` | `PLEXODUS_ASK_MODEL` | `claude-opus-5-5` | Claude model used for plain-English search |
 | `-scan-interval` | `PLEXODUS_SCAN_INTERVAL` | `15m` | Periodic rescan of all libraries, one at a time (`0` disables) |
 | `-scan-workers` | `PLEXODUS_SCAN_WORKERS` | `16` | Folders listed concurrently during a scan |
 | `-probe-workers` | `PLEXODUS_PROBE_WORKERS` | `0` | Background ffprobe jobs. `0` means a file is only analysed when it's first played, which avoids reading every file on cloud storage |

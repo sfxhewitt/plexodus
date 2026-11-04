@@ -47,3 +47,6 @@ export const Logout = (p: P) => (<Svg {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 
 export const Subtitles = (p: P) => (<Svg {...p}><rect x="2" y="5" width="20" height="14" rx="3" /><path d="M7 15h4M15 15h2M7 11h2M13 11h4" /></Svg>);
 export const Info = (p: P) => (<Svg {...p}><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></Svg>);
 export const Grid = (p: P) => (<Svg {...p}><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></Svg>);
+export const Sparkle = (p: P) => (
+  <Svg {...p}><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9L12 2zm7 11l.9 2.6 2.6.9-2.6.9L19 20l-.9-2.6-2.6-.9 2.6-.9L19 13zM6 15l.7 1.8 1.8.7-1.8.7L6 20l-.7-1.8-1.8-.7 1.8-.7L6 15z" fill="currentColor" stroke="none" /></Svg>
+);
