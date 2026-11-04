@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,6 +48,7 @@ func (s *Server) handlePlexGet(w http.ResponseWriter, r *http.Request) {
 		"tokenFromEnv": s.cfg.PlexToken != "" && s.db.Setting(r.Context(), "plex_token") == "",
 		"pathMap":      pm,
 		"status":       s.importer.Status(),
+		"sync":         s.plexSync.Status(r.Context()),
 	})
 }
 
@@ -55,6 +57,7 @@ func (s *Server) handlePlexPut(w http.ResponseWriter, r *http.Request) {
 		URL     *string `json:"url"`
 		Token   *string `json:"token"`
 		PathMap *string `json:"pathMap"`
+		Sync    *bool   `json:"syncEnabled"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, 400, err.Error())
@@ -69,7 +72,34 @@ func (s *Server) handlePlexPut(w http.ResponseWriter, r *http.Request) {
 	if body.PathMap != nil {
 		s.db.SetSetting(r.Context(), "plex_path_map", strings.TrimSpace(*body.PathMap))
 	}
+	if body.Sync != nil {
+		v := "on"
+		if !*body.Sync {
+			v = "off"
+		}
+		s.db.SetSetting(r.Context(), "plex_sync", v)
+		if *body.Sync {
+			s.plexSync.Kick()
+		}
+	}
 	s.handlePlexGet(w, r)
+}
+
+// RunPlexSync keeps watch state in step with Plex until ctx ends.
+func (s *Server) RunPlexSync(ctx context.Context) { s.plexSync.Run(ctx) }
+
+// handlePlexSync runs a watch sync from Plex now.
+func (s *Server) handlePlexSync(w http.ResponseWriter, r *http.Request) {
+	if c, _ := s.plexClient(r.Context()); !c.Configured() {
+		writeErr(w, 400, "set the Plex URL and token first")
+		return
+	}
+	if s.importer.Status().Running {
+		writeErr(w, 409, "an import is running; sync will run after it")
+		return
+	}
+	s.plexSync.Kick()
+	writeJSON(w, map[string]any{"sync": s.plexSync.Status(r.Context())})
 }
 
 // handlePlexTest lists the Plex libraries and whether their folders are
@@ -117,11 +147,15 @@ func (s *Server) handlePlexImport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "set the Plex URL and token first")
 		return
 	}
-	err := s.importer.Start(s.baseCtx, c, pm, currentUser(r).ID, func() {
+	uid := currentUser(r).ID
+	// Ongoing watch sync goes to whoever imported.
+	s.db.SetSetting(r.Context(), "plex_sync_user", strconv.FormatInt(uid, 10))
+	err := s.importer.Start(s.baseCtx, c, pm, uid, func() {
 		select {
 		case s.scanner.Changed <- struct{}{}:
 		default:
 		}
+		s.plexSync.Kick()
 	})
 	if err != nil {
 		writeErr(w, 409, err.Error())

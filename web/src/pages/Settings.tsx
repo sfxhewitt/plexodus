@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, fmtSize, Invite, Library, PlexStatus, ScanProgress, User } from "../api";
+import { api, fmtSize, Invite, Library, PlexStatus, PlexSyncStatus, ScanProgress, User } from "../api";
 import { Copy, Folder, Plus, Refresh, Trash, X } from "../components/Icons";
 import { useApi, useUser } from "../hooks";
 
@@ -205,7 +205,7 @@ function Libraries() {
   );
 }
 
-type PlexT = { url: string; tokenSet: boolean; tokenFromEnv: boolean; pathMap: string; status: PlexStatus };
+type PlexT = { url: string; tokenSet: boolean; tokenFromEnv: boolean; pathMap: string; status: PlexStatus; sync: PlexSyncStatus };
 type PlexSection = { title: string; type: string; locations: { plex: string; local: string; exists: boolean }[] };
 
 function PlexImport() {
@@ -309,6 +309,79 @@ function PlexImport() {
         <div className="form-actions">
           <button className="btn glass" onClick={test} disabled={busy || running}>{busy ? "Checking…" : "Save & check connection"}</button>
           <button className="btn primary" onClick={start} disabled={running || !sections || noneFound}>Import</button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+const setTime = (t?: string) => (t && !t.startsWith("0001") ? t : undefined);
+
+function PlexSync() {
+  const { data, setData } = useApi<PlexT>("/api/plex");
+  const [error, setError] = useState<string>();
+  // lastRun as it was when "Sync now" was pressed; null when not waiting.
+  const [since, setSince] = useState<{ lastRun: string; at: number } | null>(null);
+  const [, rerender] = useState(0);
+  const sync = data?.sync;
+  const busy = since !== null || !!sync?.running;
+
+  // Poll while a sync is queued or running; otherwise just refresh the "x min ago" text.
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (!busy) return rerender((n) => n + 1);
+      api.get<PlexT>("/api/plex").then((d) => {
+        setData(d);
+        const finished = !d.sync.running && (!since || (d.sync.lastRun ?? "") !== since.lastRun || Date.now() - since.at > 6 * 60_000);
+        if (finished) {
+          setSince(null);
+          api.invalidate();
+        }
+      });
+    }, busy ? 1000 : 30_000);
+    return () => clearInterval(t);
+  }, [busy, since, setData]);
+
+  if (!data || !data.tokenSet || !data.url) return null;
+
+  const run = async () => {
+    setError(undefined);
+    try {
+      await api.post("/api/plex/sync");
+      setSince({ lastRun: sync?.lastRun ?? "", at: Date.now() });
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  const toggle = async (on: boolean) => setData(await api.put<PlexT>("/api/plex", { syncEnabled: on }));
+  const last = setTime(sync?.lastRun);
+  const ok = setTime(sync?.lastOk);
+
+  return (
+    <section className="settings-section">
+      <h2>Watch status from Plex</h2>
+      <div className="card form">
+        <p className="muted small" style={{ margin: 0 }}>
+          Anything you watch in a Plex app shows up here as watched, with its resume point and in Continue Watching.
+          Plexodus checks Plex every {sync?.intervalMinutes ?? 5} minutes. It only reads from Plex, and never replaces progress you made more recently in Plexodus.
+        </p>
+        <label className="check">
+          <input type="checkbox" checked={!!sync?.enabled} onChange={(e) => toggle(e.target.checked)} />
+          <span><b>Keep in sync automatically</b></span>
+        </label>
+        <div className={busy ? "scan-live" : "muted small"}>
+          {busy && <div className="spinner sm" />}
+          {busy ? "Syncing from Plex…" : last ? (
+            <>
+              Last sync {ago(last)}: {sync!.checked.toLocaleString()} recently played {sync!.checked === 1 ? "item" : "items"} checked,{" "}
+              {sync!.updated.toLocaleString()} updated
+              {sync!.error && <span className="err-inline"> · failed: {sync!.error}{ok ? ` (last good sync ${ago(ok)})` : ""}</span>}
+            </>
+          ) : sync?.enabled ? "First sync runs within a minute of the server starting." : "Not synced yet."}
+        </div>
+        {error && <div className="err">{error}</div>}
+        <div className="form-actions">
+          <button className="btn glass" onClick={run} disabled={busy || data.status.running}>Sync from Plex now</button>
         </div>
       </div>
     </section>
@@ -532,6 +605,7 @@ export default function Settings() {
       <h1>Settings</h1>
       <Libraries />
       <PlexImport />
+      <PlexSync />
       <Metadata />
       <Invites />
       <Users />

@@ -230,6 +230,17 @@ export interface Marker {
   end: number;
 }
 
+export interface PlexSyncStatus {
+  enabled: boolean;
+  running: boolean;
+  lastRun?: string;
+  lastOk?: string;
+  checked: number;
+  updated: number;
+  error?: string;
+  intervalMinutes: number;
+}
+
 export interface PlexStatus {
   running: boolean;
   phase: string;
