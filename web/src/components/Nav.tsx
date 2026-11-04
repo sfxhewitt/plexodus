@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { api, Library } from "../api";
 import { useApi, useUser } from "../hooks";
 import { Film, Grid, Home, Logout, Search, Settings, Tv } from "./Icons";
+import { ProfileAvatar } from "./Profiles";
 
 export function Logo() {
   return (
@@ -14,7 +15,14 @@ export function Logo() {
 }
 
 export function Nav() {
-  const { user, setUser } = useUser();
+  const { user, setUser, openProfiles } = useUser();
+  const [menu, setMenu] = useState(false);
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(false);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [menu]);
   const { data: libs, reload: reloadLibs } = useApi<Library[]>("/api/libraries");
   useEffect(() => {
     window.addEventListener("plexodus:library-prefs", reloadLibs);
@@ -86,10 +94,23 @@ export function Nav() {
           <kbd>/</kbd>
         </label>
         {user?.isAdmin && <NavLink to="/settings" className="icon-btn" aria-label="Settings"><Settings /></NavLink>}
-        <button className="avatar" onClick={logout} title={`Signed in as ${user?.username}. Click to sign out.`}>
-          <span>{user?.username.slice(0, 1).toUpperCase()}</span>
-          <Logout size={14} />
-        </button>
+        <div className="nav-profile">
+          <button className="nav-avatar-btn" aria-label="Profile menu" title={user?.name || user?.username}
+            onClick={(e) => (e.stopPropagation(), setMenu(!menu))}>
+            {user && <ProfileAvatar p={{ id: user.id, name: user.name || user.username, avatar: user.avatar, color: user.color }} size={36} />}
+          </button>
+          {menu && (
+            <div className="pf-menu" onClick={(e) => e.stopPropagation()}>
+              <div className="muted small" style={{ padding: "4px 10px" }}>
+                {user?.name || user?.username}{user?.kids ? " · Kids" : ""}
+              </div>
+              <button onClick={() => (setMenu(false), openProfiles?.())}>Switch profile</button>
+              {!user?.isProfile && <button onClick={() => (setMenu(false), openProfiles?.(true))}>Manage profiles</button>}
+              <hr />
+              <button onClick={logout}><Logout size={16} /> Sign out{user?.isProfile ? ` of ${user.username}` : ""}</button>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );

@@ -63,6 +63,17 @@ func Open(path string) (*DB, error) {
 func migrate(w *sql.DB) error {
 	columns := []struct{ table, column, def string }{
 		{"users", "all_libraries", "INTEGER NOT NULL DEFAULT 1"},
+		// Profiles: extra viewers under one account (see auth.Profile).
+		{"users", "parent_id", "INTEGER REFERENCES users(id) ON DELETE CASCADE"},
+		{"users", "display_name", "TEXT"},
+		{"users", "avatar", "TEXT"},
+		{"users", "color", "TEXT"},
+		{"users", "max_age", "INTEGER"},
+		{"users", "pin_hash", "TEXT"},
+		{"sessions", "profile_id", "INTEGER REFERENCES users(id) ON DELETE SET NULL"},
+		// Content rating ("PG-13") and the minimum age it maps to, for kids profiles.
+		{"items", "content_rating", "TEXT"},
+		{"items", "age", "INTEGER"},
 	}
 	for _, c := range columns {
 		var n int
@@ -75,7 +86,8 @@ func migrate(w *sql.DB) error {
 			}
 		}
 	}
-	return nil
+	_, err := w.Exec(`CREATE INDEX IF NOT EXISTS users_parent ON users(parent_id)`)
+	return err
 }
 
 func (d *DB) Close() error {

@@ -35,10 +35,10 @@ func (s *Server) handleHLSStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var path, vcodec, streams string
-	var libID int64
-	err := s.db.R.QueryRowContext(r.Context(), `SELECT path, library_id, COALESCE(video_codec, ''), COALESCE(streams, 'null')
-		FROM media_files WHERE id = ?`, b.FileID).Scan(&path, &libID, &vcodec, &streams)
-	if err != nil || !currentUser(r).CanSee(libID) {
+	var libID, itemID int64
+	err := s.db.R.QueryRowContext(r.Context(), `SELECT path, library_id, item_id, COALESCE(video_codec, ''), COALESCE(streams, 'null')
+		FROM media_files WHERE id = ?`, b.FileID).Scan(&path, &libID, &itemID, &vcodec, &streams)
+	if err != nil || !currentUser(r).CanSee(libID) || !s.itemVisible(r, itemID) {
 		writeErr(w, 404, "file not found")
 		return
 	}

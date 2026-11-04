@@ -186,9 +186,14 @@ func (s *Syncer) once(ctx context.Context) {
 	s.status.LastRun = time.Now()
 	s.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
-	checked, updated, err := s.sync(ctx, c, pm)
+	sctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
+	checked, updated, err := s.sync(sctx, c, pm)
 	cancel()
+	rctx, rcancel := context.WithTimeout(ctx, 10*time.Minute)
+	if rerr := s.BackfillRatings(rctx, c); rerr != nil {
+		log.Printf("plex: content ratings: %v", rerr)
+	}
+	rcancel()
 
 	s.mu.Lock()
 	s.status.Running = false

@@ -52,6 +52,9 @@ func (a *Agent) Run(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		if n == 0 && a.Enabled() {
+			n = a.backfillCerts(ctx)
+		}
 		if n > 0 {
 			continue
 		}
@@ -215,6 +218,7 @@ func (a *Agent) Apply(ctx context.Context, itemID int64, kind string, tmdbID int
 			genresJSON(m.Genres), m.VoteAverage, m.Runtime, nullStr(m.ReleaseDate), m.ID, nullStr(m.ImdbID),
 			nullStr(m.PosterPath), nullStr(m.BackdropPath), nullStr(m.Images.BestLogo()), db.Now(), db.Now(), itemID)
 		if err == nil {
+			a.setCert(ctx, itemID, m.ReleaseDates.Cert())
 			a.Art.Prefetch(m.PosterPath, "w342")
 			a.Art.Prefetch(m.BackdropPath, "w1280")
 		}
@@ -237,6 +241,7 @@ func (a *Agent) Apply(ctx context.Context, itemID int64, kind string, tmdbID int
 		if err != nil {
 			return err
 		}
+		a.setCert(ctx, itemID, s.ContentRatings.Cert())
 		a.Art.Prefetch(s.PosterPath, "w342")
 		a.Art.Prefetch(s.BackdropPath, "w1280")
 		return a.updateSeasons(ctx, itemID, s.ID, false)

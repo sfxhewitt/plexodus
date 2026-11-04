@@ -93,7 +93,7 @@ function AmbientChoices() {
 }
 
 export default function SettingsPage() {
-  const { user, setUser } = useUser();
+  const { user, setUser, openProfiles } = useUser();
   useBackdrop(undefined);
   usePageFocus(true);
   let version = "";
@@ -122,14 +122,17 @@ export default function SettingsPage() {
     <div className="tv-page tv-settings" data-vscroll="reveal" data-margin="5rem">
       <h1 className="tv-h1">Settings</h1>
       <dl className="tv-facts">
+        <dt>Profile</dt><dd>{user?.name || user?.username}{user?.kids ? " (kids)" : ""}</dd>
         <dt>Signed in as</dt><dd>{user?.username}{user?.isAdmin ? " (admin)" : ""}</dd>
         <dt>Server</dt><dd>{window.location.host}</dd>
         {version && <><dt>App version</dt><dd>{version}</dd></>}
       </dl>
       <div className="tv-settings-actions" data-row data-row-top>
-        <TvButton autoFocus fk="reload" icon={<Refresh size={22} />} onClick={() => window.location.reload()}>Reload</TvButton>
+        <TvButton autoFocus fk="profiles" onClick={() => openProfiles?.()}>Switch profile</TvButton>
+        {!user?.isProfile && <TvButton fk="manage-profiles" onClick={() => openProfiles?.(true)}>Manage profiles</TvButton>}
+        <TvButton fk="reload" icon={<Refresh size={22} />} onClick={() => window.location.reload()}>Reload</TvButton>
         {native && <TvButton fk="server" onClick={() => native?.changeServer()}>Change server</TvButton>}
-        <TvButton fk="classic" onClick={classic}>Use the phone-style interface</TvButton>
+        {!user?.kids && <TvButton fk="classic" onClick={classic}>Use the phone-style interface</TvButton>}
         <TvButton fk="logout" icon={<Logout size={22} />} onClick={signOut}>Sign out</TvButton>
       </div>
       <LibraryChoices />

@@ -158,7 +158,7 @@ test("search: ask in plain English", async ({ page, openTv }, info) => {
 
 test("settings", async ({ page, openTv }, info) => {
   await openTv("/settings");
-  await waitForFocus(page, "reload");
+  await waitForFocus(page, "profiles");
   await snap(page, info, "01 settings");
 
   // Down to the library choices: hide TV Shows from the menu.
