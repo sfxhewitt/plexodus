@@ -138,6 +138,11 @@ jobs:
     needs: [server, android]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    # Pushes that land close together build in parallel; publish one at a
+    # time so an older build can't finish last and replace a newer "latest".
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
@@ -158,6 +163,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # A newer commit is already on main: its own run publishes, and
+          # this older build must not overwrite it.
+          head=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo "main is at $head, this build is $GITHUB_SHA: skipping publish"
+            exit 0
+          fi
           git tag -f latest && git push -f origin latest
           gh release view latest >/dev/null 2>&1 || gh release create latest --prerelease --title "Latest build" --notes "Built automatically from main."
           gh release upload latest dist/* --clobber
