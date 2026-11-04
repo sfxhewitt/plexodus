@@ -54,6 +54,7 @@ func main() {
 	srv := api.New(ctx, cfg, d, sc, agent, art, prober, streams, web.FS())
 	go streams.Reap(ctx)
 	go srv.WarmArtwork(ctx)
+	go srv.RunPlexSync(ctx)
 
 	go agent.Run(ctx)
 	go prober.Run(ctx)
