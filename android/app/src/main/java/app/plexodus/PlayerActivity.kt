@@ -8,6 +8,8 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.content.IntentFilter
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.net.Uri
@@ -23,6 +25,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
@@ -32,6 +35,7 @@ import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 import org.videolan.libvlc.util.VLCVideoLayout
+import java.net.URLEncoder
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -44,6 +48,16 @@ import java.util.concurrent.Executors
  */
 class PlayerActivity : Activity() {
     private class Marker(val type: String, val startMs: Long, val endMs: Long)
+
+    /** The episode after the one playing, looked up in the background. */
+    private class NextEpisode(
+        val id: Long,
+        val title: String,
+        val showTitle: String,
+        val season: Int,
+        val episode: Int,
+        val art: Bitmap?,
+    )
 
     private lateinit var libVlc: LibVLC
     private lateinit var player: MediaPlayer
@@ -85,6 +99,48 @@ class PlayerActivity : Activity() {
 
     private val hideControls = Runnable { if (playing) setControls(false) }
 
+    // ---- up next / still watching ----
+    private lateinit var upNext: View
+    private lateinit var upNextImage: ImageView
+    private lateinit var upNextCount: TextView
+    private lateinit var upNextEyebrow: TextView
+    private lateinit var upNextTitle: TextView
+    private lateinit var upNextSub: TextView
+    private lateinit var upNextPlay: Button
+    private lateinit var upNextCancel: Button
+    private lateinit var root: View
+
+    /** The item the page asked to play; the result always names it. */
+    private var startItemId = 0L
+    private var next: NextEpisode? = null
+    private var lookupFor = 0L
+    private var upNextVisible = false
+    private var upNextDismissed = false
+    private var askingStillWatching = false
+    private var countdown = 0
+    private var switching = false
+    /** The player already offered (or played) the next episode, so the page shouldn't. */
+    private var handledNext = false
+    /** Episodes started by the countdown since the remote was last touched. */
+    private var autoPlays = 0
+
+    private val tick = object : Runnable {
+        override fun run() {
+            if (!upNextVisible || askingStillWatching) return
+            if (playing) countdown--
+            if (countdown <= 0) {
+                playNext(auto = true)
+                return
+            }
+            upNextCount.text = countdown.toString()
+            upNextEyebrow.text = getString(R.string.up_next_in, countdown)
+            ui.postDelayed(this, 1000)
+        }
+    }
+
+    /** Nobody answered "still watching?": give up and let the TV sleep. */
+    private val giveUp = Runnable { finishPlayback(false) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -93,6 +149,7 @@ class PlayerActivity : Activity() {
         server = intent.getStringExtra(EXTRA_SERVER) ?: ""
         cookie = intent.getStringExtra(EXTRA_COOKIE) ?: ""
         itemId = intent.getLongExtra(EXTRA_ITEM_ID, 0)
+        startItemId = itemId
         kind = intent.getStringExtra(EXTRA_KIND) ?: ""
         val url = intent.getStringExtra(EXTRA_URL) ?: run { finish(); return }
         val startMs = intent.getLongExtra(EXTRA_START_MS, 0)
@@ -111,6 +168,17 @@ class PlayerActivity : Activity() {
         skipButton = findViewById(R.id.skip)
         audioButton = findViewById(R.id.audio)
         subsButton = findViewById(R.id.subtitles)
+        root = findViewById(R.id.root)
+        upNext = findViewById(R.id.up_next)
+        upNextImage = findViewById(R.id.up_next_image)
+        upNextCount = findViewById(R.id.up_next_count)
+        upNextEyebrow = findViewById(R.id.up_next_eyebrow)
+        upNextTitle = findViewById(R.id.up_next_title)
+        upNextSub = findViewById(R.id.up_next_sub)
+        upNextPlay = findViewById(R.id.up_next_play)
+        upNextCancel = findViewById(R.id.up_next_cancel)
+        upNextPlay.setOnClickListener { playNext(auto = false) }
+        upNextCancel.setOnClickListener { if (askingStillWatching) finishPlayback(false) else dismissUpNext() }
         findViewById<TextView>(R.id.title).text = intent.getStringExtra(EXTRA_TITLE)
         findViewById<TextView>(R.id.subtitle).text = intent.getStringExtra(EXTRA_SUBTITLE)
 
@@ -172,17 +240,20 @@ class PlayerActivity : Activity() {
         player.attachViews(videoLayout, null, true, false)
         player.setEventListener { onEvent(it) }
 
+        requestAudioFocus()
+        load(url, startMs)
+        setControls(true)
+    }
+
+    private fun load(url: String, startMs: Long) {
         val media = Media(libVlc, Uri.parse(url))
         media.setHWDecoderEnabled(true, false)
         media.addOption(":network-caching=4000")
         if (startMs > 5_000) media.addOption(":start-time=${startMs / 1000}")
         player.setMedia(media)
         media.release()
-
-        requestAudioFocus()
         player.play()
         updateTime()
-        setControls(true)
     }
 
     // ---- libVLC events (delivered on the main thread) ----
@@ -194,18 +265,20 @@ class PlayerActivity : Activity() {
                 spinner.visibility = View.GONE
                 playPause.setImageResource(R.drawable.ic_pause)
                 scheduleHide()
+                lookUpNext()
             }
             MediaPlayer.Event.Paused -> {
                 playing = false
                 playPause.setImageResource(R.drawable.ic_play)
                 report(force = true)
-                setControls(true)
+                if (!upNextVisible) setControls(true)
             }
             MediaPlayer.Event.Buffering -> spinner.visibility = if (e.buffering < 100f) View.VISIBLE else View.GONE
             MediaPlayer.Event.TimeChanged -> {
                 timeMs = e.timeChanged
                 updateTime()
                 updateSkip()
+                updateUpNext()
                 report()
             }
             MediaPlayer.Event.LengthChanged -> {
@@ -214,7 +287,7 @@ class PlayerActivity : Activity() {
             }
             MediaPlayer.Event.ESAdded, MediaPlayer.Event.ESSelected -> updateTrackButtons()
             MediaPlayer.Event.Vout -> if (e.voutCount > 0) matchRefreshRate()
-            MediaPlayer.Event.EndReached -> finishPlayback(ended = true)
+            MediaPlayer.Event.EndReached -> onEnd()
             MediaPlayer.Event.EncounteredError -> {
                 spinner.visibility = View.GONE
                 errorText.text = getString(R.string.player_error)
@@ -271,7 +344,7 @@ class PlayerActivity : Activity() {
 
     private fun updateSkip() {
         val m = activeMarker()
-        val show = m != null && (m.type == "intro" || kind == "episode")
+        val show = m != null && !upNextVisible && (m.type == "intro" || (kind == "episode" && next == null))
         skipButton.visibility = if (show) View.VISIBLE else View.GONE
         if (m != null) skipButton.text = getString(if (m.type == "intro") R.string.skip_intro else R.string.next_episode)
     }
@@ -419,16 +492,272 @@ class PlayerActivity : Activity() {
         statsText.text = sb.toString()
     }
 
+    // ---- up next ("next episode in 10s") and "still watching?" ----
+
+    /** Finds the next episode in the background once an episode starts. */
+    private fun lookUpNext() {
+        if (kind != "episode" || itemId == 0L || lookupFor == itemId) return
+        val id = itemId
+        lookupFor = id
+        io.execute {
+            val n = try {
+                findNext(id)
+            } catch (_: Exception) {
+                null
+            }
+            ui.post {
+                if (itemId == id && !isFinishing) {
+                    next = n
+                    updateSkip()
+                    updateUpNext()
+                }
+            }
+        }
+    }
+
+    private fun getJson(path: String): JSONObject? {
+        val r = Http.request("$server$path", headers = mapOf("Cookie" to cookie))
+        return if (r.code == 200) JSONObject(r.body) else null
+    }
+
+    /** The episode after [id]: the next one in its season, else the first of the next season. */
+    private fun findNext(id: Long): NextEpisode? {
+        val cur = getJson("/api/items/$id") ?: return null
+        if (cur.optString("kind") != "episode") return null
+        val season = cur.optInt("seasonNumber")
+        val ep = cur.optInt("episodeNumber")
+        val showId = cur.optLong("showId")
+        var card = firstEpisode(cur.optJSONArray("siblings")) { it.optInt("episodeNumber") > ep && it.optLong("id") != id }
+        if (card == null && season > 0 && showId != 0L) {
+            val show = getJson("/api/items/$showId") ?: return null
+            val seasons = show.optJSONArray("children") ?: return null
+            var nextSeason: JSONObject? = null
+            for (i in 0 until seasons.length()) {
+                val s = seasons.getJSONObject(i)
+                val n = s.optInt("seasonNumber")
+                if (s.optString("kind") == "season" && n > season && (nextSeason == null || n < nextSeason.optInt("seasonNumber"))) nextSeason = s
+            }
+            if (nextSeason != null) {
+                val sd = getJson("/api/items/${nextSeason.optLong("id")}") ?: return null
+                card = firstEpisode(sd.optJSONArray("children")) { true }
+            }
+        }
+        card ?: return null
+        val artPath = card.optString("backdrop").ifEmpty { card.optString("showBackdrop") }.ifEmpty { cur.optString("showBackdrop") }
+        val art = artUrl(artPath)?.let { u ->
+            Http.bytes(u, mapOf("Cookie" to cookie))?.let { b ->
+                try {
+                    BitmapFactory.decodeByteArray(b, 0, b.size)
+                } catch (_: Throwable) {
+                    null
+                }
+            }
+        }
+        return NextEpisode(
+            id = card.optLong("id"),
+            title = card.optString("title"),
+            showTitle = card.optString("showTitle").ifEmpty { cur.optString("showTitle") },
+            season = card.optInt("seasonNumber"),
+            episode = card.optInt("episodeNumber"),
+            art = art,
+        )
+    }
+
+    private fun firstEpisode(arr: JSONArray?, ok: (JSONObject) -> Boolean): JSONObject? {
+        arr ?: return null
+        var best: JSONObject? = null
+        for (i in 0 until arr.length()) {
+            val c = arr.getJSONObject(i)
+            if (c.optString("kind") != "episode" || !ok(c)) continue
+            if (best == null || c.optInt("episodeNumber") < best.optInt("episodeNumber")) best = c
+        }
+        return best
+    }
+
+    /** Same mapping as art() in web/src/api.ts. */
+    private fun artUrl(path: String): String? {
+        if (path.isEmpty()) return null
+        if (path.startsWith("plex:")) return "$server/art/plex/w500?p=" + URLEncoder.encode(path.substring(5), "UTF-8")
+        return "$server/art/w500$path"
+    }
+
+    /** When the card comes up: at the credits marker, else 10 seconds from the end. */
+    private fun upNextAt(): Long {
+        val credits = markers.filter { it.type == "credits" && it.startMs > lengthMs / 2 }.minOfOrNull { it.startMs }
+        val tail = lengthMs - COUNTDOWN_S * 1000L
+        return if (credits != null) minOf(credits, tail) else tail
+    }
+
+    private fun updateUpNext() {
+        if (next == null || lengthMs < 60_000 || switching || finished) return
+        val at = upNextAt()
+        if (timeMs < at - 3000) {
+            // Rewound out of the credits: put things back as they were.
+            upNextDismissed = false
+            if (upNextVisible && !askingStillWatching) hideUpNext()
+            return
+        }
+        if (timeMs >= at && !upNextVisible && !upNextDismissed) showUpNext()
+    }
+
+    private fun showUpNext() {
+        val n = next ?: return
+        upNextVisible = true
+        handledNext = true
+        askingStillWatching = autoPlays >= STILL_WATCHING_AFTER
+        setControls(false)
+        skipButton.visibility = View.GONE
+        if (n.art != null) upNextImage.setImageBitmap(n.art) else upNextImage.setImageDrawable(null)
+        val label = getString(R.string.episode_label, n.season, n.episode)
+        if (askingStillWatching) {
+            upNextEyebrow.text = getString(R.string.still_watching)
+            upNextTitle.text = n.showTitle.ifEmpty { n.title }
+            upNextSub.text = getString(R.string.still_watching_sub, "$label · ${n.title}")
+            upNextCount.visibility = View.GONE
+            upNextPlay.text = getString(R.string.keep_watching)
+            upNextCancel.text = getString(R.string.stop_watching)
+        } else {
+            countdown = COUNTDOWN_S
+            upNextEyebrow.text = getString(R.string.up_next_in, countdown)
+            upNextTitle.text = n.showTitle.ifEmpty { n.title }
+            upNextSub.text = "$label · ${n.title}"
+            upNextCount.text = countdown.toString()
+            upNextCount.visibility = View.VISIBLE
+            upNextPlay.text = getString(R.string.play_now)
+            upNextCancel.text = getString(R.string.cancel)
+            ui.removeCallbacks(tick)
+            ui.postDelayed(tick, 1000)
+        }
+        upNext.visibility = View.VISIBLE
+        upNextPlay.requestFocus()
+    }
+
+    private fun hideUpNext() {
+        upNextVisible = false
+        askingStillWatching = false
+        ui.removeCallbacks(tick)
+        ui.removeCallbacks(giveUp)
+        upNext.visibility = View.GONE
+        updateSkip()
+    }
+
+    private fun dismissUpNext() {
+        upNextDismissed = true
+        hideUpNext()
+        setControls(true)
+        playPause.requestFocus()
+    }
+
+    private fun onEnd() {
+        if (upNextVisible && askingStillWatching) {
+            // Wait for an answer, but let the TV go to sleep, and close after a while.
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            root.keepScreenOn = false
+            ui.removeCallbacks(giveUp)
+            ui.postDelayed(giveUp, GIVE_UP_MS)
+            return
+        }
+        if (upNextVisible) {
+            playNext(auto = true)
+            return
+        }
+        finishPlayback(ended = true)
+    }
+
+    /** Marks this episode watched and plays the next one in the same player. */
+    private fun playNext(auto: Boolean) {
+        val n = next ?: return
+        if (switching || finished) return
+        switching = true
+        handledNext = true
+        autoPlays = if (auto) autoPlays + 1 else 0
+        hideUpNext()
+        report(force = true, positionMs = lengthMs)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        root.keepScreenOn = true
+        spinner.visibility = View.VISIBLE
+        errorText.visibility = View.GONE
+        io.execute {
+            val loaded = try {
+                val d = getJson("/api/items/${n.id}")
+                val file = d?.optJSONArray("files")?.optJSONObject(0)
+                val p = file?.let { getJson("/api/play/${it.optLong("id")}?probe=0") }
+                val m = try {
+                    Http.request("$server/api/items/${n.id}/markers", headers = mapOf("Cookie" to cookie)).body
+                } catch (_: Exception) {
+                    "[]"
+                }
+                if (p == null || p.optString("externalUrl").isEmpty()) null else Triple(d, p, m)
+            } catch (_: Exception) {
+                null
+            }
+            ui.post {
+                if (isFinishing || finished) return@post
+                switching = false
+                if (loaded == null) {
+                    Toast.makeText(this, R.string.player_error, Toast.LENGTH_LONG).show()
+                    finishPlayback(ended = false)
+                    return@post
+                }
+                val (d, p, m) = loaded
+                val file = d!!.optJSONArray("files")!!.optJSONObject(0)
+                itemId = n.id
+                kind = "episode"
+                next = null
+                lookupFor = 0L
+                upNextDismissed = false
+                modeSwitched = false
+                lastReport = 0L
+                markers = parseMarkers(m)
+                val pf = p.optJSONObject("file")
+                val dur = pf?.optDouble("duration", 0.0)?.takeIf { it > 0 } ?: file.optDouble("duration", 0.0)
+                lengthMs = (dur * 1000).toLong()
+                val startMs = (p.optDouble("position", 0.0) * 1000).toLong()
+                timeMs = if (startMs > 5_000) startMs else 0L
+                findViewById<TextView>(R.id.title).text = n.showTitle.ifEmpty { n.title }
+                findViewById<TextView>(R.id.subtitle).text = "${getString(R.string.episode_label, n.season, n.episode)} · ${n.title}"
+                skipButton.visibility = View.GONE
+                load(p.optString("externalUrl"), startMs)
+                setControls(true)
+            }
+        }
+    }
+
     // ---- keyboard / remote control ----
 
     // Any button press while the controls are up keeps them up, so they don't
     // vanish while you're moving between buttons with the remote.
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN && controlsVisible) scheduleHide()
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            autoPlays = 0
+            if (controlsVisible) scheduleHide()
+        }
         return super.dispatchKeyEvent(event)
     }
 
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) autoPlays = 0
+        return super.dispatchTouchEvent(ev)
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (upNextVisible) {
+            // The card has the focus: the D-pad moves between its buttons.
+            when (keyCode) {
+                KeyEvent.KEYCODE_BACK -> {
+                    if (askingStillWatching) finishPlayback(false) else dismissUpNext()
+                    return true
+                }
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_LEFT,
+                KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                    if (currentFocus != upNextPlay && currentFocus != upNextCancel) {
+                        upNextPlay.requestFocus()
+                        return true
+                    }
+                    return super.onKeyDown(keyCode, event)
+                }
+            }
+        }
         when (keyCode) {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_SPACE -> togglePlay()
             KeyEvent.KEYCODE_MEDIA_PLAY -> player.play()
@@ -475,11 +804,15 @@ class PlayerActivity : Activity() {
         finished = true
         val position = if (ended) lengthMs else timeMs
         report(force = true, positionMs = position)
+        // Name the item the page started, so it closes its player page. Once
+        // this player has offered the next episode itself, report ended=false
+        // so the page doesn't offer it a second time.
         val result = JSONObject()
-            .put("itemId", itemId)
+            .put("itemId", startItemId)
+            .put("lastItemId", itemId)
             .put("position", position / 1000.0)
             .put("duration", lengthMs / 1000.0)
-            .put("ended", ended)
+            .put("ended", ended && !handledNext)
         setResult(RESULT_OK, Intent().putExtra(EXTRA_RESULT, result.toString()))
         finish()
     }
@@ -564,6 +897,10 @@ class PlayerActivity : Activity() {
 
     companion object {
         const val EXTRA_RESULT = "result"
+        private const val COUNTDOWN_S = 10
+        /** Ask "still watching?" instead of counting down after this many episodes in a row with no button pressed. */
+        private const val STILL_WATCHING_AFTER = 3
+        private const val GIVE_UP_MS = 30 * 60_000L
         private const val EXTRA_SERVER = "server"
         private const val EXTRA_COOKIE = "cookie"
         private const val EXTRA_URL = "url"
