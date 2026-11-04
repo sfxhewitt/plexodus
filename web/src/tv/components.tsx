@@ -1,7 +1,10 @@
 import { createContext, memo, ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { art, Card, episodeLabel } from "../api";
 import { Check, Play } from "../components/Icons";
+import { ambientPrefs, onTrailer, stopTrailer } from "./ambient";
 import { CardMenuOptions, useCardMenu, useLongPress } from "./menu";
+import { onPlayBusy } from "./play";
+import { TrailerVideo } from "./Trailer";
 
 // ---------- shared backdrop ----------
 
@@ -15,8 +18,17 @@ export const useBackdrop = (url: string | undefined, delay = 0) => {
   }, [url, set, delay]);
 };
 
-/** Full-screen black-and-white backdrop that cross-fades between images. */
+/** Full-screen backdrop that cross-fades between images, with a trailer over the art when a page asks for one. */
 export function Backdrop({ url }: { url?: string }) {
+  const [trailer, setTrailer] = useState<number>();
+  useEffect(() => onTrailer(setTrailer), []);
+  // Starting playback, or the app going to the background, stops the trailer.
+  useEffect(() => onPlayBusy((b) => b && stopTrailer()), []);
+  useEffect(() => {
+    const vis = () => document.hidden && stopTrailer();
+    document.addEventListener("visibilitychange", vis);
+    return () => document.removeEventListener("visibilitychange", vis);
+  }, []);
   const [layers, setLayers] = useState<{ url: string; key: number; ready: boolean }[]>([]);
   const n = useRef(0);
   useEffect(() => {
@@ -34,6 +46,7 @@ export function Backdrop({ url }: { url?: string }) {
       {layers.map((l) => (
         <div key={l.key} className={`tv-backdrop-img ${l.ready ? "on" : ""}`} style={{ backgroundImage: `url(${l.url})` }} />
       ))}
+      {trailer !== undefined && <TrailerVideo key={trailer} id={trailer} sound={ambientPrefs().trailerSound} onEnd={stopTrailer} />}
       <div className="tv-backdrop-shade" />
       <div className="tv-grain" />
     </div>

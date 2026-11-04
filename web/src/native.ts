@@ -24,6 +24,8 @@ interface Bridge {
   changeServer(): void;
   version(): string;
   platform(): string;
+  /** Newer apps: embedded frames (trailers) stay inside the page. */
+  canEmbed?(): boolean;
 }
 
 export const native: Bridge | undefined = (window as unknown as { PlexodusNative?: Bridge }).PlexodusNative;

@@ -113,6 +113,8 @@ func (s *Server) Handler() http.Handler {
 	user("GET /api/search", s.handleSearch)
 	user("GET /api/scan/status", s.handleScanStatus)
 	user("GET /api/items/{id}/markers", s.handleMarkers)
+	user("GET /api/items/{id}/trailer", s.handleTrailer)
+	user("GET /api/screensaver", s.handleScreensaver)
 
 	admin("POST /api/libraries", s.handleCreateLibrary)
 	admin("PUT /api/libraries/{id}", s.handleUpdateLibrary)

@@ -5,7 +5,9 @@ import { ChevronRight, Info, Play } from "../../components/Icons";
 import { useApi } from "../../hooks";
 import { Spinner, TvButton, TvCard, TvRow, useBackdrop } from "../components";
 import { usePageFocus, useRefresh, useToast } from "../hooks";
-import { playCard, playItem } from "../play";
+import { ambientPrefs, trailersSupported } from "../ambient";
+import { onPlayBusy, playCard, playItem } from "../play";
+import { TrailerVideo } from "../Trailer";
 
 /**
  * Full-screen featured carousel, like the top of the Apple TV app. Left on
@@ -17,16 +19,47 @@ function Hero({ items, onPlay }: { items: Card[]; onPlay: (c: Card) => void }) {
   const [i, setI] = useState(0);
   const touched = useRef(0);
   const n = items.length;
+  const c = items[i % n];
+
+  // Rest on the hero and the title's trailer fades in behind it; when it
+  // ends the carousel moves on to the next title (and its trailer).
+  const [trailer, setTrailer] = useState<number>();
+  const [trailing, setTrailing] = useState(false);
+  const inHero = useRef(false);
+  const tTimer = useRef<ReturnType<typeof setTimeout>>();
+  const stop = useCallback(() => {
+    clearTimeout(tTimer.current);
+    setTrailer(undefined);
+    setTrailing(false);
+  }, []);
+  const arm = useCallback((id: number) => {
+    stop();
+    if (!ambientPrefs().trailers || !trailersSupported()) return;
+    tTimer.current = setTimeout(() => inHero.current && !document.hidden && setTrailer(id), 3000);
+  }, [stop]);
+  useEffect(() => {
+    if (inHero.current) arm(c.id);
+  }, [c.id, arm]);
+  useEffect(() => onPlayBusy((b) => b && stop()), [stop]);
+  useEffect(() => {
+    const vis = () => document.hidden && stop();
+    document.addEventListener("visibilitychange", vis);
+    return () => {
+      document.removeEventListener("visibilitychange", vis);
+      clearTimeout(tTimer.current);
+    };
+  }, [stop]);
+  const playingRef = useRef(false);
+  playingRef.current = trailing;
 
   useEffect(() => {
     if (n < 2) return;
     const t = setInterval(() => {
-      if (Date.now() - touched.current > 9000) setI((x) => (x + 1) % n);
+      if (!playingRef.current && Date.now() - touched.current > 9000) setI((x) => (x + 1) % n);
     }, 9000);
     return () => clearInterval(t);
   }, [n]);
 
-  const c = items[i % n];
   const meta = [
     c.kind === "show" ? "Series" : "Film",
     c.year ? String(c.year) : "",
@@ -34,7 +67,20 @@ function Hero({ items, onPlay }: { items: Card[]; onPlay: (c: Card) => void }) {
   ].filter(Boolean);
 
   return (
-    <section className="tv-hero" data-row data-row-top data-group="hero"
+    <section className={`tv-hero ${trailing ? "trailing" : ""}`} data-row data-row-top data-group="hero"
+      onFocus={() => {
+        if (inHero.current) return;
+        inHero.current = true;
+        arm(c.id);
+      }}
+      onBlur={(e) => {
+        const sec = e.currentTarget;
+        setTimeout(() => {
+          if (sec.contains(document.activeElement)) return;
+          inHero.current = false;
+          stop();
+        }, 0);
+      }}
       onKeyDown={(e) => {
         touched.current = Date.now();
         const fk = (document.activeElement as HTMLElement | null)?.dataset.fk;
@@ -49,6 +95,15 @@ function Hero({ items, onPlay }: { items: Card[]; onPlay: (c: Card) => void }) {
         <div key={h.id} className={`tv-hero-img ${k === i % n ? "on" : ""}`}
           style={{ backgroundImage: h.backdrop ? `url(${art(h.backdrop, "w1280")})` : undefined }} />
       ))}
+      {trailer !== undefined && (
+        <TrailerVideo key={trailer} id={trailer} sound={ambientPrefs().trailerSound} onPlaying={() => setTrailing(true)}
+          onEnd={() => {
+            stop();
+            touched.current = 0;
+            if (n > 1) setI((x) => (x + 1) % n);
+            else inHero.current = false;
+          }} />
+      )}
       <div className="tv-hero-shade" />
       <div className="tv-hero-content">
         {/* Only the text is keyed (to replay its fade): the buttons must survive a flip or focus is lost. */}

@@ -252,3 +252,88 @@ func (k *keyHolder) set(key string) {
 	k.tmdb = NewTMDB(key)
 	k.mu.Unlock()
 }
+
+// Video is one entry from TMDB's /videos list (trailers, teasers, clips).
+type Video struct {
+	Key         string `json:"key"`
+	Site        string `json:"site"`
+	Type        string `json:"type"`
+	Name        string `json:"name"`
+	Language    string `json:"iso_639_1"`
+	Official    bool   `json:"official"`
+	Size        int    `json:"size"`
+	PublishedAt string `json:"published_at"`
+}
+
+// Videos lists a movie's ("movie") or show's ("tv") videos.
+func (t *TMDB) Videos(ctx context.Context, kind string, id int64) ([]Video, error) {
+	var out struct {
+		Results []Video `json:"results"`
+	}
+	err := t.get(ctx, fmt.Sprintf("/%s/%d/videos", kind, id), url.Values{"include_video_language": {"en,null"}}, &out)
+	return out.Results, err
+}
+
+// BestTrailer picks the YouTube video most likely to be the main trailer:
+// an official English trailer first, then teasers. Clips and featurettes are
+// left out. Returns "" when there's nothing suitable.
+func BestTrailer(vs []Video) string {
+	best, score := "", 0
+	for _, v := range vs {
+		if v.Site != "YouTube" || v.Key == "" {
+			continue
+		}
+		s := 0
+		switch v.Type {
+		case "Trailer":
+			s = 100
+		case "Teaser":
+			s = 40
+		default:
+			continue
+		}
+		if v.Official {
+			s += 20
+		}
+		if v.Language == "en" || v.Language == "" {
+			s += 10
+		}
+		if v.Size >= 1080 {
+			s += 5
+		}
+		name := strings.ToLower(v.Name)
+		if strings.Contains(name, "official trailer") {
+			s += 5
+		}
+		// "Trailer 2", "TV spot", "Final trailer" and the like are less often the main one.
+		if strings.Contains(name, "spot") || strings.Contains(name, "reaction") || strings.Contains(name, "recap") {
+			s -= 30
+		}
+		if s > score {
+			best, score = v.Key, s
+		}
+	}
+	return best
+}
+
+// FindIMDb looks a title up by its IMDb id. Returns TMDB ids for a movie and a show (0 if none).
+func (t *TMDB) FindIMDb(ctx context.Context, imdb string) (movie, show int64, err error) {
+	var out struct {
+		Movies []struct {
+			ID int64 `json:"id"`
+		} `json:"movie_results"`
+		Shows []struct {
+			ID int64 `json:"id"`
+		} `json:"tv_results"`
+	}
+	if err = t.get(ctx, "/find/"+url.PathEscape(imdb), url.Values{"external_source": {"imdb_id"}}, &out); err != nil {
+		return
+	}
+	if len(out.Movies) > 0 {
+		movie = out.Movies[0].ID
+	}
+	if len(out.Shows) > 0 {
+		show = out.Shows[0].ID
+	}
+	return
+}

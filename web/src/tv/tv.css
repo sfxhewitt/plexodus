@@ -466,3 +466,60 @@ html.tv [data-hscroll]::-webkit-scrollbar, html.tv [data-vscroll]::-webkit-scrol
   background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); color: var(--tv-text);
 }
 .tv-login-card input:focus { border-color: var(--tv-cyan); background: rgba(255, 255, 255, 0.1); box-shadow: 0 0 1.4rem rgba(34, 228, 255, 0.35); }
+
+/* ---------- trailers behind the art ---------- */
+
+/* Invisible until the video is actually playing, then it fades in over the
+   art. Scaled up a little so YouTube's title and logo sit off-screen. */
+.tv-trailer {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden; pointer-events: none;
+  opacity: 0; transition: opacity 0.9s var(--tv-ease);
+}
+.tv-trailer.on { opacity: 1; }
+.tv-trailer iframe {
+  position: absolute; left: 0; top: 50%; width: 100vw; height: 56.25vw; border: 0;
+  transform: translateY(-50%) scale(1.2);
+}
+.tv-hero-overview { transition: opacity 0.6s var(--tv-ease); }
+.tv-hero.trailing .tv-hero-overview { opacity: 0; }
+
+/* ---------- screensaver ---------- */
+
+.tv-saver {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 45; overflow: hidden;
+  background: #000; animation: tv-saver-in 1.2s var(--tv-ease);
+}
+@keyframes tv-saver-in { from { opacity: 0; } to { opacity: 1; } }
+/* Each picture fades in over the last and drifts slowly while it's up.
+   Transform and opacity only, so the TV composites it without repainting. */
+.tv-saver-img {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background-size: cover; background-position: center;
+  animation: tv-saver-fade 2s var(--tv-ease) both, tv-drift 18s linear both;
+}
+.tv-saver-img.alt { animation: tv-saver-fade 2s var(--tv-ease) both, tv-drift-alt 18s linear both; }
+@keyframes tv-saver-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes tv-drift { from { transform: scale(1.14) translate(-2%, -1%); } to { transform: scale(1.04) translate(1.5%, 1%); } }
+@keyframes tv-drift-alt { from { transform: scale(1.04) translate(1.5%, -1%); } to { transform: scale(1.14) translate(-2%, 1%); } }
+.tv-saver-shade {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background:
+    linear-gradient(20deg, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0.35) 30%, rgba(0, 0, 0, 0) 55%),
+    linear-gradient(200deg, rgba(0, 0, 0, 0.45) 0%, rgba(0, 0, 0, 0) 22%);
+}
+.tv-saver-clock {
+  position: absolute; top: 3rem; right: 4rem; font-size: 2.4rem; font-weight: 300; letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.85); text-shadow: 0 0.1rem 1rem rgba(0, 0, 0, 0.6);
+}
+.tv-saver-info { position: absolute; left: 5rem; bottom: 4.5rem; max-width: 60rem; animation: tv-fade 1.2s var(--tv-ease) 0.6s both; }
+.tv-saver-logo { display: block; max-width: 30rem; max-height: 10rem; object-fit: contain; object-position: left bottom; margin-bottom: 1rem; }
+.tv-saver-title { font-size: 3.4rem; font-weight: 800; line-height: 1.08; letter-spacing: -0.02em; margin-bottom: 0.6rem; text-shadow: 0 0.2rem 1.4rem rgba(0, 0, 0, 0.7); }
+.tv-saver-meta { font-size: 1.35rem; color: rgba(255, 255, 255, 0.75); }
+.tv-saver-hint { margin-top: 1.2rem; font-size: 1.2rem; color: rgba(255, 255, 255, 0.65); display: flex; align-items: center; }
+.tv-saver-ok {
+  display: inline-flex; align-items: center; margin-right: 0.6rem; padding: 0.3rem 0.8rem; border-radius: 0.6rem;
+  border: 1px solid rgba(34, 228, 255, 0.7); color: var(--tv-cyan); font-weight: 700;
+}
+.tv-saver-ok svg { margin-right: 0.35rem; }
+
+.tv-pref-row .tv-btn.chip.ambient { margin-left: 0.8rem; }

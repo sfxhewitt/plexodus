@@ -14,6 +14,7 @@ import Item from "./pages/Item";
 import LibraryPage from "./pages/Library";
 import SearchPage from "./pages/Search";
 import SettingsPage from "./pages/Settings";
+import { Screensaver } from "./Screensaver";
 import { MenuProvider, useLibraryMenu, useLongPress } from "./menu";
 import "./tv.css";
 
@@ -228,6 +229,7 @@ function Shell() {
           {upNext && <UpNext c={upNext} onPlay={playNext} onCancel={cancelNext} />}
           {busy && <div className="tv-busy"><Spinner label={busy} /></div>}
           {toastMsg && <div className="tv-toast">{toastMsg}</div>}
+          <Screensaver onError={toast} />
         </div>
         </MenuProvider>
       </BackdropCtx.Provider>

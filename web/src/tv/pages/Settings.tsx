@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, Library, LibraryPrefs, setLibraryPrefs } from "../../api";
 import { Check, Logout, Refresh, X } from "../../components/Icons";
 import { useUser } from "../../hooks";
 import { native } from "../../native";
+import { ambientPrefs, onAmbientPrefs, setAmbientPrefs, startScreensaver, trailersSupported } from "../ambient";
 import { TvButton, useBackdrop } from "../components";
 import { useLibraries, usePageFocus, useToast } from "../hooks";
 
@@ -53,6 +54,44 @@ function LibraryChoices() {
   );
 }
 
+/** Screensaver delay and trailer choices, kept on this TV. */
+function AmbientChoices() {
+  const [p, setP] = useState(ambientPrefs);
+  useEffect(() => onAmbientPrefs(() => setP(ambientPrefs())), []);
+  const canTrailers = trailersSupported();
+  return (
+    <section className="tv-lib-prefs">
+      <h2 className="tv-section-title">Screensaver and trailers</h2>
+      <p className="tv-muted tv-section-note">
+        After a while untouched, the TV drifts through art from your libraries; press OK to play what's on screen.
+        Rest on a film or show and its trailer fades in behind the art. These choices apply to this TV only.
+      </p>
+      <div className="tv-pref-row" data-row data-group="amb-saver">
+        <div className="tv-pref-name"><span>Screensaver</span></div>
+        {[0, 1, 3, 5, 10].map((m) => (
+          <TvButton key={m} fk={`saver-${m}`} className={`chip ambient ${p.screensaver === m ? "on" : ""}`}
+            onClick={() => setAmbientPrefs({ screensaver: m })}>
+            {m ? `${m} min` : "Off"}
+          </TvButton>
+        ))}
+        <TvButton fk="saver-preview" className="chip ambient" onClick={startScreensaver}>Preview</TvButton>
+      </div>
+      <div className="tv-pref-row" data-row data-group="amb-trailers">
+        <div className="tv-pref-name">
+          <span>Trailers</span>
+          {!canTrailers && <span className="tv-muted">Update the Plexodus app on this TV to use trailers</span>}
+        </div>
+        {canTrailers && (
+          <>
+            <Toggle fk="trailers" on={p.trailers} label="Play trailers" onClick={() => setAmbientPrefs({ trailers: !p.trailers })} />
+            <Toggle fk="trailer-sound" on={p.trailerSound} label="With sound" onClick={() => setAmbientPrefs({ trailerSound: !p.trailerSound })} />
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export default function SettingsPage() {
   const { user, setUser } = useUser();
   useBackdrop(undefined);
@@ -94,6 +133,7 @@ export default function SettingsPage() {
         <TvButton fk="logout" icon={<Logout size={22} />} onClick={signOut}>Sign out</TvButton>
       </div>
       <LibraryChoices />
+      <AmbientChoices />
       <p className="tv-muted tv-note">Adding libraries, users and the Plex import live in the Plexodus web page on a computer.</p>
       <div className="tv-page-tail" />
     </div>
