@@ -17,6 +17,7 @@ export const test = base.extend<{ unhandled: string[]; openTv: (path?: string) =
       } catch {
         /* ignore */
       }
+      (window as unknown as { __plexodusInstantScroll?: boolean }).__plexodusInstantScroll = true;
       const instant = <T extends (...a: never[]) => unknown>(orig: T) =>
         function (this: unknown, ...args: unknown[]) {
           const a = args[0];
