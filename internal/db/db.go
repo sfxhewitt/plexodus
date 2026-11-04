@@ -74,6 +74,7 @@ func migrate(w *sql.DB) error {
 		// Content rating ("PG-13") and the minimum age it maps to, for kids profiles.
 		{"items", "content_rating", "TEXT"},
 		{"items", "age", "INTEGER"},
+		{"markers", "source", "TEXT NOT NULL DEFAULT 'plex'"}, // plex | chapter | audio
 	}
 	for _, c := range columns {
 		var n int

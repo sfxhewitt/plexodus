@@ -24,6 +24,7 @@ import (
 	"github.com/sfxhewitt/plexodus/internal/auth"
 	"github.com/sfxhewitt/plexodus/internal/config"
 	"github.com/sfxhewitt/plexodus/internal/db"
+	"github.com/sfxhewitt/plexodus/internal/detect"
 	"github.com/sfxhewitt/plexodus/internal/metadata"
 	"github.com/sfxhewitt/plexodus/internal/plex"
 	"github.com/sfxhewitt/plexodus/internal/probe"
@@ -46,6 +47,7 @@ type Server struct {
 	plexSync *plex.Syncer
 	claude   *ask.Claude
 	genres   genreCache
+	detector *detect.Detector
 	web      fs.FS
 	signKey  []byte
 	baseCtx  context.Context
@@ -65,6 +67,7 @@ func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner,
 		d.SetSetting(ctx, "stream_sign_key", key)
 	}
 	s.claude = ask.NewClaude(s.anthropicKey(ctx), cfg.AskModel)
+	s.detector = detect.New(d, cfg.FFmpeg, cfg.FFprobe)
 	s.plexSync = plex.NewSyncer(d, s.plexClient, func() bool { return s.importer.Status().Running })
 	s.signKey, _ = hex.DecodeString(key)
 	if d.Setting(ctx, "api_key") == "" {

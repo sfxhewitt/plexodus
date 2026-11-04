@@ -221,6 +221,10 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun canEmbed(): Boolean = true
 
+        /** Player features the web UI can rely on (older apps lack this). */
+        @JavascriptInterface
+        fun features(): String = "recap"
+
         @JavascriptInterface
         fun isTv(): Boolean = this@MainActivity.isTv
 

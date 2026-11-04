@@ -391,6 +391,7 @@ function PlexSync() {
 type SettingsT = {
   tmdbKeySet: boolean; tmdbKeyMasked: string; tmdbKeyFromEnv: boolean; apiKey: string;
   anthropicKeySet: boolean; anthropicKeyMasked: string; anthropicKeyFromEnv: boolean; askModel: string;
+  detectMarkers: boolean;
 };
 
 function AskSettings() {
@@ -457,6 +458,22 @@ function Metadata() {
         </form>
       </section>
       <AskSettings />
+      <section className="settings-section">
+        <h2>Skip buttons</h2>
+        <div className="card form">
+          <p className="muted small" style={{ margin: 0 }}>
+            Intro and credits markers come from Plex where it has them. Plexodus also finds recaps, and intros or credits Plex didn't mark,
+            when an episode starts playing: first from chapter names, then by comparing its sound with the episodes around it.
+            This reads the previous two episodes once (usually already cached if you watched them) and gets the next episode ready while you finish this one.
+            Nothing is read during library scans.
+          </p>
+          <label className="check">
+            <input type="checkbox" checked={data?.detectMarkers ?? true}
+              onChange={async (e) => setData(await api.put<SettingsT>("/api/settings", { detectMarkers: e.target.checked }))} />
+            <span><b>Find recaps, intros and credits on first play</b></span>
+          </label>
+        </div>
+      </section>
       <section className="settings-section">
         <h2>Integrations</h2>
         <div className="card form">

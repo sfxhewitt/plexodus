@@ -24,7 +24,7 @@ export async function playItem(id: number, opts: { fromStart?: boolean } = {}) {
     if (!d.files.length) throw new Error("There's no media file for this title.");
     const [p, m] = await Promise.all([
       api.get<PlayInfo>(`/api/play/${d.files[0].id}?probe=0`),
-      api.get<Marker[]>(`/api/items/${d.id}/markers`).catch(() => [] as Marker[]),
+      api.get<Marker[]>(`/api/items/${d.id}/markers?recap=1`).catch(() => [] as Marker[]),
     ]);
     if (!native) {
       // In a desktop browser with ?tv=1 there's no native player; use the web one.

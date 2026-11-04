@@ -14,6 +14,7 @@ import (
 
 	"github.com/sfxhewitt/plexodus/internal/auth"
 	"github.com/sfxhewitt/plexodus/internal/db"
+	"github.com/sfxhewitt/plexodus/internal/detect"
 	"github.com/sfxhewitt/plexodus/internal/scanner"
 )
 
@@ -376,6 +377,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		"askModel":            s.claude.Model(),
 		"probeWorkers":        s.cfg.ProbeWorkers,
 		"scanInterval":        s.cfg.ScanInterval.String(),
+		"detectMarkers":       s.detector.Enabled(r.Context()),
 	})
 }
 
@@ -384,6 +386,7 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		TmdbKey      *string `json:"tmdbKey"`
 		RegenApiKey  bool    `json:"regenerateApiKey"`
 		AnthropicKey *string `json:"anthropicKey"`
+		Detect       *bool   `json:"detectMarkers"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, 400, err.Error())
@@ -402,6 +405,13 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	if body.AnthropicKey != nil {
 		s.db.SetSetting(r.Context(), "anthropic_key", strings.TrimSpace(*body.AnthropicKey))
 		s.claude.SetKey(s.anthropicKey(r.Context()))
+	}
+	if body.Detect != nil {
+		v := "on"
+		if !*body.Detect {
+			v = "off"
+		}
+		s.db.SetSetting(r.Context(), detect.SettingKey, v)
 	}
 	if body.RegenApiKey {
 		s.db.SetSetting(r.Context(), "api_key", randomHex(16))

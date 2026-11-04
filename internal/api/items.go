@@ -631,6 +631,10 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	// Near the end of an episode, get the next one's skip markers ready.
+	if body.Duration > 0 && body.Position/body.Duration > 0.7 {
+		s.detector.OnNearEnd(s.baseCtx, id)
+	}
 	writeJSON(w, map[string]any{"watched": watched})
 }
 

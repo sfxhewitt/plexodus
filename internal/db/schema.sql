@@ -130,13 +130,33 @@ CREATE TRIGGER IF NOT EXISTS items_fts_au AFTER UPDATE OF title, original_title,
     VALUES (new.id, new.title, new.original_title, new.overview);
 END;
 
--- Intro/credits markers (imported from Plex or detected later).
+-- Intro/credits/recap markers (imported from Plex or detected on first play).
 CREATE TABLE IF NOT EXISTS markers (
     item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-    type    TEXT NOT NULL,                   -- intro | credits
+    type    TEXT NOT NULL,                   -- intro | credits | recap
     start   REAL NOT NULL,                   -- seconds
     "end"   REAL NOT NULL,
     PRIMARY KEY (item_id, type, start)
+);
+
+-- Audio fingerprints for marker detection (internal/detect). part is head
+-- (first minutes), tail (last minutes) or full; offset is the start time.
+CREATE TABLE IF NOT EXISTS fingerprints (
+    file_id    INTEGER NOT NULL REFERENCES media_files(id) ON DELETE CASCADE,
+    part       TEXT NOT NULL,
+    offset     REAL NOT NULL,
+    size       INTEGER NOT NULL,                -- media file size it was made from
+    data       BLOB NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (file_id, part)
+);
+
+-- Which items marker detection has looked at.
+CREATE TABLE IF NOT EXISTS detect_runs (
+    item_id INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    done_at INTEGER NOT NULL,
+    note    TEXT
 );
 
 -- Link to the source item on a Plex server, for imports and marker lookups.

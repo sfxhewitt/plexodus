@@ -88,6 +88,9 @@ func (s *Server) handlePlexPut(w http.ResponseWriter, r *http.Request) {
 // RunPlexSync keeps watch state in step with Plex until ctx ends.
 func (s *Server) RunPlexSync(ctx context.Context) { s.plexSync.Run(ctx) }
 
+// RunDetector finds intro, credits and recap markers for items being played.
+func (s *Server) RunDetector(ctx context.Context) { s.detector.Run(ctx) }
+
 // handlePlexSync runs a watch sync from Plex now.
 func (s *Server) handlePlexSync(w http.ResponseWriter, r *http.Request) {
 	if c, _ := s.plexClient(r.Context()); !c.Configured() {
@@ -282,17 +285,54 @@ func (s *Server) handleMarkers(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	rows, err := s.db.R.QueryContext(r.Context(), `SELECT type, start, "end" FROM markers WHERE item_id = ? ORDER BY start`, id)
+	// Look for anything Plex didn't supply (recaps, and intros/credits on
+	// items Plex never analysed) in the background; players ask again.
+	s.detector.OnPlay(s.baseCtx, id)
+	if s.detector.Pending(id) {
+		w.Header().Set("X-Markers-Pending", "1")
+	}
+	rows, err := s.db.R.QueryContext(r.Context(), `SELECT type, start, "end", source FROM markers WHERE item_id = ? ORDER BY start`, id)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
 	defer rows.Close()
-	out := []Marker{}
+	// One source per type: Plex beats chapter names beats audio matching.
+	best := map[string]string{}
+	type row struct {
+		Marker
+		source string
+	}
+	var all []row
 	for rows.Next() {
-		var m Marker
-		rows.Scan(&m.Type, &m.Start, &m.End)
-		out = append(out, m)
+		var m row
+		rows.Scan(&m.Type, &m.Start, &m.End, &m.source)
+		all = append(all, m)
+		if cur, ok := best[m.Type]; !ok || markerRank(m.source) > markerRank(cur) {
+			best[m.Type] = m.source
+		}
+	}
+	// Players from before "Skip recap" treat any marker that isn't an intro
+	// as closing credits, so recaps only go to clients that ask for them.
+	wantRecap := r.URL.Query().Get("recap") == "1"
+	out := []Marker{}
+	for _, m := range all {
+		if m.Type == "recap" && !wantRecap {
+			continue
+		}
+		if best[m.Type] == m.source {
+			out = append(out, m.Marker)
+		}
 	}
 	writeJSON(w, out)
+}
+
+func markerRank(source string) int {
+	switch source {
+	case "plex":
+		return 3
+	case "chapter":
+		return 2
+	}
+	return 1
 }
