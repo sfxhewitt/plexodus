@@ -39,7 +39,8 @@ test("hold OK on Continue Watching: menu, Back, then remove", async ({ page, ope
   expect((await press(page, "left")).fk, "Left doesn't leave the menu").toBe("menu-restart");
   await press(page, "Escape");
   await expect(page.locator(".tv-menu")).toHaveCount(0);
-  expect((await focused(page)).fk).toBe(cwFirst);
+  // Focus goes back to the card on the next frame after the menu closes.
+  await expect.poll(async () => (await focused(page)).fk, { message: "Back returns focus to the card" }).toBe(cwFirst);
 
   // Remove it: it leaves the row and focus moves to its neighbour, not the top of the page.
   await hold(page);
@@ -92,6 +93,8 @@ test("hold OK on a library tab: hide it from the menu", async ({ page, openTv })
   await expect(menuItems(page)).toHaveText(["Hide from the menu", "Hide from Home"]);
   await press(page, "Enter");
   await expect(page.locator('[data-fk="nav-lib2"]')).toHaveCount(0);
-  const f = await focused(page);
-  expect(f.ok && f.inNav, "focus stays in the tab bar").toBe(true);
+  await expect.poll(async () => {
+    const f = await focused(page);
+    return f.ok && f.inNav;
+  }, { message: "focus stays in the tab bar" }).toBe(true);
 });
