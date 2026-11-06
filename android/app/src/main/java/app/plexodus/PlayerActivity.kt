@@ -231,9 +231,9 @@ class PlayerActivity : Activity() {
         })
         findViewById<View>(R.id.touch).setOnTouchListener { _, ev -> gestures.onTouchEvent(ev); true }
 
-        // Send Dolby/DTS untouched to the TV or receiver when it says it can
-        // take them (like Plex's "passthrough"); otherwise decode to PCM.
-        passthrough = hdmiTakesSurround()
+        // Decode Dolby/DTS to PCM. Passthrough (sending the bitstream to the
+        // TV untouched) is off: see ALLOW_PASSTHROUGH for why.
+        passthrough = ALLOW_PASSTHROUGH && hdmiTakesSurround()
         val opts = arrayListOf("--network-caching=4000", "--http-reconnect", "--audio-time-stretch")
         if (passthrough) opts += listOf("--aout=audiotrack", "--spdif") else opts += "--no-spdif"
         libVlc = LibVLC(this, opts)
@@ -934,6 +934,20 @@ class PlayerActivity : Activity() {
     }
 
     companion object {
+        /**
+         * Off because on the Fire TV Cube a passthrough stream can stay stuck
+         * after the player closes. When libVLC tears down its IEC61937
+         * AudioTrack (at the end of an episode, or on Back), Fire OS keeps the
+         * dead track active on the 192 kHz direct HDMI output. The HDMI link
+         * stays in bitstream mode even after our process dies, so every app
+         * that plays next (YouTube, Plex, this player) gets its PCM taken at
+         * about a third of real time. Video then crawls in slow motion to
+         * follow the audio clock, with no sound, until the HDMI audio device
+         * is re-plugged or the box reboots. Decoding to PCM goes through the
+         * normal mixer, which closes cleanly.
+         */
+        private const val ALLOW_PASSTHROUGH = false
+
         const val EXTRA_RESULT = "result"
         private const val COUNTDOWN_S = 10
         /** Ask "still watching?" instead of counting down after this many episodes in a row with no button pressed. */
