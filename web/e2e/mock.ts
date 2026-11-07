@@ -163,7 +163,7 @@ function home(st: UserState = { hiddenContinue: new Set(), watchlist: [] }): { h
   return {
     hero: movies.slice(0, 5),
     rows: [
-      { title: "Continue Watching", kind: "landscape", items: continuing },
+      { title: "Up Next", kind: "landscape", items: continuing },
       ...(wl.length ? [{ title: "Watchlist", kind: "poster" as const, items: wl }] : []),
       { title: "On Deck", kind: "landscape", items: onDeck },
       { title: "Recently Added Movies", kind: "poster", link: `/library/${MOVIES_LIB}?sort=added`, items: movies.slice(0, 20) },

@@ -169,7 +169,7 @@ export function MenuProvider({ children }: { children: ReactNode }) {
 // ---------- what you can do with a card ----------
 
 export interface CardMenuOptions {
-  /** The card is on Continue Watching, so it can be removed from there. */
+  /** The card is on Up Next, so it can be removed from there. */
   continueRow?: boolean;
 }
 
@@ -195,8 +195,8 @@ export function useCardMenu() {
     }
     if (opts.continueRow) {
       acts.push({
-        key: "hide-continue", label: "Remove from Continue Watching", icon: <X size={22} />, removes: true,
-        done: "Removed from Continue Watching", run: () => api.post(`/api/items/${c.id}/continue/hide`),
+        key: "hide-continue", label: "Remove from Up Next", icon: <X size={22} />, removes: true,
+        done: "Removed from Up Next", run: () => api.post(`/api/items/${c.id}/continue/hide`),
       });
     }
     if (c.kind === "movie" || c.kind === "show") {

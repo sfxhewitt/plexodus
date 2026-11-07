@@ -177,24 +177,25 @@ func TestWatchlistAndContinueHide(t *testing.T) {
 		}
 	}
 
-	if got := ids(row("Continue Watching")); len(got) != 2 || got[0] != 10 || got[1] != 33 {
-		t.Fatalf("continue watching = %v, want [10 33]", got)
+	// Newest activity first: the episode was finished after the film was paused.
+	if got := ids(row("Up Next")); len(got) != 2 || got[0] != 33 || got[1] != 10 {
+		t.Fatalf("up next = %v, want [33 10]", got)
 	}
 
 	// Remove the film: gone, and back once it's played again.
 	post(s.handleHideContinue, "/api/items/10/continue/hide", "10", "")
-	if got := ids(row("Continue Watching")); len(got) != 1 || got[0] != 33 {
+	if got := ids(row("Up Next")); len(got) != 1 || got[0] != 33 {
 		t.Fatalf("after hiding the film = %v, want [33]", got)
 	}
 	s.db.W.Exec(`UPDATE watch_state SET position = 900, updated_at = ? WHERE item_id = 10`, now+10)
 	s.homeChanged(u.ID) // as reporting progress does
-	if got := ids(row("Continue Watching")); len(got) != 2 {
+	if got := ids(row("Up Next")); len(got) != 2 {
 		t.Fatalf("after playing the film again = %v, want it back", got)
 	}
 
 	// Remove the next episode: the show's Up Next goes too.
 	post(s.handleHideContinue, "/api/items/33/continue/hide", "33", "")
-	if got := ids(row("Continue Watching")); len(got) != 1 || got[0] != 10 {
+	if got := ids(row("Up Next")); len(got) != 1 || got[0] != 10 {
 		t.Fatalf("after hiding the episode = %v, want [10]", got)
 	}
 

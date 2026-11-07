@@ -271,7 +271,7 @@ export function handleBack(): "handled" | "exit" {
 
 // ---- Global key handling ----
 
-// After an action removes the focused card (Remove from Continue Watching),
+// After an action removes the focused card (Remove from Up Next),
 // focus goes to one of these neighbours instead of the top of the page.
 let fallback: { fks: string[]; until: number } | null = null;
 export function setFocusFallback(fks: string[]) {

@@ -362,7 +362,7 @@ function PlexSync() {
       <h2>Watch status from Plex</h2>
       <div className="card form">
         <p className="muted small" style={{ margin: 0 }}>
-          Anything you watch in a Plex app shows up here as watched, with its resume point and in Continue Watching.
+          Anything you watch in a Plex app shows up here as watched, with its resume point and on Up Next.
           Plexodus checks Plex every {sync?.intervalMinutes ?? 5} minutes. It only reads from Plex, and never replaces progress you made more recently in Plexodus.
         </p>
         <label className="check">

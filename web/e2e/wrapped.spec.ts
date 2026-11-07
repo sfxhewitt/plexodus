@@ -17,7 +17,7 @@ test("home with smart rows and the Wrapped tile: focus audit", async ({ page, op
 test("smart rows show their notes, and Wrapped opens from Home", async ({ page, openTv }, info) => {
   await openTv("/?extras=1");
   await waitForFocus(page, "hero-play");
-  await press(page, "down"); // Continue Watching
+  await press(page, "down"); // Up Next
   const tile = await press(page, "down");
   expect(tile.fk, "the Wrapped tile sits under the first row").toBe("wrapped");
   await snap(page, info, "01 wrapped tile");

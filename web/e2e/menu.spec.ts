@@ -17,9 +17,9 @@ async function hold(page: Page, ms = 800) {
 }
 
 const menuItems = (page: Page) => page.locator(".tv-menu .tv-menu-item");
-const cwFirst = `c${ids.movie + 3}`; // the film in progress, first on Continue Watching
+const cwFirst = `c${ids.movie + 3}`; // the film in progress, first on Up Next
 
-test("hold OK on Continue Watching: menu, Back, then remove", async ({ page, openTv }, info) => {
+test("hold OK on Up Next: menu, Back, then remove", async ({ page, openTv }, info) => {
   await openTv("/");
   await waitForFocus(page, "hero-play");
   expect((await press(page, "down")).fk).toBe(cwFirst);
@@ -27,7 +27,7 @@ test("hold OK on Continue Watching: menu, Back, then remove", async ({ page, ope
   await hold(page);
   await expect(page.locator(".tv-menu")).toBeVisible();
   await expect(menuItems(page)).toHaveText([
-    "Resume", "Play from the start", "Remove from Continue Watching", "Add to Watchlist", "Mark as watched", "Details",
+    "Resume", "Play from the start", "Remove from Up Next", "Add to Watchlist", "Mark as watched", "Details",
   ]);
   expect((await focused(page)).fk, "focus starts on the first action").toBe("menu-play");
   expect(page.url(), "holding OK must not also open the title").not.toContain("/item/");
@@ -48,8 +48,8 @@ test("hold OK on Continue Watching: menu, Back, then remove", async ({ page, ope
   await press(page, "down");
   expect((await press(page, "down")).fk).toBe("menu-hide-continue");
   await press(page, "Enter");
-  await expect(page.locator(".tv-toast")).toHaveText("Removed from Continue Watching");
-  const cwRow = page.locator(".tv-row", { has: page.locator(".tv-row-title", { hasText: "Continue Watching" }) });
+  await expect(page.locator(".tv-toast")).toHaveText("Removed from Up Next");
+  const cwRow = page.locator(".tv-row", { has: page.locator(".tv-row-title", { hasText: "Up Next" }) });
   await expect(cwRow.locator(`[data-fk="${cwFirst}"]`)).toHaveCount(0);
   await expect.poll(async () => (await focused(page)).fk).toMatch(/^c\d+$/);
   const f = await focused(page);

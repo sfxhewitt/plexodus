@@ -14,9 +14,9 @@ test("home: hero, rows, tab bar and back again", async ({ page, openTv }, info) 
   let f = await waitForFocus(page, "hero-play");
   await snap(page, info, "01 home hero");
 
-  // Down into the rows (Continue Watching first), through every row, and back up to the hero.
+  // Down into the rows (Up Next first), through every row, and back up to the hero.
   const cw = await press(page, "down");
-  expect(cw.fk, "Down from the hero reaches Continue Watching").toBe(`c${ids.movie + 3}`);
+  expect(cw.fk, "Down from the hero reaches Up Next").toBe(`c${ids.movie + 3}`);
   await snap(page, info, "02 first row");
   const down = await walk(page, "down");
   expect(down.length, "Down should visit all five rows").toBe(5);
