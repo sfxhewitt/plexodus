@@ -19,6 +19,7 @@ type Config struct {
 	ProbeWorkers int
 	ScanWorkers  int
 	ScanInterval time.Duration
+	FullScanHour int
 	ArtworkDir   string
 	DBPath       string
 	DevProxy     string
@@ -61,6 +62,7 @@ func Load() *Config {
 	flag.IntVar(&c.ProbeWorkers, "probe-workers", envInt("PLEXODUS_PROBE_WORKERS", 0), "concurrent background ffprobe jobs; 0 (default) probes only when playback starts, which avoids reading every file on cloud mounts")
 	flag.IntVar(&c.ScanWorkers, "scan-workers", envInt("PLEXODUS_SCAN_WORKERS", 16), "concurrent directory listings during a scan")
 	flag.DurationVar(&c.ScanInterval, "scan-interval", envDur("PLEXODUS_SCAN_INTERVAL", 15*time.Minute), "periodic scan interval (0 disables)")
+	flag.IntVar(&c.FullScanHour, "full-scan-hour", envInt("PLEXODUS_FULL_SCAN_HOUR", 4), "local hour (0-23) for the nightly full scan of libraries that trust folder times; -1 disables")
 	flag.StringVar(&c.DevProxy, "dev-proxy", env("PLEXODUS_DEV_PROXY", ""), "proxy non-API requests to a Vite dev server (development only)")
 	flag.StringVar(&c.PlexURL, "plex-url", env("PLEX_URL", ""), "Plex server URL to import from, e.g. http://127.0.0.1:32400")
 	flag.StringVar(&c.PlexToken, "plex-token", env("PLEX_TOKEN", ""), "Plex token for importing")

@@ -182,6 +182,7 @@ Flags override environment variables.
 | `-anthropic-key` | `ANTHROPIC_API_KEY` | | Anthropic API key for plain-English search (can also be set in Settings; without one a built-in parser is used) |
 | `-ask-model` | `PLEXODUS_ASK_MODEL` | `claude-opus-5-5` | Claude model used for plain-English search |
 | `-scan-interval` | `PLEXODUS_SCAN_INTERVAL` | `15m` | Periodic rescan of all libraries, one at a time (`0` disables) |
+| `-full-scan-hour` | `PLEXODUS_FULL_SCAN_HOUR` | `4` | Local hour for the nightly full scan of libraries that trust folder times (`-1` disables) |
 | `-scan-workers` | `PLEXODUS_SCAN_WORKERS` | `16` | Folders listed concurrently during a scan |
 | `-probe-workers` | `PLEXODUS_PROBE_WORKERS` | `0` | Background ffprobe jobs. `0` means a file is only analysed when it's first played, which avoids reading every file on cloud storage |
 | `-plex-url` | `PLEX_URL` | | Plex server to import from |
