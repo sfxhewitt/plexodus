@@ -85,7 +85,7 @@ function LibraryForm({ initial, onDone, onCancel }: { initial?: Library; onDone:
         <input type="checkbox" checked={trust} onChange={(e) => setTrust(e.target.checked)} />
         <span>
           <b>Skip unchanged folders</b>
-          <span className="muted"> Re-list a folder only when its modified time changes. This makes rescans much faster, but only turn it on if your mount updates folder times when files are added. Local disks and rclone mounts that are written to through the mount do; changes made directly on Google Drive may not show up. A full scan always lists everything.</span>
+          <span className="muted"> Re-list a folder only when its modified time changes. This makes rescans much faster, but only turn it on if your mount updates folder times when files are added. Local disks and rclone mounts that are written to through the mount do; changes made directly on Google Drive may not show up. A full scan always lists everything, and one runs every night (4am by default). Libraries of 50,000+ files have this switched on automatically once.</span>
         </span>
       </label>
       {error && <div className="err">{error}</div>}
