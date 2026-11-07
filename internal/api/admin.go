@@ -105,6 +105,7 @@ func (s *Server) handleDeleteLibrary(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.files.forget()
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -114,6 +115,7 @@ func (s *Server) StartScan(libID int64, opts scanner.Options) {
 		ctx, cancel := context.WithTimeout(s.baseCtx, 12*time.Hour)
 		defer cancel()
 		s.scanner.Scan(ctx, libID, opts)
+		s.files.forget()
 	}()
 }
 

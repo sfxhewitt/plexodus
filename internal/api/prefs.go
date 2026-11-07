@@ -49,6 +49,7 @@ func (s *Server) handleLibraryPrefs(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.forgetHome(currentUser(r).ID)
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -104,7 +105,7 @@ func (s *Server) handleWatchlist(w http.ResponseWriter, r *http.Request) {
 	} else {
 		_, err = s.db.W.ExecContext(r.Context(), `DELETE FROM watchlist WHERE user_id = ? AND item_id = ?`, currentUser(r).ID, id)
 	}
-	s.smart.forget(currentUser(r).ID) // cards carry the watchlist flag
+	s.forgetHome(currentUser(r).ID) // cards carry the watchlist flag
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -135,5 +136,6 @@ func (s *Server) handleHideContinue(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	s.forgetHome(currentUser(r).ID)
 	writeJSON(w, map[string]bool{"ok": true})
 }

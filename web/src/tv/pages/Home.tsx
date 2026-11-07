@@ -8,6 +8,7 @@ import { usePageFocus, useRefresh, useToast } from "../hooks";
 import { ambientPrefs, trailersSupported } from "../ambient";
 import { onPlayBusy, playCard, playItem } from "../play";
 import { TrailerVideo } from "../Trailer";
+import { focusInitial } from "../focus";
 
 /**
  * Full-screen featured carousel, like the top of the Apple TV app. Left on
@@ -162,11 +163,25 @@ export default function Home() {
   const toast = useToast();
   useBackdrop(undefined);
   usePageFocus(!!data);
+  // The error screen's "Try again" gets focus, so the remote can reach it.
+  useEffect(() => {
+    if (error) requestAnimationFrame(() => focusInitial());
+  }, [error]);
 
   const play = useCallback((c: Card) => playItem(c.id).catch((e: Error) => toast(e.message)), [toast]);
   const playAny = useCallback((c: Card) => playCard(c).catch((e: Error) => toast(e.message)), [toast]);
 
-  if (error) return <div className="tv-center"><p className="tv-muted">{error}</p></div>;
+  if (error) {
+    return (
+      <div className="tv-center">
+        <h1 className="tv-h1">Home didn't load</h1>
+        <p className="tv-muted">{error}</p>
+        <div className="tv-actions">
+          <TvButton primary autoFocus onClick={reload}>Try again</TvButton>
+        </div>
+      </div>
+    );
+  }
   if (!data) return <Spinner />;
 
   const rows = data.rows.filter((r) => r.items.length);

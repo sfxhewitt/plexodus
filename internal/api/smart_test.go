@@ -115,6 +115,7 @@ func TestSmartRows(t *testing.T) {
 	if _, err := s.db.W.Exec(`INSERT INTO user_library_prefs(user_id, library_id, hide_home) VALUES (?, 1, 1)`, u.ID); err != nil {
 		t.Fatal(err)
 	}
+	s.forgetHome(u.ID) // as saving library settings does
 	var hidden struct {
 		Rows []Row `json:"rows"`
 	}

@@ -48,7 +48,16 @@ export const useToast = () => useContext(ToastCtx);
 export function useLibraries() {
   const [data, setData] = useState<Library[] | undefined>(() => api.cached<Library[]>("/api/libraries"));
   useEffect(() => {
-    const load = () => api.get<Library[]>("/api/libraries").then(setData, () => {});
+    // Keep trying when it fails, so the tab bar never stays without its
+    // libraries after a slow start or a dropped connection.
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let alive = true;
+    const load = () => {
+      clearTimeout(retry);
+      api.get<Library[]>("/api/libraries").then(setData, () => {
+        if (alive) retry = setTimeout(load, 10_000);
+      });
+    };
     // Apply a change straight away, then confirm it with the server.
     const onPrefs = (e: Event) => {
       const { id, prefs } = (e as CustomEvent<{ id: number; prefs: LibraryPrefs }>).detail;
@@ -57,7 +66,11 @@ export function useLibraries() {
     };
     load();
     window.addEventListener("plexodus:library-prefs", onPrefs);
-    return () => window.removeEventListener("plexodus:library-prefs", onPrefs);
+    return () => {
+      alive = false;
+      clearTimeout(retry);
+      window.removeEventListener("plexodus:library-prefs", onPrefs);
+    };
   }, []);
   return { data };
 }

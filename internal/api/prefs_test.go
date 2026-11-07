@@ -187,6 +187,7 @@ func TestWatchlistAndContinueHide(t *testing.T) {
 		t.Fatalf("after hiding the film = %v, want [33]", got)
 	}
 	s.db.W.Exec(`UPDATE watch_state SET position = 900, updated_at = ? WHERE item_id = 10`, now+10)
+	s.homeChanged(u.ID) // as reporting progress does
 	if got := ids(row("Continue Watching")); len(got) != 2 {
 		t.Fatalf("after playing the film again = %v, want it back", got)
 	}

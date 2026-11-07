@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sfxhewitt/plexodus/internal/auth"
@@ -148,12 +149,12 @@ type Library struct {
 
 func (s *Server) handleLibraries(w http.ResponseWriter, r *http.Request) {
 	kids := kidsCond(currentUser(r), "i")
+	// Only cheap, indexed lookups here: the TV's tab bar and every page
+	// wait on this list. The file totals (a pass over every media file) come
+	// from fileStats, which is cached.
 	rows, err := s.db.R.QueryContext(r.Context(), `SELECT l.id, l.name, l.kind, l.paths, l.trust_dir_mtime, COALESCE(l.last_scan_at, 0),
 		(SELECT COUNT(*) FROM items i WHERE i.library_id = l.id AND i.kind IN ('movie', 'show')`+kids+`),
-		(SELECT COUNT(*) FROM media_files m WHERE m.library_id = l.id),
-		(SELECT COUNT(*) FROM media_files m WHERE m.library_id = l.id AND m.probed_at IS NULL),
-		(SELECT COUNT(*) FROM items i WHERE i.library_id = l.id AND i.kind IN ('movie', 'show') AND i.meta_state = 'pending'),
-		(SELECT COALESCE(SUM(size), 0) FROM media_files m WHERE m.library_id = l.id),
+		(SELECT COUNT(*) FROM items i WHERE i.meta_state = 'pending' AND i.kind IN ('movie', 'show') AND i.library_id = l.id),
 		COALESCE((SELECT backdrop FROM items i WHERE i.library_id = l.id AND i.kind IN ('movie', 'show') AND i.backdrop IS NOT NULL`+kids+`
 			ORDER BY i.added_at DESC LIMIT 1), ''),
 		COALESCE(p.hide_nav, 0), COALESCE(p.hide_home, 0)
@@ -163,16 +164,92 @@ func (s *Server) handleLibraries(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	defer rows.Close()
 	out := []Library{}
 	for rows.Next() {
 		var l Library
 		var paths string
-		rows.Scan(&l.ID, &l.Name, &l.Kind, &paths, &l.TrustDirMtime, &l.LastScanAt, &l.Count, &l.FileCount, &l.Unprobed, &l.Pending, &l.TotalSize, &l.Backdrop, &l.Hidden, &l.HiddenHome)
+		rows.Scan(&l.ID, &l.Name, &l.Kind, &paths, &l.TrustDirMtime, &l.LastScanAt, &l.Count, &l.Pending, &l.Backdrop, &l.Hidden, &l.HiddenHome)
 		json.Unmarshal([]byte(paths), &l.Paths)
 		out = append(out, l)
 	}
+	rows.Close()
+	stats := s.files.get(r.Context(), s.db)
+	for i := range out {
+		st := stats[out[i].ID]
+		out[i].FileCount, out[i].Unprobed, out[i].TotalSize = st.files, st.unprobed, st.size
+	}
 	writeJSON(w, out)
+}
+
+// fileStats caches per-library media file totals (count, not yet probed,
+// total size). Working them out reads every media_files row, which on a
+// library of hundreds of thousands of files on a busy disk can take many
+// seconds, so it happens at most once a minute and never holds up a request
+// once there is a previous answer to give.
+type fileStats struct {
+	mu      sync.Mutex
+	at      time.Time
+	m       map[int64]libFiles
+	running bool
+}
+
+type libFiles struct {
+	files, unprobed int
+	size            int64
+}
+
+const fileStatsTTL = time.Minute
+
+func (f *fileStats) get(ctx context.Context, d *db.DB) map[int64]libFiles {
+	f.mu.Lock()
+	m, fresh := f.m, time.Since(f.at) < fileStatsTTL
+	if m != nil {
+		if !fresh && !f.running {
+			f.running = true
+			go f.refresh(context.Background(), d)
+		}
+		f.mu.Unlock()
+		return m
+	}
+	f.mu.Unlock()
+	// First time: wait for the answer (bounded by the request).
+	return f.refresh(ctx, d)
+}
+
+func (f *fileStats) refresh(ctx context.Context, d *db.DB) map[int64]libFiles {
+	m := map[int64]libFiles{}
+	rows, err := d.R.QueryContext(ctx, `SELECT library_id, COUNT(*), SUM(probed_at IS NULL), COALESCE(SUM(size), 0)
+		FROM media_files GROUP BY library_id`)
+	if err == nil {
+		for rows.Next() {
+			var id int64
+			var l libFiles
+			if rows.Scan(&id, &l.files, &l.unprobed, &l.size) == nil {
+				m[id] = l
+			}
+		}
+		err = rows.Err()
+		rows.Close()
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.running = false
+	if err != nil {
+		log.Printf("libraries: file totals: %v", err)
+		if f.m != nil {
+			return f.m
+		}
+		return m
+	}
+	f.m, f.at = m, time.Now()
+	return m
+}
+
+// forget makes the next request recount (after a scan or a library change).
+func (f *fileStats) forget() {
+	f.mu.Lock()
+	f.at = time.Time{}
+	f.mu.Unlock()
 }
 
 var sortColumns = map[string]string{
@@ -288,7 +365,7 @@ type Row struct {
 	Smart string `json:"smart,omitempty"`
 }
 
-func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
+func (s *Server) buildHome(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var rows []Row
 	t0 := time.Now()
@@ -647,12 +724,13 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 		currentUser(r).ID, id, pos, body.Duration, watched, boolInt(watched), db.Now())
 	if err == nil && watched {
 		err = db.RecordPlay(r.Context(), s.db.W, currentUser(r).ID, id, db.Now(), body.Duration, "plexodus")
-		s.smart.forget(currentUser(r).ID)
+		s.forgetHome(currentUser(r).ID)
 	}
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.homeChanged(currentUser(r).ID) // resume points and Continue Watching
 	// Near the end of an episode, get the next one's skip markers ready.
 	if s.detector != nil && body.Duration > 0 && body.Position/body.Duration > 0.7 {
 		s.detector.OnNearEnd(s.baseCtx, id)
@@ -689,7 +767,7 @@ func (s *Server) handleWatched(w http.ResponseWriter, r *http.Request) {
 		ON CONFLICT(user_id, item_id) DO UPDATE SET watched = excluded.watched, position = 0,
 			play_count = watch_state.play_count + excluded.play_count, updated_at = excluded.updated_at`,
 		id, uid, body.Watched, boolInt(body.Watched), db.Now())
-	s.smart.forget(uid)
+	s.forgetHome(uid)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
