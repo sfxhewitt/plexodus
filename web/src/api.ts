@@ -219,13 +219,31 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * How long a GET may take before it gives up. Without a limit a request the
+ * server never answers leaves a page spinning forever; with one the page
+ * shows an error and a way to try again.
+ */
+const GET_TIMEOUT_MS = 45_000;
+
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method,
-    credentials: "same-origin",
-    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  const ctl = method === "GET" && typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), GET_TIMEOUT_MS) : undefined;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      credentials: "same-origin",
+      headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: ctl?.signal,
+    });
+  } catch (e) {
+    if (ctl?.signal.aborted) throw new ApiError(0, "The server is taking too long to answer.");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401 && !url.startsWith("/api/login")) window.dispatchEvent(new Event("plexodus:unauthorized"));

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -56,6 +57,8 @@ type Server struct {
 	plexArtInflight map[string]*artFetch
 
 	smart smartCache
+	files fileStats
+	homes homeCache
 }
 
 func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner, agent *metadata.Agent,
@@ -170,7 +173,7 @@ func (s *Server) Handler() http.Handler {
 		writeErr(w, http.StatusNotFound, "not found")
 	})
 	mux.Handle("/", s.webHandler())
-	return logRequests(mux)
+	return s.logRequests(mux)
 }
 
 func (s *Server) webHandler() http.Handler {
@@ -212,16 +215,49 @@ type statusWriter struct {
 
 func (w *statusWriter) WriteHeader(c int) { w.code = c; w.ResponseWriter.WriteHeader(c) }
 
-func logRequests(h http.Handler) http.Handler {
+// slowWarn is how long an API request may run before it is logged while
+// still in progress, so a request that never finishes still leaves a trace
+// (with how busy the database pools are) instead of nothing at all.
+const slowWarn = 15 * time.Second
+
+// longRunning are API paths that are meant to stay open (video and subtitle
+// streams), which the slow-request warning leaves alone.
+func longRunning(p string) bool {
+	for _, pre := range []string{"/api/stream/", "/api/hls/", "/api/play/", "/api/subs/"} {
+		if strings.HasPrefix(p, pre) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) logRequests(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, code: 200}
+		api := strings.HasPrefix(r.URL.Path, "/api/")
+		if api && !longRunning(r.URL.Path) {
+			t := time.AfterFunc(slowWarn, func() {
+				log.Printf("still waiting: %s %s after %s (%s)", r.Method, r.URL.Path, slowWarn, s.poolStats())
+			})
+			defer t.Stop()
+		}
 		h.ServeHTTP(sw, r)
 		took := time.Since(start)
-		if strings.HasPrefix(r.URL.Path, "/api/") && (os.Getenv("PLEXODUS_LOG_REQUESTS") != "" || took > time.Second) {
+		if api && (os.Getenv("PLEXODUS_LOG_REQUESTS") != "" || took > time.Second) {
 			log.Printf("%s %s %d %s", r.Method, r.URL.Path, sw.code, took.Round(time.Millisecond))
 		}
 	})
+}
+
+// poolStats summarises the database connection pools for slow-request logs.
+func (s *Server) poolStats() string {
+	if s.db == nil {
+		return "no db"
+	}
+	rs, ws := s.db.R.Stats(), s.db.W.Stats()
+	return fmt.Sprintf("db readers %d/%d in use, %d waits so far; writer %d in use, %d waits so far",
+		rs.InUse, rs.MaxOpenConnections, rs.WaitCount, ws.InUse, ws.WaitCount)
 }
 
 func (s *Server) requireUser(h http.HandlerFunc) http.Handler {
