@@ -189,6 +189,13 @@ func (s *Syncer) once(ctx context.Context) {
 	sctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
 	checked, updated, err := s.sync(sctx, c, pm)
 	cancel()
+	if err == nil {
+		mctx, mcancel := context.WithTimeout(ctx, 5*time.Minute)
+		if merr := s.syncMarkers(mctx, c, pm); merr != nil {
+			log.Printf("plex: %v", merr)
+		}
+		mcancel()
+	}
 	rctx, rcancel := context.WithTimeout(ctx, 10*time.Minute)
 	if rerr := s.BackfillRatings(rctx, c); rerr != nil {
 		log.Printf("plex: content ratings: %v", rerr)

@@ -268,16 +268,23 @@ func (s *Server) handleMarkers(w http.ResponseWriter, r *http.Request) {
 	}
 	var key string
 	var fetched sql.NullInt64
-	err := s.db.R.QueryRowContext(r.Context(), `SELECT rating_key, markers_at FROM plex_links WHERE item_id = ?`, id).Scan(&key, &fetched)
-	if err == nil && !fetched.Valid {
+	var havePlex bool
+	err := s.db.R.QueryRowContext(r.Context(), `SELECT rating_key, markers_at,
+		EXISTS(SELECT 1 FROM markers WHERE item_id = plex_links.item_id AND source = 'plex')
+		FROM plex_links WHERE item_id = ?`, id).Scan(&key, &fetched, &havePlex)
+	// Ask Plex if we never have, or (at most daily) if it had nothing last
+	// time: Plex finds intros in a background task that can run days later.
+	if err == nil && (!fetched.Valid || (!havePlex && fetched.Int64 < time.Now().Unix()-86400)) {
 		if c, _ := s.plexClient(r.Context()); c.Configured() {
 			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 			m, err := c.Item(ctx, key)
 			cancel()
 			if err == nil {
 				s.db.Tx(r.Context(), func(tx *sql.Tx) error {
-					if _, err := plex.SaveMarkers(tx, id, m.Marker); err != nil {
-						return err
+					if len(m.Marker) > 0 {
+						if err := plex.ReplaceMarkers(tx, id, m.Marker); err != nil {
+							return err
+						}
 					}
 					_, err := tx.Exec(`UPDATE plex_links SET markers_at = ? WHERE item_id = ?`, time.Now().Unix(), id)
 					return err
