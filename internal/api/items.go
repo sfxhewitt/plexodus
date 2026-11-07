@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -370,14 +371,14 @@ func (s *Server) buildHome(w http.ResponseWriter, r *http.Request) {
 	var rows []Row
 	t0 := time.Now()
 
-	cont, err := s.continueWatching(r)
+	cont, err := s.upNext(r)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
 	tCont := time.Since(t0)
 	if len(cont) > 0 {
-		rows = append(rows, Row{Title: "Continue Watching", Kind: "landscape", Items: cont})
+		rows = append(rows, Row{Title: "Up Next", Kind: "landscape", Items: cont})
 	}
 	wl, err := s.cards(r, `JOIN watchlist wl2 ON wl2.item_id = i.id AND wl2.user_id = ?1 WHERE COALESCE(w.watched, 0) = 0
 		ORDER BY wl2.added_at DESC LIMIT 40`)
@@ -468,58 +469,121 @@ func (s *Server) buildHome(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
-// continueWatching merges in-progress items with the next unwatched episode
-// of shows the user has been watching.
-func (s *Server) continueWatching(r *http.Request) ([]Card, error) {
+// Up Next windows (see upNext).
+const (
+	upNextPartialDays = 7   // half-watched films and episodes
+	upNextShowDays    = 60  // shows with an episode finished recently
+	upNextReturnDays  = 365 // shows that may have come back with new episodes
+	upNextNewDays     = 30  // ...if the new episode arrived this recently
+	upNextMax         = 30
+)
+
+// upNext is the first row on Home, newest activity first:
+//   - films and episodes stopped part way, played in the last 7 days;
+//   - the next episode of each show with an episode finished in the last
+//     60 days;
+//   - shows that have come back: everything up to the latest season was
+//     watched (within the last year) and a new episode arrived in the last
+//     30 days. Those sort by when the new episode arrived.
+//
+// Items and shows removed with "Remove from Up Next" stay off until they
+// are watched again.
+func (s *Server) upNext(r *http.Request) ([]Card, error) {
+	ctx := r.Context()
 	uid := currentUser(r).ID
-	inProgress, err := s.cards(r, `WHERE w.position > 30 AND w.watched = 0 AND i.kind IN ('movie', 'episode')
-		AND NOT EXISTS (SELECT 1 FROM continue_hidden ch WHERE ch.user_id = ?1 AND ch.item_id = i.id AND ch.hidden_at >= w.updated_at)
-		ORDER BY w.updated_at DESC LIMIT 20`)
+	now := db.Now()
+	type entry struct {
+		t    int64
+		card Card
+	}
+	var out []entry
+
+	// 1. Stopped part way, in the last week.
+	type idT struct{ id, t int64 }
+	scanIDT := func(q string, args ...any) ([]idT, error) {
+		rows, err := s.db.R.QueryContext(ctx, q, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var list []idT
+		for rows.Next() {
+			var x idT
+			if err := rows.Scan(&x.id, &x.t); err != nil {
+				return nil, err
+			}
+			list = append(list, x)
+		}
+		return list, rows.Err()
+	}
+	partial, err := scanIDT(`SELECT w.item_id, w.updated_at FROM watch_state w JOIN items i ON i.id = w.item_id
+		WHERE w.user_id = ?1 AND w.updated_at > ?2 AND w.position > 30 AND w.watched = 0 AND i.kind IN ('movie', 'episode')
+		AND NOT EXISTS (SELECT 1 FROM continue_hidden ch WHERE ch.user_id = ?1 AND ch.item_id = w.item_id AND ch.hidden_at >= w.updated_at)
+		ORDER BY w.updated_at DESC LIMIT ?3`, uid, now-upNextPartialDays*86400, upNextMax)
 	if err != nil {
 		return nil, err
 	}
-	seenShows := map[int64]bool{}
-	for _, c := range inProgress {
+	ids := make([]int64, len(partial))
+	when := map[int64]int64{}
+	for i, p := range partial {
+		ids[i], when[p.id] = p.id, p.t
+	}
+	cards, err := s.cardsByIDs(r, ids)
+	if err != nil {
+		return nil, err
+	}
+	haveShow := map[int64]bool{}
+	for _, c := range cards {
+		out = append(out, entry{when[c.ID], c})
 		if c.ShowID != 0 {
-			seenShows[c.ShowID] = true
+			haveShow[c.ShowID] = true
 		}
 	}
 
-	// Most recently finished episode per show in the last 60 days.
-	// Shows removed from Continue Watching stay off until watched again.
-	rows, err := s.db.R.QueryContext(r.Context(), `SELECT id, t FROM (SELECT sh.id, MAX(w.updated_at) AS t FROM watch_state w
+	// 2 and 3. Shows: the latest finished episode per show in the last year.
+	// Recent ones always count; older ones only when a newer episode has
+	// arrived since (checked below against the next episode itself).
+	shows, err := scanIDT(`SELECT id, t FROM (SELECT sh.id, MAX(w.updated_at) AS t FROM watch_state w
 		JOIN items e ON e.id = w.item_id AND e.kind = 'episode'
 		JOIN items se ON se.id = e.parent_id JOIN items sh ON sh.id = se.parent_id
 		WHERE w.user_id = ?1 AND w.watched = 1 AND w.updated_at > ?2 GROUP BY sh.id) x
 		WHERE NOT EXISTS (SELECT 1 FROM continue_hidden ch WHERE ch.user_id = ?1 AND ch.item_id = x.id AND ch.hidden_at >= x.t)
-		ORDER BY t DESC LIMIT 20`,
-		uid, db.Now()-60*86400)
+		AND (x.t > ?3 OR EXISTS (SELECT 1 FROM items s2 JOIN items e2 ON e2.parent_id = s2.id
+			WHERE s2.parent_id = x.id AND s2.kind = 'season' AND e2.added_at > x.t AND e2.added_at > ?4))
+		ORDER BY t DESC LIMIT 200`,
+		uid, now-upNextReturnDays*86400, now-upNextShowDays*86400, now-upNextNewDays*86400)
 	if err != nil {
 		return nil, err
 	}
-	type showT struct{ id, t int64 }
-	var shows []showT
-	for rows.Next() {
-		var st showT
-		rows.Scan(&st.id, &st.t)
-		shows = append(shows, st)
-	}
-	rows.Close()
-
-	out := inProgress
 	for _, st := range shows {
-		if seenShows[st.id] {
+		if haveShow[st.id] {
 			continue
 		}
 		next, err := s.nextEpisode(r, st.id)
 		if err != nil {
 			return nil, err
 		}
-		if next != nil {
-			out = append(out, *next)
+		if next == nil {
+			continue
 		}
+		t := st.t
+		if returned := next.AddedAt > st.t && next.AddedAt > now-upNextNewDays*86400; returned {
+			t = next.AddedAt
+		} else if st.t <= now-upNextShowDays*86400 {
+			continue // finished a while ago and nothing new since
+		}
+		out = append(out, entry{t, *next})
 	}
-	return out, nil
+
+	sort.SliceStable(out, func(a, b int) bool { return out[a].t > out[b].t })
+	if len(out) > upNextMax {
+		out = out[:upNextMax]
+	}
+	res := make([]Card, len(out))
+	for i, e := range out {
+		res[i] = e.card
+	}
+	return res, nil
 }
 
 // nextEpisode returns the first unwatched episode after the last watched one.

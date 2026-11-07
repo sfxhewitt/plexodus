@@ -213,7 +213,7 @@ export default function Home() {
               {r.items.map((c, i) => (
                 <TvCard key={c.id} c={c} shape="land" autoFocus={!hasHero && ri === 0 && i === 0}
                   title={c.kind === "episode" ? c.showTitle || c.title : c.title}
-                  onSelect={(x) => select(x, continuing)} onPlay={play} menu={r.title === "Continue Watching" ? CONTINUE : undefined} />
+                  onSelect={(x) => select(x, continuing)} onPlay={play} menu={continuing ? CONTINUE : undefined} />
               ))}
               {r.link && (
                 <button className="tv-card more land" data-f data-fk={`more-${r.title}`} onClick={() => nav(r.link!)}>
@@ -221,7 +221,7 @@ export default function Home() {
                 </button>
               )}
             </TvRow>
-            {/* Wrapped sits under the first row, so Continue Watching stays on top. */}
+            {/* Wrapped sits under the first row, so Up Next stays on top. */}
             {ri === 0 && data.wrapped && <WrappedBanner year={data.wrapped.year} />}
             </Fragment>
           );

@@ -88,7 +88,7 @@ export default function Home() {
         {data.rows.map((r, i) => (
           <Fragment key={r.title}>
             <Row {...r} />
-            {/* Wrapped sits under the first row, so Continue Watching stays on top. */}
+            {/* Wrapped sits under the first row, so Up Next stays on top. */}
             {i === 0 && data.wrapped && <WrappedBanner year={data.wrapped.year} />}
           </Fragment>
         ))}
