@@ -227,3 +227,13 @@ CREATE TABLE IF NOT EXISTS watch_history (
 );
 CREATE INDEX IF NOT EXISTS watch_history_user ON watch_history(user_id, watched_at);
 CREATE INDEX IF NOT EXISTS watch_history_item ON watch_history(user_id, item_id, watched_at);
+
+-- Lip sync correction for one file: how much later (ms, negative = earlier)
+-- its sound should play. Set from the player's "Audio sync" control and
+-- applied on every device, on top of each device's own offset.
+CREATE TABLE IF NOT EXISTS av_offsets (
+    file_id    INTEGER PRIMARY KEY REFERENCES media_files(id) ON DELETE CASCADE,
+    offset_ms  INTEGER NOT NULL,
+    updated_by INTEGER,
+    updated_at INTEGER NOT NULL
+);

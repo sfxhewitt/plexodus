@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, Library, LibraryPrefs, setLibraryPrefs } from "../../api";
 import { Check, Logout, Refresh, X } from "../../components/Icons";
 import { useUser } from "../../hooks";
-import { native } from "../../native";
+import { native, nativeHas } from "../../native";
 import { ambientPrefs, onAmbientPrefs, setAmbientPrefs, startScreensaver, trailersSupported } from "../ambient";
 import { TvButton, useBackdrop } from "../components";
 import { useLibraries, usePageFocus, useToast } from "../hooks";
@@ -92,6 +92,58 @@ function AmbientChoices() {
   );
 }
 
+const fmtSync = (ms: number) => (!ms ? "In sync" : `Sound ${Math.abs(ms)} ms ${ms > 0 ? "later" : "earlier"}`);
+
+/**
+ * This TV's lip sync offset: delay the TV, soundbar or receiver adds, which
+ * no file can know about. Kept in the app and added to every file's own fix.
+ */
+function LipSyncChoices() {
+  const supported = !!native && nativeHas("avsync");
+  const read = () => {
+    try {
+      return native?.audioDelay?.() || 0;
+    } catch {
+      return 0;
+    }
+  };
+  const [ms, setMs] = useState(read);
+  useEffect(() => {
+    const on = () => setMs(read());
+    window.addEventListener("plexodus:audio-delay", on);
+    return () => window.removeEventListener("plexodus:audio-delay", on);
+  }, []);
+  const change = (v: number) => {
+    const next = Math.max(-5000, Math.min(5000, v));
+    native?.setAudioDelay?.(next);
+    setMs(next);
+  };
+  return (
+    <section className="tv-lib-prefs">
+      <h2 className="tv-section-title">Lip sync</h2>
+      <p className="tv-muted tv-section-note">
+        If voices are early or late on everything you play on this TV, the TV or sound system is adding delay.
+        Calibrate plays a beep with a flash: nudge with left and right until they land together, then press OK.
+        For one bad file, use Audio sync in the player instead.
+      </p>
+      <div className="tv-pref-row" data-row data-group="lipsync">
+        <div className="tv-pref-name">
+          <span>This TV</span>
+          <span className="tv-muted">{supported ? fmtSync(ms) : "Update the Plexodus app on this TV to use this"}</span>
+        </div>
+        {supported && (
+          <>
+            <TvButton fk="lipsync-calibrate" className="chip ambient" onClick={() => native?.calibrateAudio?.()}>Calibrate</TvButton>
+            <TvButton fk="lipsync-earlier" className="chip ambient" onClick={() => change(ms - 20)}>Sound earlier</TvButton>
+            <TvButton fk="lipsync-later" className="chip ambient" onClick={() => change(ms + 20)}>Sound later</TvButton>
+            <TvButton fk="lipsync-reset" className="chip ambient" onClick={() => change(0)}>Reset</TvButton>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export default function SettingsPage() {
   const { user, setUser, openProfiles } = useUser();
   useBackdrop(undefined);
@@ -137,6 +189,7 @@ export default function SettingsPage() {
       </div>
       <LibraryChoices />
       <AmbientChoices />
+      {native && <LipSyncChoices />}
       <p className="tv-muted tv-note">Adding libraries, users and the Plex import live in the Plexodus web page on a computer.</p>
       <div className="tv-page-tail" />
     </div>

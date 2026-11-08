@@ -57,7 +57,15 @@ type Options struct {
 	AudioIndex int     // absolute stream index of the audio track, -1 for none, AudioAuto
 	AudioMode  string  // "copy" or "aac"
 	VideoCodec string  // from the probe; hevc gets the hvc1 tag Safari needs
+	// AudioShiftMs moves the sound against the picture to fix lip sync:
+	// positive plays it later. The audio is read through a second input
+	// with that timestamp offset, so it's still copied, not re-encoded.
+	AudioShiftMs int
 }
+
+// MaxAudioShiftMs bounds AudioShiftMs; well inside tsOffsetMs so shifted
+// timestamps stay positive.
+const MaxAudioShiftMs = 5000
 
 // Chunk is a served file, or a byte range of one when Size > 0.
 type Chunk struct {
@@ -183,6 +191,11 @@ func (m *Manager) Start(ctx context.Context, userID, fileID int64, o Options) (*
 	if o.AudioMode != "aac" {
 		o.AudioMode = "copy"
 	}
+	if o.AudioShiftMs > MaxAudioShiftMs {
+		o.AudioShiftMs = MaxAudioShiftMs
+	} else if o.AudioShiftMs < -MaxAudioShiftMs {
+		o.AudioShiftMs = -MaxAudioShiftMs
+	}
 	b := make([]byte, 8)
 	rand.Read(b)
 	id := hex.EncodeToString(b)
@@ -260,17 +273,28 @@ func (s *Session) args(startMs int64, seek bool) []string {
 	if s.vod {
 		args = append(args, "-copyts")
 	}
-	args = append(args, "-i", o.Path, "-map", "0:v:0")
+	args = append(args, "-i", o.Path)
+	hasAudio := o.AudioIndex >= 0 || o.AudioIndex == AudioAuto
+	ain := "0"
+	if shift := o.AudioShiftMs; shift != 0 && hasAudio {
+		// The same file again, for its audio only, with shifted timestamps.
+		if seek {
+			args = append(args, "-ss", strconv.FormatFloat(float64(startMs)/1000, 'f', 3, 64))
+		}
+		args = append(args, "-itsoffset", strconv.FormatFloat(float64(shift)/1000, 'f', 3, 64), "-i", o.Path)
+		ain = "1"
+	}
+	args = append(args, "-map", "0:v:0")
 	if o.AudioIndex == AudioAuto {
-		args = append(args, "-map", "0:a:0?")
+		args = append(args, "-map", ain+":a:0?")
 	} else if o.AudioIndex >= 0 {
-		args = append(args, "-map", "0:"+strconv.Itoa(o.AudioIndex))
+		args = append(args, "-map", ain+":"+strconv.Itoa(o.AudioIndex))
 	}
 	args = append(args, "-c:v", "copy")
 	if o.VideoCodec == "hevc" {
 		args = append(args, "-tag:v", "hvc1")
 	}
-	if o.AudioIndex >= 0 || o.AudioIndex == AudioAuto {
+	if hasAudio {
 		if o.AudioMode == "aac" {
 			args = append(args, "-c:a", "aac", "-ac", "2", "-b:a", "192k")
 		} else {
@@ -321,11 +345,23 @@ func (s *Session) startRun(ffmpeg string, targetMs int64, fromStart bool) (*run,
 	}
 	s.mu.Unlock()
 	path := filepath.Join(s.Dir, fmt.Sprintf("run%03d.mp4", n))
-	args := append(s.args(targetMs, !fromStart),
+	flags := "empty_moov+frag_keyframe+default_base_moof+frag_discont+skip_trailer"
+	if s.Opts.AudioShiftMs != 0 {
+		// With the audio from a second input, the muxer has to see an AC-3
+		// packet before it can write the header.
+		flags += "+delay_moov"
+	}
+	args := s.args(targetMs, !fromStart)
+	if s.Opts.AudioShiftMs != 0 {
+		// delay_moov would otherwise add edit lists, which browsers' MSE
+		// players apply on top of the timestamps.
+		args = append(args, "-use_editlist", "0")
+	}
+	args = append(args,
 		"-output_ts_offset", strconv.Itoa(tsOffsetMs/1000),
 		"-avoid_negative_ts", "disabled",
 		"-f", "mp4",
-		"-movflags", "empty_moov+frag_keyframe+default_base_moof+frag_discont+skip_trailer",
+		"-movflags", flags,
 		path)
 	r, err := s.launch(ffmpeg, args, targetMs)
 	if err != nil {
@@ -342,7 +378,11 @@ func (s *Session) startRun(ffmpeg string, targetMs int64, fromStart bool) (*run,
 // startEvent starts ffmpeg writing its own HLS playlist from Opts.Start.
 func (s *Session) startEvent(ffmpeg string) (*run, error) {
 	startMs := int64(s.Opts.Start * 1000)
-	args := append(s.args(startMs, startMs > 0),
+	args := s.args(startMs, startMs > 0)
+	if s.Opts.AudioShiftMs != 0 {
+		args = append(args, "-movflags", "+delay_moov", "-use_editlist", "0")
+	}
+	args = append(args,
 		"-f", "hls",
 		"-hls_time", strconv.Itoa(segmentSeconds),
 		"-hls_playlist_type", "event",

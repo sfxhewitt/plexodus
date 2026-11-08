@@ -241,3 +241,94 @@ func TestArgsAudioAuto(t *testing.T) {
 		t.Errorf("audio mapped with AudioIndex -1: %s", a)
 	}
 }
+
+func TestArgsAudioShift(t *testing.T) {
+	s := &Session{vod: true, Opts: Options{Path: "x.mkv", AudioIndex: 1, AudioMode: "copy", AudioShiftMs: -250}}
+	args := strings.Join(s.args(12000, true), " ")
+	want := "-ss 12.000 -copyts -i x.mkv -ss 12.000 -itsoffset -0.250 -i x.mkv -map 0:v:0 -map 1:1 -c:v copy -c:a copy"
+	if !strings.Contains(args, want) {
+		t.Errorf("args %s\nwant %s", args, want)
+	}
+	s.Opts.AudioIndex = -1
+	if a := strings.Join(s.args(0, false), " "); strings.Contains(a, "itsoffset") {
+		t.Errorf("second input without audio: %s", a)
+	}
+}
+
+// A shifted session really moves the audio against the video in the
+// served stream, both ways.
+func TestAudioShiftTimestamps(t *testing.T) {
+	needFFmpeg(t)
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.mkv")
+	makeMKV(t, src, 20, "0,6,12,18")
+	for _, shift := range []int{300, -300} {
+		m := New("ffmpeg", filepath.Join(dir, fmt.Sprint("stream", shift)))
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		s, err := m.Start(ctx, 1, 1, Options{Path: src, Start: 6, AudioIndex: 1, AudioMode: "copy", VideoCodec: "h264", AudioShiftMs: shift})
+		if err != nil {
+			t.Fatal(err)
+		}
+		<-s.cur.done
+		if s.cur.err != nil {
+			t.Fatal("ffmpeg:", s.cur.err)
+		}
+		// The scanner still finds the init part and the segments.
+		if _, err := s.File(ctx, "init.mp4", 5*time.Second); err != nil {
+			t.Fatal("init:", err)
+		}
+		if _, err := s.File(ctx, "seg00001.m4s", 5*time.Second); err != nil {
+			t.Fatal("segment:", err)
+		}
+		out, err := exec.Command("ffprobe", "-v", "error", "-show_entries", "packet=stream_index,pts_time", "-of", "csv", s.cur.path).Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		first := map[string]float64{}
+		for _, l := range strings.Split(string(out), "\n") {
+			f := strings.Split(l, ",")
+			if len(f) < 3 {
+				continue
+			}
+			v, _ := strconv.ParseFloat(f[2], 64)
+			if old, ok := first[f[1]]; !ok || v < old {
+				first[f[1]] = v
+			}
+		}
+		// Video starts at the 6 s keyframe (+10 s offset); audio read from
+		// the same point lands shift ms away from it.
+		diff := (first["1"] - first["0"]) * 1000
+		if diff < float64(shift)-60 || diff > float64(shift)+60 {
+			t.Errorf("shift %d: audio starts %.0f ms after video (%v)", shift, diff, first)
+		}
+		m.Stop(s.ID, 1)
+		cancel()
+	}
+}
+
+// Event mode (no keyframe index) takes the shift too.
+func TestEventSessionShifted(t *testing.T) {
+	needFFmpeg(t)
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.mp4")
+	gen := exec.Command("ffmpeg", "-nostdin", "-loglevel", "error", "-y",
+		"-f", "lavfi", "-i", "testsrc=size=320x180:rate=25", "-f", "lavfi", "-i", "sine=frequency=440",
+		"-t", "8", "-c:v", "libx264", "-preset", "ultrafast", "-g", "25", "-c:a", "ac3", src)
+	if out, err := gen.CombinedOutput(); err != nil {
+		t.Skipf("can't make test file: %v: %s", err, out)
+	}
+	m := New("ffmpeg", filepath.Join(dir, "stream"))
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	s, err := m.Start(ctx, 1, 1, Options{Path: src, Start: 2, AudioIndex: 1, AudioMode: "copy", VideoCodec: "h264", AudioShiftMs: -200})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Playlist(ctx, 30*time.Second); err != nil {
+		t.Fatal("playlist:", err)
+	}
+	<-s.cur.done
+	if s.cur.err != nil {
+		t.Fatal("ffmpeg:", s.cur.err)
+	}
+}

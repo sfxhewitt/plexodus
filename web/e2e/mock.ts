@@ -323,7 +323,7 @@ addEventListener("message", function (e) {
     // Only the first film has a trailer, so the other screens stay still.
     if ((mm = p.match(/^\/api\/items\/(\d+)\/trailer$/))) return json(route, { youtube: Number(mm[1]) === ids.movie ? "fakeTrailer" : "" });
     if ((mm = p.match(/^\/api\/play\/(\d+)$/))) {
-      return json(route, { externalUrl: `http://media.test/stream/${mm[1]}`, position: 0, file: { id: Number(mm[1]), duration: 5400 } });
+      return json(route, { externalUrl: `http://media.test/stream/${mm[1]}`, position: 0, file: { id: Number(mm[1]), duration: 5400 }, audioOffsetMs: -120 });
     }
     if (p === "/api/screensaver") return json(route, [...movies.slice(0, 6), ...shows.slice(0, 2)]);
     if ((mm = p.match(/^\/api\/items\/(\d+)\/watched$/)) && m === "POST") return json(route, {});

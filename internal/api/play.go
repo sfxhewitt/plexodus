@@ -107,6 +107,8 @@ func (s *Server) handlePlay(w http.ResponseWriter, r *http.Request) {
 		"externalUrl": externalBase(r) + rel,
 		"position":    position,
 		"hls":         s.streams.Available(),
+		// Saved lip sync fix for this file (ms; positive = audio later).
+		"audioOffsetMs": s.fileOffset(r, fileID),
 	})
 }
 

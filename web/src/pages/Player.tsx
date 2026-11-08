@@ -69,6 +69,21 @@ type Plan =
   | { mode: "hls"; audioMode: "copy" | "aac"; audioIndex?: number }
   | { mode: "none"; reason: string };
 
+/**
+ * The remux plan for a file the browser could also play directly; used to
+ * move sound earlier for lip sync, which direct play can't do.
+ */
+function remuxPlan(f: MediaFile): Extract<Plan, { mode: "hls" }> | undefined {
+  const probe = document.createElement("video");
+  const can = (t?: string) => !!t && probe.canPlayType(t) !== "";
+  if (!f.videoCodec || !hlsVideoCopy.has(f.videoCodec) || !can(videoCodecs[f.videoCodec])) return undefined;
+  const audio = (f.streams || []).filter((s) => s.type === "audio");
+  const track = audio.find((s) => s.default) || audio[0];
+  const codec = track?.codec || f.audioCodec || "";
+  const copy = (webkitOnly ? hlsAudioCopyWebKit : hlsAudioCopy).has(codec) && can(audioCodecs[codec]);
+  return { mode: "hls", audioMode: copy ? "copy" : "aac", audioIndex: track?.index };
+}
+
 function plan(f: MediaFile, name: string, hlsAvailable: boolean): Plan {
   const probe = document.createElement("video");
   const can = (t?: string) => !!t && probe.canPlayType(t) !== "";
@@ -174,6 +189,15 @@ export default function Player() {
   sessionRef.current = session;
   const inHls = !!session;
 
+  // Lip sync: the file's saved audio offset (ms, positive = sound later).
+  // Remuxed streams get it from the server, which shifts the audio track's
+  // timestamps; direct play can only delay sound, through Web Audio.
+  const [audioOffset, setAudioOffsetState] = useState(0);
+  const audioOffsetRef = useRef(0);
+  const audioGraph = useRef<{ ctx: AudioContext; el?: HTMLVideoElement; delay?: DelayNode }>();
+  const offsetTimer = useRef<ReturnType<typeof setTimeout>>();
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+
   const stopSession = useCallback((s?: HlsSession) => {
     hlsRef.current?.destroy();
     hlsRef.current = undefined;
@@ -187,7 +211,9 @@ export default function Player() {
     stopSession(sessionRef.current);
     setWaiting(true);
     setPreparing(true);
-    const s = await api.post<HlsSession>("/api/hls", { fileId, start, audioMode: p.audioMode, audioIndex: p.audioIndex });
+    const s = await api.post<HlsSession>("/api/hls", {
+      fileId, start, audioMode: p.audioMode, audioIndex: p.audioIndex, audioOffsetMs: audioOffsetRef.current,
+    });
     setSession(s);
     setTime(s.start);
     setBuffered(s.start);
@@ -209,6 +235,8 @@ export default function Player() {
     setSubTrack(undefined);
     setSubLoaded(undefined);
     setSubState({});
+    audioOffsetRef.current = 0;
+    setAudioOffsetState(0);
     (async () => {
       try {
         const d = await api.get<Detail>(`/api/items/${id}`);
@@ -254,10 +282,20 @@ export default function Player() {
             startSeconds: from != null ? Number(from) : p.position || 0,
             durationSeconds: p.file.duration || 0,
             markers: m.map((x) => ({ type: x.type, start: x.start, end: x.end })),
+            fileId: file.id,
+            audioOffsetMs: p.audioOffsetMs || 0,
           });
           return;
         }
-        const pl = plan(p.file, file.name || p.fileName, p.hls);
+        let pl = plan(p.file, file.name || p.fileName, p.hls);
+        audioOffsetRef.current = p.audioOffsetMs || 0;
+        setAudioOffsetState(audioOffsetRef.current);
+        // A saved fix that moves the sound earlier needs the remux, even
+        // for a file the browser could play as it is.
+        if (pl.mode === "direct" && audioOffsetRef.current < 0 && p.hls) {
+          const r = remuxPlan(p.file);
+          if (r) pl = r;
+        }
         setInfo(p);
         if (pl.mode === "none") {
           setUnsupported(pl.reason);
@@ -488,6 +526,7 @@ export default function Player() {
       return;
     }
     setDur(v.duration);
+    if (audioOffsetRef.current > 0) delayDirect(audioOffsetRef.current);
     const from = params.get("from");
     const start = from != null ? Number(from) : info?.position || 0;
     if (start > 0 && start < v.duration - 5) v.currentTime = start;
@@ -630,6 +669,78 @@ export default function Player() {
     }
   };
 
+  /** Delays the sound of a directly played file (Web Audio can't advance it). */
+  const delayDirect = (ms: number) => {
+    const v = video.current;
+    if (!v) return;
+    let g = audioGraph.current;
+    if (!g) {
+      if (ms <= 0) return;
+      g = { ctx: new AudioContext() };
+      audioGraph.current = g;
+    }
+    if (g.el !== v) {
+      // A media element can be wired into Web Audio once; a new <video>
+      // (after switching streams) gets its own source.
+      const src = g.ctx.createMediaElementSource(v);
+      const delay = g.ctx.createDelay(5);
+      src.connect(delay).connect(g.ctx.destination);
+      g.el = v;
+      g.delay = delay;
+    }
+    g.delay!.delayTime.value = Math.max(0, ms) / 1000;
+    if (g.ctx.state === "suspended") g.ctx.resume().catch(() => {});
+  };
+
+  const applyAudioOffset = (ms: number) => {
+    clearTimeout(offsetTimer.current);
+    if (inHls) {
+      // The server shifts the audio track; restart the stream where we are.
+      offsetTimer.current = setTimeout(() => {
+        if (!hlsPlan || !item) return;
+        report(true);
+        startSession(hlsPlan, item.files[0].id, absTime()).catch((e) => setError((e as Error).message));
+      }, 700);
+      return;
+    }
+    if (ms >= 0) {
+      delayDirect(ms);
+      return;
+    }
+    // Sound earlier than the file has it: only the remux can do that.
+    const r = info?.hls ? remuxPlan(info.file) : undefined;
+    if (!r || !item) {
+      showToast("This browser can only delay the sound for this file");
+      setAudioOffset(0, false);
+      return;
+    }
+    delayDirect(0);
+    offsetTimer.current = setTimeout(() => {
+      report(true);
+      setHlsPlan(r);
+      startSession(r, item.files[0].id, absTime()).catch((e) => setError((e as Error).message));
+    }, 700);
+  };
+
+  /** Changes the file's lip sync fix, applies it, and saves it for the file. */
+  const setAudioOffset = (ms: number, save = true) => {
+    const v = Math.max(-5000, Math.min(5000, Math.round(ms)));
+    audioOffsetRef.current = v;
+    setAudioOffsetState(v);
+    applyAudioOffset(v);
+    if (!save || !info) return;
+    clearTimeout(saveTimer.current);
+    const fileId = info.file.id;
+    saveTimer.current = setTimeout(() => {
+      api.put(`/api/files/${fileId}/audio-offset`, { offsetMs: v }).catch((e) => showToast(`Couldn't save audio sync: ${(e as Error).message}`));
+    }, 800);
+  };
+  const nudgeAudioOffset = (by: number) => {
+    const v = audioOffsetRef.current + by;
+    setAudioOffset(v);
+    showToast(`Audio sync: ${fmtOffset(v)}`);
+  };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).tagName === "INPUT") return;
@@ -672,6 +783,12 @@ export default function Player() {
           break;
         case "x":
           if (subTrack) nudgeSubDelay(0.1);
+          break;
+        case "[":
+          nudgeAudioOffset(-50);
+          break;
+        case "]":
+          nudgeAudioOffset(50);
           break;
         case "Escape":
           if (subMenu) setSubMenu(false);
@@ -841,13 +958,14 @@ export default function Player() {
             {endsAt && <span className="ends-at">Ends at {endsAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>}
             <div className="sub-wrap">
               <button className={`icon-btn ${subTrack ? "on" : ""} ${subState.loading ? "busy" : ""}`} onClick={() => setSubMenu((o) => !o)}
-                aria-label="Subtitles" aria-expanded={subMenu} title="Subtitles (c)">
+                aria-label="Subtitles and audio sync" aria-expanded={subMenu} title="Subtitles and audio sync (c)">
                 <Subtitles size={22} />
               </button>
               {subMenu && (
                 <SubtitleMenu
                   tracks={subTracks} current={subTrack} state={subState} prefs={subPrefs} delay={subDelay}
                   onPick={chooseSub} onPrefs={setSubPrefs} onDelay={setSubDelay} onClose={() => setSubMenu(false)}
+                  audioOffset={audioOffset} onAudioOffset={(ms) => setAudioOffset(ms)}
                 />
               )}
             </div>
@@ -857,6 +975,11 @@ export default function Player() {
       )}
     </div>
   );
+}
+
+function fmtOffset(ms: number) {
+  if (!ms) return "in sync";
+  return `sound ${Math.abs(ms)} ms ${ms > 0 ? "later" : "earlier"}`;
 }
 
 function fmtDelay(d: number) {
@@ -874,8 +997,10 @@ function SubtitleMenu(props: {
   onPrefs: (p: Partial<SubPrefs>) => void;
   onDelay: (d: number) => void;
   onClose: () => void;
+  audioOffset: number;
+  onAudioOffset: (ms: number) => void;
 }) {
-  const { tracks, current, state, prefs, delay, onPick, onPrefs, onDelay } = props;
+  const { tracks, current, state, prefs, delay, onPick, onPrefs, onDelay, audioOffset, onAudioOffset } = props;
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onDown = (e: PointerEvent) => {
@@ -951,6 +1076,20 @@ function SubtitleMenu(props: {
           <button className="sub-chip" onClick={() => onDelay(0)} disabled={!delay}>Reset</button>
         </div>
         <div className="muted small sub-keys">Keys: c on/off · z earlier · x later</div>
+      </div>
+
+      <div className="sub-sec">
+        <div className="sub-h">
+          Audio sync <span className="sub-delay">{fmtOffset(audioOffset)}</span>
+        </div>
+        <div className="sub-row">
+          <button className="sub-chip" onClick={() => onAudioOffset(audioOffset - 50)} aria-label="Sound 50 ms earlier">−50 ms</button>
+          <input type="range" min={-1000} max={1000} step={10} value={Math.max(-1000, Math.min(1000, audioOffset))} onChange={(e) => onAudioOffset(Number(e.target.value))}
+            style={{ "--p": `${((Math.max(-1000, Math.min(1000, audioOffset)) + 1000) / 2000) * 100}%` } as React.CSSProperties} aria-label="Audio delay" />
+          <button className="sub-chip" onClick={() => onAudioOffset(audioOffset + 50)} aria-label="Sound 50 ms later">+50 ms</button>
+          <button className="sub-chip" onClick={() => onAudioOffset(0)} disabled={!audioOffset}>Reset</button>
+        </div>
+        <div className="muted small sub-keys">For a file whose sound doesn't match the lips; saved for this file on every device. Keys: [ earlier · ] later</div>
       </div>
     </div>
   );

@@ -182,6 +182,13 @@ class MainActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_CALIBRATE) {
+            // Let TV Settings show the new value.
+            web.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('plexodus:audio-delay',{detail:${Prefs.audioDelay(this)}}))", null,
+            )
+            return
+        }
         if (requestCode != REQ_PLAY) return
         // Tell the page how playback went so it can resume, show "up next", etc.
         val detail = data?.getStringExtra(PlayerActivity.EXTRA_RESULT) ?: "{}"
@@ -223,7 +230,24 @@ class MainActivity : Activity() {
 
         /** Player features the web UI can rely on (older apps lack this). */
         @JavascriptInterface
-        fun features(): String = "recap"
+        fun features(): String = "recap,avsync"
+
+        /** This device's lip sync offset in ms (positive = sound later). */
+        @JavascriptInterface
+        fun audioDelay(): Int = Prefs.audioDelay(this@MainActivity)
+
+        @JavascriptInterface
+        fun setAudioDelay(ms: Int) {
+            Prefs.setAudioDelay(this@MainActivity, ms)
+        }
+
+        /** Opens the flash-and-beep calibration in the real player. */
+        @JavascriptInterface
+        fun calibrateAudio() {
+            runOnUiThread {
+                startActivityForResult(PlayerActivity.calibrationIntent(this@MainActivity, server), REQ_CALIBRATE)
+            }
+        }
 
         @JavascriptInterface
         fun isTv(): Boolean = this@MainActivity.isTv
@@ -236,6 +260,7 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQ_PLAY = 1
+        private const val REQ_CALIBRATE = 2
         const val BG = 0xFF050505.toInt()
     }
 }
