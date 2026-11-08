@@ -96,6 +96,10 @@ class PlayerActivity : Activity() {
     /** Flash-and-beep calibration of deviceDelayMs instead of a film. */
     private var calibrating = false
     private lateinit var syncButton: Button
+    /** The Audio sync bar is up: the remote adjusts the sound, not the film. */
+    private var syncMode = false
+    private var syncStart = 0
+    private lateinit var syncBar: TextView
     private lateinit var calibrationText: TextView
     private var kind = ""
     private var markers = listOf<Marker>()
@@ -212,6 +216,7 @@ class PlayerActivity : Activity() {
         syncButton.setOnClickListener { showAudioSync() }
         if (fileId == 0L) syncButton.visibility = View.GONE
         calibrationText = findViewById(R.id.calibration)
+        syncBar = findViewById(R.id.sync_bar)
 
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
@@ -234,6 +239,16 @@ class PlayerActivity : Activity() {
         // Tap to show or hide the controls; double-tap the sides to skip 10s.
         val gestures = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                if (syncMode) {
+                    // Touch: left or right third nudges the sound, the middle keeps it.
+                    val w = videoLayout.width
+                    when {
+                        e.x < w / 3f -> nudgeSync(-SYNC_STEP_MS)
+                        e.x > w * 2 / 3f -> nudgeSync(SYNC_STEP_MS)
+                        else -> closeSync(keep = true)
+                    }
+                    return true
+                }
                 if (calibrating) {
                     // Touch screens: tap the left or right third to nudge, the middle to save.
                     val w = videoLayout.width
@@ -249,7 +264,7 @@ class PlayerActivity : Activity() {
             }
 
             override fun onDoubleTap(e: MotionEvent): Boolean {
-                if (calibrating) return true
+                if (calibrating || syncMode) return true
                 val w = videoLayout.width
                 when {
                     e.x < w / 3f -> seekBy(-10_000)
@@ -339,7 +354,7 @@ class PlayerActivity : Activity() {
                 playing = false
                 playPause.setImageResource(R.drawable.ic_play)
                 report(force = true)
-                if (!upNextVisible && !calibrating) setControls(true)
+                if (!upNextVisible && !calibrating && !syncMode) setControls(true)
             }
             MediaPlayer.Event.Buffering -> spinner.visibility = if (e.buffering < 100f) View.VISIBLE else View.GONE
             MediaPlayer.Event.TimeChanged -> {
@@ -750,6 +765,7 @@ class PlayerActivity : Activity() {
         handledNext = true
         autoPlays = if (auto) autoPlays + 1 else 0
         hideUpNext()
+        if (syncMode) closeSync(keep = true)
         report(force = true, positionMs = lengthMs)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         root.keepScreenOn = true
@@ -831,74 +847,38 @@ class PlayerActivity : Activity() {
     }
 
     /**
-     * The per-file control: nudge the sound earlier or later while the film
-     * plays, then save it for this file on the server.
+     * The per-file control: a small see-through bar at the bottom while the
+     * film keeps playing, so you can watch the lips as you adjust. Left/right
+     * or rewind/fast-forward move the sound, OK keeps it, Back undoes it.
      */
     private fun showAudioSync() {
-        val start = fileDelayMs
-        ui.removeCallbacks(hideControls)
-        val pad = (20 * resources.displayMetrics.density).toInt()
-        val box = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(pad, pad / 2, pad, 0)
-        }
-        val help = TextView(this).apply {
-            text = getString(R.string.audio_sync_help)
-            setTextColor(getColor(R.color.muted))
-            textSize = 14f
-        }
-        val value = TextView(this).apply {
-            textSize = 26f
-            setTextColor(getColor(R.color.text))
-            gravity = android.view.Gravity.CENTER
-            setPadding(0, pad, 0, pad / 2)
-        }
-        val device = TextView(this).apply {
-            textSize = 13f
-            setTextColor(getColor(R.color.muted))
-            gravity = android.view.Gravity.CENTER
-        }
-        val row = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER
-            setPadding(0, pad / 2, 0, 0)
-        }
-        fun refresh() {
-            value.text = describe(fileDelayMs)
-            device.text = if (deviceDelayMs != 0) getString(R.string.audio_sync_device, deviceDelayMs) else ""
-            device.visibility = if (deviceDelayMs != 0) View.VISIBLE else View.GONE
-        }
-        fun nudge(by: Int) {
-            fileDelayMs = (fileDelayMs + by).coerceIn(-Prefs.MAX_DELAY, Prefs.MAX_DELAY)
+        syncMode = true
+        syncStart = fileDelayMs
+        setControls(false)
+        updateSyncBar()
+    }
+
+    private fun nudgeSync(by: Int) {
+        fileDelayMs = (fileDelayMs + by).coerceIn(-Prefs.MAX_DELAY, Prefs.MAX_DELAY)
+        applyAudioDelay()
+        updateSyncBar()
+    }
+
+    private fun updateSyncBar() {
+        val device = if (deviceDelayMs != 0) "   ·   " + getString(R.string.audio_sync_device, deviceDelayMs) else ""
+        syncBar.text = getString(R.string.audio_sync_bar, describe(fileDelayMs)) + device
+        syncBar.visibility = View.VISIBLE
+    }
+
+    private fun closeSync(keep: Boolean) {
+        syncMode = false
+        syncBar.visibility = View.GONE
+        if (!keep) {
+            fileDelayMs = syncStart
             applyAudioDelay()
-            refresh()
+        } else if (fileDelayMs != syncStart) {
+            saveFileDelay(fileId, fileDelayMs)
         }
-        fun button(label: Int, onClick: () -> Unit) = Button(this).apply {
-            text = getString(label)
-            isAllCaps = false
-            setOnClickListener { onClick() }
-        }
-        val earlier = button(R.string.audio_sync_earlier_button) { nudge(-SYNC_STEP_MS) }
-        val later = button(R.string.audio_sync_later_button) { nudge(SYNC_STEP_MS) }
-        val reset = button(R.string.audio_sync_reset) { nudge(-fileDelayMs) }
-        row.addView(earlier)
-        row.addView(later)
-        row.addView(reset)
-        box.addView(help)
-        box.addView(value)
-        box.addView(device)
-        box.addView(row)
-        refresh()
-        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle(R.string.audio_sync_title)
-            .setView(box)
-            .setPositiveButton(R.string.audio_sync_done, null)
-            .setOnDismissListener {
-                scheduleHide()
-                if (fileDelayMs != start) saveFileDelay(fileId, fileDelayMs)
-            }
-            .show()
-        earlier.requestFocus()
     }
 
     private fun saveFileDelay(id: Long, ms: Int) {
@@ -936,6 +916,21 @@ class PlayerActivity : Activity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (syncMode) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_REWIND -> nudgeSync(-SYNC_STEP_MS)
+                KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> nudgeSync(SYNC_STEP_MS)
+                KeyEvent.KEYCODE_DPAD_UP -> nudgeSync(SYNC_STEP_MS * 4)
+                KeyEvent.KEYCODE_DPAD_DOWN -> nudgeSync(-SYNC_STEP_MS * 4)
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> closeSync(keep = true)
+                KeyEvent.KEYCODE_BACK -> closeSync(keep = false)
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_SPACE -> togglePlay()
+                KeyEvent.KEYCODE_MEDIA_PLAY -> player.play()
+                KeyEvent.KEYCODE_MEDIA_PAUSE -> player.pause()
+                else -> return super.onKeyDown(keyCode, event)
+            }
+            return true
+        }
         if (calibrating) {
             when (keyCode) {
                 KeyEvent.KEYCODE_DPAD_LEFT -> nudgeCalibration(-CALIBRATION_STEP_MS)
