@@ -25,6 +25,8 @@ func (s *Server) handleHLSStart(w http.ResponseWriter, r *http.Request) {
 		Start      float64 `json:"start"`
 		AudioIndex *int    `json:"audioIndex"`
 		AudioMode  string  `json:"audioMode"`
+		// Total audio shift the player wants (file fix + device offset).
+		AudioOffsetMs int `json:"audioOffsetMs"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		writeErr(w, 400, "bad request")
@@ -67,12 +69,13 @@ func (s *Server) handleHLSStart(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, err := s.streams.Start(r.Context(), currentUser(r).ID, b.FileID, stream.Options{
 		Path: path, Start: b.Start, AudioIndex: audio, AudioMode: b.AudioMode, VideoCodec: vcodec,
+		AudioShiftMs: clampOffset(b.AudioOffsetMs),
 	})
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, map[string]any{"id": sess.ID, "url": "/api/hls/" + sess.ID + "/index.m3u8", "start": sess.Opts.Start, "vod": sess.VOD()})
+	writeJSON(w, map[string]any{"id": sess.ID, "url": "/api/hls/" + sess.ID + "/index.m3u8", "start": sess.Opts.Start, "vod": sess.VOD(), "audioOffsetMs": sess.Opts.AudioShiftMs})
 }
 
 func (s *Server) handleHLSPing(w http.ResponseWriter, r *http.Request) {

@@ -197,6 +197,8 @@ export interface PlayInfo {
   position: number;
   /** The server has ffmpeg, so files a browser can't play can be remuxed. */
   hls: boolean;
+  /** Saved lip sync fix for this file in ms (positive = sound later). */
+  audioOffsetMs?: number;
 }
 
 export interface ScanProgress {

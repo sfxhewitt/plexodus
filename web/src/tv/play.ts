@@ -43,6 +43,8 @@ export async function playItem(id: number, opts: { fromStart?: boolean } = {}) {
       startSeconds: opts.fromStart ? 0 : p.position || 0,
       durationSeconds: p.file.duration || d.files[0].duration || 0,
       markers: m.map((x) => ({ type: x.type, start: x.start, end: x.end })),
+      fileId: d.files[0].id,
+      audioOffsetMs: p.audioOffsetMs || 0,
     });
     // The player activity takes a moment to cover the page.
     setTimeout(() => setBusy(null), 1500);

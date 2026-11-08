@@ -10,6 +10,10 @@ export interface NativePlayRequest {
   startSeconds: number;
   durationSeconds: number;
   markers: { type: string; start: number; end: number }[];
+  /** Lets the app's Audio sync control save its fix for this file. */
+  fileId?: number;
+  /** The file's saved lip sync fix (ms, positive = sound later). */
+  audioOffsetMs?: number;
 }
 
 export interface NativeEnded {
@@ -28,6 +32,11 @@ interface Bridge {
   canEmbed?(): boolean;
   /** Comma-separated player features; missing on older apps. */
   features?(): string;
+  /** Apps with "avsync": this device's lip sync offset in ms. */
+  audioDelay?(): number;
+  setAudioDelay?(ms: number): void;
+  /** Opens the flash-and-beep calibration in the app's player. */
+  calibrateAudio?(): void;
 }
 
 export const native: Bridge | undefined = (window as unknown as { PlexodusNative?: Bridge }).PlexodusNative;
@@ -39,6 +48,8 @@ const nativeFeatures = (): string[] => {
     return [];
   }
 };
+
+export const nativeHas = (feature: string) => nativeFeatures().includes(feature);
 
 export const nativePlay = (req: NativePlayRequest) => {
   // Apps from before "Skip recap" would treat a recap like closing credits

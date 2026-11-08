@@ -217,6 +217,19 @@
                     android:textColor="@color/control_fg"
                     android:visibility="gone" />
 
+                <Button
+                    android:id="@+id/sync"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/bg_pill_button"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:stateListAnimator="@null"
+                    android:text="@string/audio_sync"
+                    android:textAllCaps="false"
+                    android:textColor="@color/control_fg" />
+
                 <ImageButton
                     android:id="@+id/stats_button"
                     android:layout_width="40dp"
@@ -253,6 +266,24 @@
         android:padding="14dp"
         android:textColor="@color/text"
         android:textSize="11sp"
+        android:visibility="gone" />
+
+    <!-- Lip sync calibration: instructions and the current device offset. -->
+    <TextView
+        android:id="@+id/calibration"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="56dp"
+        android:background="@drawable/bg_stats"
+        android:gravity="center"
+        android:lineSpacingExtra="4dp"
+        android:paddingStart="28dp"
+        android:paddingTop="18dp"
+        android:paddingEnd="28dp"
+        android:paddingBottom="18dp"
+        android:textColor="@color/text"
+        android:textSize="18sp"
         android:visibility="gone" />
 
     <Button

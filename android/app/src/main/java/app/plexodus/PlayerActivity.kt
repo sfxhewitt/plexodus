@@ -86,6 +86,17 @@ class PlayerActivity : Activity() {
     private var server = ""
     private var cookie = ""
     private var itemId = 0L
+    private var fileId = 0L
+
+    // ---- lip sync ----
+    /** This device's offset (TV/soundbar delay), from TV Settings. */
+    private var deviceDelayMs = 0
+    /** The file's own fix, saved on the server. Positive plays the sound later. */
+    private var fileDelayMs = 0
+    /** Flash-and-beep calibration of deviceDelayMs instead of a film. */
+    private var calibrating = false
+    private lateinit var syncButton: Button
+    private lateinit var calibrationText: TextView
     private var kind = ""
     private var markers = listOf<Marker>()
 
@@ -151,8 +162,12 @@ class PlayerActivity : Activity() {
         cookie = intent.getStringExtra(EXTRA_COOKIE) ?: ""
         itemId = intent.getLongExtra(EXTRA_ITEM_ID, 0)
         startItemId = itemId
+        calibrating = intent.getBooleanExtra(EXTRA_CALIBRATE, false)
+        deviceDelayMs = Prefs.audioDelay(this)
+        fileDelayMs = intent.getIntExtra(EXTRA_AUDIO_OFFSET_MS, 0)
         kind = intent.getStringExtra(EXTRA_KIND) ?: ""
         val url = intent.getStringExtra(EXTRA_URL) ?: run { finish(); return }
+        fileId = intent.getLongExtra(EXTRA_FILE_ID, 0).takeIf { it > 0 } ?: fileIdFromUrl(url)
         val startMs = intent.getLongExtra(EXTRA_START_MS, 0)
         lengthMs = intent.getLongExtra(EXTRA_DURATION_MS, 0)
         markers = parseMarkers(intent.getStringExtra(EXTRA_MARKERS))
@@ -193,6 +208,10 @@ class PlayerActivity : Activity() {
         statsText = findViewById(R.id.stats)
         findViewById<View>(R.id.stats_button).setOnClickListener { toggleStats() }
         skipButton.setOnClickListener { skipMarker() }
+        syncButton = findViewById(R.id.sync)
+        syncButton.setOnClickListener { showAudioSync() }
+        if (fileId == 0L) syncButton.visibility = View.GONE
+        calibrationText = findViewById(R.id.calibration)
 
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
@@ -215,11 +234,22 @@ class PlayerActivity : Activity() {
         // Tap to show or hide the controls; double-tap the sides to skip 10s.
         val gestures = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                if (calibrating) {
+                    // Touch screens: tap the left or right third to nudge, the middle to save.
+                    val w = videoLayout.width
+                    when {
+                        e.x < w / 3f -> nudgeCalibration(-CALIBRATION_STEP_MS)
+                        e.x > w * 2 / 3f -> nudgeCalibration(CALIBRATION_STEP_MS)
+                        else -> onKeyDown(KeyEvent.KEYCODE_ENTER, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
+                    }
+                    return true
+                }
                 setControls(!controlsVisible)
                 return true
             }
 
             override fun onDoubleTap(e: MotionEvent): Boolean {
+                if (calibrating) return true
                 val w = videoLayout.width
                 when {
                     e.x < w / 3f -> seekBy(-10_000)
@@ -243,7 +273,13 @@ class PlayerActivity : Activity() {
 
         requestAudioFocus()
         load(url, startMs)
-        setControls(true)
+        if (calibrating) {
+            overlay.visibility = View.GONE
+            controlsVisible = false
+            updateCalibration()
+        } else {
+            setControls(true)
+        }
     }
 
     private fun load(url: String, startMs: Long) {
@@ -251,6 +287,7 @@ class PlayerActivity : Activity() {
         media.setHWDecoderEnabled(true, false)
         media.addOption(":network-caching=4000")
         if (startMs > 5_000) media.addOption(":start-time=${startMs / 1000}")
+        if (calibrating) media.addOption(":input-repeat=65535")
         player.setMedia(media)
         media.release()
         player.play()
@@ -292,6 +329,8 @@ class PlayerActivity : Activity() {
             MediaPlayer.Event.Playing -> {
                 playing = true
                 spinner.visibility = View.GONE
+                applyAudioDelay()
+                if (calibrating) return
                 playPause.setImageResource(R.drawable.ic_pause)
                 scheduleHide()
                 lookUpNext()
@@ -300,11 +339,12 @@ class PlayerActivity : Activity() {
                 playing = false
                 playPause.setImageResource(R.drawable.ic_play)
                 report(force = true)
-                if (!upNextVisible) setControls(true)
+                if (!upNextVisible && !calibrating) setControls(true)
             }
             MediaPlayer.Event.Buffering -> spinner.visibility = if (e.buffering < 100f) View.VISIBLE else View.GONE
             MediaPlayer.Event.TimeChanged -> {
                 timeMs = e.timeChanged
+                if (calibrating) return
                 updateTime()
                 updateSkip()
                 updateUpNext()
@@ -316,7 +356,7 @@ class PlayerActivity : Activity() {
             }
             MediaPlayer.Event.ESAdded, MediaPlayer.Event.ESSelected -> updateTrackButtons()
             MediaPlayer.Event.Vout -> if (e.voutCount > 0) matchRefreshRate()
-            MediaPlayer.Event.EndReached -> onEnd()
+            MediaPlayer.Event.EndReached -> if (!calibrating) onEnd()
             MediaPlayer.Event.EncounteredError -> {
                 spinner.visibility = View.GONE
                 errorText.text = getString(R.string.player_error)
@@ -740,6 +780,9 @@ class PlayerActivity : Activity() {
                 val (d, p, m) = loaded
                 val file = d!!.optJSONArray("files")!!.optJSONObject(0)
                 itemId = n.id
+                fileId = file.optLong("id")
+                fileDelayMs = p.optInt("audioOffsetMs", 0)
+                syncButton.visibility = if (fileId > 0) View.VISIBLE else View.GONE
                 kind = "episode"
                 next = null
                 lookupFor = 0L
@@ -757,6 +800,120 @@ class PlayerActivity : Activity() {
                 skipButton.visibility = View.GONE
                 load(p.optString("externalUrl"), startMs)
                 setControls(true)
+            }
+        }
+    }
+
+    // ---- lip sync ----
+
+    /** Device offset plus the file's own fix, in libVLC's microseconds. */
+    private fun applyAudioDelay() {
+        if (!::player.isInitialized) return
+        val ms = (deviceDelayMs + if (calibrating) 0 else fileDelayMs).coerceIn(-Prefs.MAX_DELAY * 2, Prefs.MAX_DELAY * 2)
+        player.setAudioDelay(ms * 1000L)
+    }
+
+    private fun describe(ms: Int): String = when {
+        ms > 0 -> getString(R.string.audio_sync_later, ms)
+        ms < 0 -> getString(R.string.audio_sync_earlier, -ms)
+        else -> getString(R.string.audio_sync_value_zero)
+    }
+
+    private fun nudgeCalibration(by: Int) {
+        deviceDelayMs = (deviceDelayMs + by).coerceIn(-Prefs.MAX_DELAY, Prefs.MAX_DELAY)
+        applyAudioDelay()
+        updateCalibration()
+    }
+
+    private fun updateCalibration() {
+        calibrationText.text = getString(R.string.calibration_text, describe(deviceDelayMs))
+        calibrationText.visibility = View.VISIBLE
+    }
+
+    /**
+     * The per-file control: nudge the sound earlier or later while the film
+     * plays, then save it for this file on the server.
+     */
+    private fun showAudioSync() {
+        val start = fileDelayMs
+        ui.removeCallbacks(hideControls)
+        val pad = (20 * resources.displayMetrics.density).toInt()
+        val box = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+        }
+        val help = TextView(this).apply {
+            text = getString(R.string.audio_sync_help)
+            setTextColor(getColor(R.color.muted))
+            textSize = 14f
+        }
+        val value = TextView(this).apply {
+            textSize = 26f
+            setTextColor(getColor(R.color.text))
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, pad, 0, pad / 2)
+        }
+        val device = TextView(this).apply {
+            textSize = 13f
+            setTextColor(getColor(R.color.muted))
+            gravity = android.view.Gravity.CENTER
+        }
+        val row = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, pad / 2, 0, 0)
+        }
+        fun refresh() {
+            value.text = describe(fileDelayMs)
+            device.text = if (deviceDelayMs != 0) getString(R.string.audio_sync_device, deviceDelayMs) else ""
+            device.visibility = if (deviceDelayMs != 0) View.VISIBLE else View.GONE
+        }
+        fun nudge(by: Int) {
+            fileDelayMs = (fileDelayMs + by).coerceIn(-Prefs.MAX_DELAY, Prefs.MAX_DELAY)
+            applyAudioDelay()
+            refresh()
+        }
+        fun button(label: Int, onClick: () -> Unit) = Button(this).apply {
+            text = getString(label)
+            isAllCaps = false
+            setOnClickListener { onClick() }
+        }
+        val earlier = button(R.string.audio_sync_earlier_button) { nudge(-SYNC_STEP_MS) }
+        val later = button(R.string.audio_sync_later_button) { nudge(SYNC_STEP_MS) }
+        val reset = button(R.string.audio_sync_reset) { nudge(-fileDelayMs) }
+        row.addView(earlier)
+        row.addView(later)
+        row.addView(reset)
+        box.addView(help)
+        box.addView(value)
+        box.addView(device)
+        box.addView(row)
+        refresh()
+        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle(R.string.audio_sync_title)
+            .setView(box)
+            .setPositiveButton(R.string.audio_sync_done, null)
+            .setOnDismissListener {
+                scheduleHide()
+                if (fileDelayMs != start) saveFileDelay(fileId, fileDelayMs)
+            }
+            .show()
+        earlier.requestFocus()
+    }
+
+    private fun saveFileDelay(id: Long, ms: Int) {
+        if (id == 0L || server.isEmpty()) return
+        io.execute {
+            val err = try {
+                val r = Http.request("$server/api/files/$id/audio-offset", "PUT", "{\"offsetMs\":$ms}", mapOf("Cookie" to cookie))
+                if (r.code == 200) null else "HTTP ${r.code}"
+            } catch (e: Exception) {
+                e.message ?: e.toString()
+            }
+            ui.post {
+                if (isFinishing) return@post
+                val msg = if (err == null) getString(R.string.audio_sync_saved) else getString(R.string.audio_sync_failed, err)
+                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -779,6 +936,27 @@ class PlayerActivity : Activity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (calibrating) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> nudgeCalibration(-CALIBRATION_STEP_MS)
+                KeyEvent.KEYCODE_DPAD_RIGHT -> nudgeCalibration(CALIBRATION_STEP_MS)
+                KeyEvent.KEYCODE_DPAD_UP -> nudgeCalibration(CALIBRATION_STEP_MS * 5)
+                KeyEvent.KEYCODE_DPAD_DOWN -> nudgeCalibration(-CALIBRATION_STEP_MS * 5)
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                    Prefs.setAudioDelay(this, deviceDelayMs)
+                    finished = true
+                    setResult(RESULT_OK)
+                    finish()
+                }
+                KeyEvent.KEYCODE_BACK -> {
+                    finished = true
+                    setResult(RESULT_CANCELED)
+                    finish()
+                }
+                else -> return super.onKeyDown(keyCode, event)
+            }
+            return true
+        }
         if (upNextVisible) {
             // The card has the focus: the D-pad moves between its buttons.
             when (keyCode) {
@@ -824,7 +1002,7 @@ class PlayerActivity : Activity() {
     // ---- progress reporting, same contract as the web player ----
 
     private fun report(force: Boolean = false, positionMs: Long = timeMs) {
-        if (lengthMs <= 0 || itemId == 0L) return
+        if (calibrating || lengthMs <= 0 || itemId == 0L) return
         val now = System.currentTimeMillis()
         if (!force && now - lastReport < 10_000) return
         lastReport = now
@@ -935,6 +1113,22 @@ class PlayerActivity : Activity() {
 
     companion object {
         const val EXTRA_RESULT = "result"
+        private const val SYNC_STEP_MS = 25
+        private const val CALIBRATION_STEP_MS = 10
+        private const val EXTRA_FILE_ID = "fileId"
+        private const val EXTRA_AUDIO_OFFSET_MS = "audioOffsetMs"
+        private const val EXTRA_CALIBRATE = "calibrate"
+
+        /** The stream URL names the file: /api/stream/{fileId}/{name}. */
+        fun fileIdFromUrl(url: String): Long =
+            Regex("/api/stream/(\\d+)/").find(url)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+
+        /** Loops the server's flash-and-beep clip to set this device's offset. */
+        fun calibrationIntent(ctx: Context, server: String): Intent =
+            Intent(ctx, PlayerActivity::class.java)
+                .putExtra(EXTRA_SERVER, server)
+                .putExtra(EXTRA_URL, "$server/api/lipsync-calibration.mkv")
+                .putExtra(EXTRA_CALIBRATE, true)
         private const val COUNTDOWN_S = 10
         /** Ask "still watching?" instead of counting down after this many episodes in a row with no button pressed. */
         private const val STILL_WATCHING_AFTER = 3
@@ -963,5 +1157,7 @@ class PlayerActivity : Activity() {
                 .putExtra(EXTRA_START_MS, (req.optDouble("startSeconds", 0.0) * 1000).toLong())
                 .putExtra(EXTRA_DURATION_MS, (req.optDouble("durationSeconds", 0.0) * 1000).toLong())
                 .putExtra(EXTRA_MARKERS, req.optJSONArray("markers")?.toString() ?: "[]")
+                .putExtra(EXTRA_FILE_ID, req.optLong("fileId"))
+                .putExtra(EXTRA_AUDIO_OFFSET_MS, req.optInt("audioOffsetMs", 0))
     }
 }

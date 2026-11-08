@@ -102,6 +102,7 @@ func (s *Server) Handler() http.Handler {
 	// Signed URLs, so <video> and external players need no cookie.
 	mux.HandleFunc("GET /api/stream/{id}/{name}", s.handleStream)
 	mux.HandleFunc("HEAD /api/stream/{id}/{name}", s.handleStream)
+	mux.HandleFunc("GET /api/lipsync-calibration.mkv", s.handleCalibrationClip)
 	// Admin session or API key (for Sonarr/Radarr/autoscan hooks).
 	mux.HandleFunc("POST /api/scan", s.handleScanPath)
 
@@ -129,6 +130,8 @@ func (s *Server) Handler() http.Handler {
 	user("POST /api/items/{id}/continue/hide", s.handleHideContinue)
 	user("GET /api/play/{fileId}", s.handlePlay)
 	user("POST /api/hls", s.handleHLSStart)
+	user("GET /api/files/{fileId}/audio-offset", s.handleGetAudioOffset)
+	user("PUT /api/files/{fileId}/audio-offset", s.handleSetAudioOffset)
 	user("POST /api/hls/{sid}/ping", s.handleHLSPing)
 	user("POST /api/hls/{sid}/stop", s.handleHLSStop)
 	user("GET /api/hls/{sid}/{name}", s.handleHLSFile)
