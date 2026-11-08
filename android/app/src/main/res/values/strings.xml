@@ -35,16 +35,11 @@
     <string name="still_watching_sub">%1$s is next. Press OK to keep watching.</string>
     <string name="episode_label">S%1$d · E%2$d</string>
     <string name="audio_sync">Audio sync</string>
-    <string name="audio_sync_title">Audio sync for this file</string>
-    <string name="audio_sync_help">Use this when the sound in this file doesn\'t match the lips. It\'s remembered for this file on every device.</string>
+    <string name="audio_sync_bar">Audio sync: %1$s   ·   ◀ ▶ or ⏪ ⏩ adjust   ·   OK keep   ·   Back undo</string>
     <string name="audio_sync_value_zero">In sync (0 ms)</string>
     <string name="audio_sync_later">Sound %1$d ms later</string>
     <string name="audio_sync_earlier">Sound %1$d ms earlier</string>
     <string name="audio_sync_device">This TV also adds %1$+d ms (TV Settings)</string>
-    <string name="audio_sync_earlier_button">Sound earlier</string>
-    <string name="audio_sync_later_button">Sound later</string>
-    <string name="audio_sync_reset">Reset</string>
-    <string name="audio_sync_done">Done</string>
     <string name="audio_sync_saved">Audio sync saved for this file</string>
     <string name="audio_sync_failed">Couldn\'t save audio sync: %1$s</string>
     <string name="calibration_text">Lip sync calibration for this TV\nThe beep should land exactly when the bar hits the line and the screen flashes.\n\n◀ sound earlier      %1$s      sound later ▶\n\nOK to save · Back to cancel</string>
