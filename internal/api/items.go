@@ -437,9 +437,18 @@ func (s *Server) buildHome(w http.ResponseWriter, r *http.Request) {
 	tLibs := time.Since(t0) - tCont - tSmart
 	rows = append(rows, later...)
 
+	// The hero and Critically Acclaimed are suggestions, so like the smart
+	// rows they leave out anything the viewer has seen or is watching.
+	started, err := s.startedShows(ctx, currentUser(r).ID)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	unseen := " AND " + unseenAt("m", started)
+
 	// Hero: recent, well-rated titles that have artwork worth showing.
 	hero, err := s.cards(r, `WHERE i.kind IN ('movie', 'show') AND i.backdrop IS NOT NULL AND i.overview IS NOT NULL
-		AND i.id IN (SELECT id FROM items WHERE kind IN ('movie', 'show') AND backdrop IS NOT NULL`+notInLibs(hiddenHome)+kidsTop(currentUser(r))+` ORDER BY added_at DESC LIMIT 60)
+		AND i.id IN (SELECT id FROM items m WHERE kind IN ('movie', 'show') AND backdrop IS NOT NULL`+notInLibs(hiddenHome)+kidsTop(currentUser(r))+unseen+` ORDER BY added_at DESC LIMIT 60)
 		ORDER BY RANDOM() LIMIT 6`)
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -450,7 +459,7 @@ func (s *Server) buildHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Top rated row for variety.
-	top, _ := s.cards(r, `WHERE i.id IN (SELECT id FROM items WHERE kind IN ('movie', 'show') AND rating >= 7.5 AND poster IS NOT NULL`+notInLibs(hiddenHome)+kidsTop(currentUser(r))+`
+	top, _ := s.cards(r, `WHERE i.id IN (SELECT id FROM items m WHERE kind IN ('movie', 'show') AND rating >= 7.5 AND poster IS NOT NULL`+notInLibs(hiddenHome)+kidsTop(currentUser(r))+unseen+`
 		ORDER BY RANDOM() LIMIT 24)`)
 	if len(top) >= 6 {
 		rows = append(rows, Row{Title: "Critically Acclaimed", Kind: "poster", Items: top})

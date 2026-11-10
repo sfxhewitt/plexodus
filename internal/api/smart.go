@@ -183,24 +183,43 @@ func (s *Server) queryIDs(ctx context.Context, q string, args ...any) ([]int64, 
 	return ids, rows.Err()
 }
 
-// startedShows is every show the user has watched (or started) an episode of.
+// startedShows is every show the user has seen or is watching: an episode
+// finished or part watched now, or played at any time per watch_history
+// (so a title marked unwatched later, or seen in Plex long ago, still
+// counts as seen).
 func (s *Server) startedShows(ctx context.Context, uid int64) ([]int64, error) {
-	return s.queryIDs(ctx, `SELECT DISTINCT se.parent_id FROM watch_state w
+	return s.queryIDs(ctx, `SELECT se.parent_id FROM watch_state w
 		JOIN items e ON e.id = w.item_id AND e.kind = 'episode'
 		JOIN items se ON se.id = e.parent_id
-		WHERE w.user_id = ? AND (w.watched = 1 OR w.position > 0)`, uid)
+		WHERE w.user_id = ?1 AND (w.watched = 1 OR w.position > 0)
+		UNION
+		SELECT se.parent_id FROM (SELECT DISTINCT item_id FROM watch_history WHERE user_id = ?1) h
+		JOIN items e ON e.id = h.item_id AND e.kind = 'episode'
+		JOIN items se ON se.id = e.parent_id`, uid)
 }
 
-const unwatchedMovie = `NOT EXISTS (SELECT 1 FROM watch_state ws WHERE ws.user_id = ?1 AND ws.item_id = m.id AND (ws.watched = 1 OR ws.position > 0))`
+// unseenMovieAt is the condition that the user (?1) hasn't watched, started
+// or ever played the film alias.
+func unseenMovieAt(alias string) string {
+	return `NOT EXISTS (SELECT 1 FROM watch_state ws WHERE ws.user_id = ?1 AND ws.item_id = ` + alias + `.id AND (ws.watched = 1 OR ws.position > 0))
+		AND NOT EXISTS (SELECT 1 FROM watch_history wh WHERE wh.user_id = ?1 AND wh.item_id = ` + alias + `.id)`
+}
 
-// unwatched is the condition that the user hasn't watched or started m: a
-// film with no watch state, or a show with no episode watched.
-func unwatched(started []int64) string {
-	if len(started) == 0 {
-		return `((m.kind = 'movie' AND ` + unwatchedMovie + `) OR m.kind = 'show')`
+var unwatchedMovie = unseenMovieAt("m")
+
+// unseenAt is the condition that the user (?1) hasn't watched or started
+// alias (a film or show): suggestion rows leave out anything already seen
+// or in progress. started is from startedShows.
+func unseenAt(alias string, started []int64) string {
+	show := alias + `.kind = 'show'`
+	if len(started) > 0 {
+		show = `(` + alias + `.kind = 'show' AND ` + alias + `.id NOT IN (` + idList(started) + `))`
 	}
-	return `((m.kind = 'movie' AND ` + unwatchedMovie + `) OR (m.kind = 'show' AND m.id NOT IN (` + idList(started) + `)))`
+	return `((` + alias + `.kind = 'movie' AND ` + unseenMovieAt(alias) + `) OR ` + show + `)`
 }
+
+// unwatched is unseenAt for the alias m used by the smart row queries.
+func unwatched(started []int64) string { return unseenAt("m", started) }
 
 // shortFilms: unwatched, decently rated films that fit in an evening.
 func (s *Server) shortFilms(r *http.Request, hidden map[int64]bool) ([]Card, error) {
