@@ -134,8 +134,20 @@ func (s *Server) handleScreensaver(w http.ResponseWriter, r *http.Request) {
 		acl = " AND library_id IN (" + idList(u.Libraries) + ")"
 	}
 	n := queryInt(r, "n", 30, 60)
-	cards, err := s.cards(r, `WHERE i.id IN (SELECT id FROM items WHERE kind IN ('movie', 'show') AND backdrop IS NOT NULL`+
-		acl+notInLibs(s.hiddenHomeLibraries(r))+` ORDER BY RANDOM() LIMIT `+strconv.Itoa(n)+`) ORDER BY RANDOM()`)
+	pick := func(extra string) ([]Card, error) {
+		return s.cards(r, `WHERE i.id IN (SELECT id FROM items m WHERE kind IN ('movie', 'show') AND backdrop IS NOT NULL`+
+			acl+notInLibs(s.hiddenHomeLibraries(r))+extra+` ORDER BY RANDOM() LIMIT `+strconv.Itoa(n)+`) ORDER BY RANDOM()`)
+	}
+	// The screensaver suggests something to play, so it skips titles the
+	// viewer has seen or is watching (unless that leaves nothing to show).
+	var cards []Card
+	started, err := s.startedShows(r.Context(), u.ID)
+	if err == nil {
+		cards, err = pick(" AND " + unseenAt("m", started))
+	}
+	if err == nil && len(cards) < 5 {
+		cards, err = pick("")
+	}
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return

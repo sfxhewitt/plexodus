@@ -196,3 +196,61 @@ func TestWrapped(t *testing.T) {
 		t.Errorf("genres = %+v", wr.TopGenres)
 	}
 }
+
+// Suggestion rows (smart rows, hero, Critically Acclaimed, screensaver)
+// leave out titles the viewer has seen (watched now, or ever played per
+// watch_history) or is part way through. Each profile counts on its own.
+func TestSuggestionsSkipSeen(t *testing.T) {
+	s, u := testServer(t)
+	smartLibrary(t, s)
+	if _, err := s.db.W.Exec(`UPDATE items SET backdrop = '/b.jpg', overview = 'x' WHERE kind IN ('movie', 'show')`); err != nil {
+		t.Fatal(err)
+	}
+	now := db.Now()
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := s.db.W.Exec(q, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 401 watched, 402 half watched, 403 played once (history only, since
+	// marked unwatched), show 300 played in the past (history only).
+	exec(`INSERT INTO watch_state(user_id, item_id, position, duration, watched, play_count, updated_at) VALUES (?1, 401, 0, 3000, 1, 1, ?2), (?1, 402, 1200, 5400, 0, 0, ?2)`, u.ID, now-3600)
+	exec(`INSERT INTO watch_history(user_id, item_id, watched_at, seconds, source) VALUES (?1, 403, ?2, 5400, 'plex'), (?1, 321, ?2, 3000, 'plex')`, u.ID, now-90*86400)
+	seen := map[int64]bool{401: true, 402: true, 403: true, 300: true}
+
+	var h struct {
+		Hero []Card `json:"hero"`
+		Rows []Row  `json:"rows"`
+	}
+	for i := 0; i < 5; i++ { // the hero and Critically Acclaimed are random
+		s.forgetHome(u.ID)
+		s.smart.forget(u.ID)
+		call(t, s, u, s.handleHome, "GET", "/api/home", "", nil, &h)
+		for _, c := range h.Hero {
+			if seen[c.ID] {
+				t.Errorf("hero has seen title %d", c.ID)
+			}
+		}
+		for _, r := range h.Rows {
+			if r.Smart == "" && r.Title != "Critically Acclaimed" {
+				continue
+			}
+			for _, c := range r.Items {
+				if seen[c.ID] {
+					t.Errorf("row %q has seen title %d", r.Title, c.ID)
+				}
+			}
+		}
+		var saver []Card
+		call(t, s, u, s.handleScreensaver, "GET", "/api/screensaver", "", nil, &saver)
+		for _, c := range saver {
+			if seen[c.ID] {
+				t.Errorf("screensaver has seen title %d", c.ID)
+			}
+		}
+	}
+	if len(h.Hero) == 0 {
+		t.Error("hero is empty")
+	}
+}
