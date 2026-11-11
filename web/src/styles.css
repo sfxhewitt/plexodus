@@ -346,6 +346,13 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
 .login-card h1 b { background: var(--accent); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .login-card p { margin: 0 0 8px; text-align: center; }
 .login-card input { width: 100%; }
+.btn.plex { background: #e5a00d; color: #1a1205; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.btn.plex:hover:not(:disabled) { background: #f0b22a; }
+.login-card .or { display: flex; align-items: center; gap: 10px; width: 100%; margin: 4px 0; }
+.login-card .or::before, .login-card .or::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.plex-code { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; padding: 12px 0; }
+.plex-code a { color: #e5a00d; font-size: 18px; }
+.plex-code-value { font-size: 40px; font-weight: 800; letter-spacing: 0.25em; font-family: ui-monospace, monospace; color: #fff; }
 
 /* ---------- settings ---------- */
 .settings h1 { margin-bottom: 10px; }

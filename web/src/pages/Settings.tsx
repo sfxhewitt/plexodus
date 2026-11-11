@@ -205,7 +205,11 @@ function Libraries() {
   );
 }
 
-type PlexT = { url: string; tokenSet: boolean; tokenFromEnv: boolean; pathMap: string; status: PlexStatus; sync: PlexSyncStatus };
+type PlexSignInT = {
+  enabled: boolean; publish: boolean; publicUrl: string; seenUrl: string; published: string;
+  status: { url: string; ok: boolean; error?: string; at: string };
+};
+type PlexT = { url: string; tokenSet: boolean; tokenFromEnv: boolean; pathMap: string; status: PlexStatus; sync: PlexSyncStatus; signIn: PlexSignInT };
 type PlexSection = { title: string; type: string; locations: { plex: string; local: string; exists: boolean }[] };
 
 function PlexImport() {
@@ -382,6 +386,66 @@ function PlexSync() {
         {error && <div className="err">{error}</div>}
         <div className="form-actions">
           <button className="btn glass" onClick={run} disabled={busy || data.status.running}>Sync from Plex now</button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PlexSignInSettings() {
+  const { data, setData } = useApi<PlexT>("/api/plex");
+  const [addr, setAddr] = useState<string>();
+  const [error, setError] = useState<string>();
+  if (!data || !data.tokenSet || !data.url || !data.signIn) return null;
+  const si = data.signIn;
+  const put = async (body: Record<string, unknown>) => {
+    setError(undefined);
+    try {
+      setData(await api.put<PlexT>("/api/plex", body));
+      // The server updates Plex in the background; show the result shortly after.
+      setTimeout(() => api.get<PlexT>("/api/plex").then(setData, () => {}), 3000);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  const address = si.publicUrl || si.seenUrl;
+  const st = si.status;
+  return (
+    <section className="settings-section">
+      <h2>Sign in with Plex</h2>
+      <div className="card form">
+        <p className="muted small" style={{ margin: 0 }}>
+          Anyone your Plex server is shared with can sign in with their Plex account, with no password to hand out.
+          They get their own account and see the libraries you share with them in Plex. If you stop sharing with them in Plex,
+          they lose access here within the hour.
+        </p>
+        <label className="check">
+          <input type="checkbox" checked={si.enabled} onChange={(e) => put({ signInEnabled: e.target.checked })} />
+          <span><b>Allow Sign in with Plex</b></span>
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={si.publish} disabled={!si.enabled} onChange={(e) => put({ publish: e.target.checked })} />
+          <span>
+            <b>Let the Plexodus app find this server</b>
+            <span className="muted small"> Adds this server's address to your Plex server's "Custom server access URLs", which Plex shares with
+              your friends. The app then finds this server after they sign in with Plex, so nobody types an address.</span>
+          </span>
+        </label>
+        <label>Public address of this server
+          <input value={addr ?? si.publicUrl} placeholder={si.seenUrl || window.location.origin}
+            onChange={(e) => setAddr(e.target.value)} />
+        </label>
+        <div className="muted small">
+          {!si.publicUrl && si.seenUrl && <>Using {si.seenUrl}, the address you opened Plexodus at. </>}
+          {si.enabled && si.publish && (st?.error
+            ? <span className="err-inline">Couldn't update Plex: {st.error}</span>
+            : si.published ? <>Published to Plex as {si.published}.</>
+            : address ? "Publishing to Plex…" : "Set the address your friends use to reach this server.")}
+        </div>
+        {error && <div className="err">{error}</div>}
+        <div className="form-actions">
+          <button className="btn glass" disabled={addr === undefined || addr === si.publicUrl}
+            onClick={() => put({ publicUrl: addr ?? "" }).then(() => setAddr(undefined))}>Save address</button>
         </div>
       </div>
     </section>
@@ -660,6 +724,7 @@ export default function Settings() {
       <Libraries />
       <PlexImport />
       <PlexSync />
+      <PlexSignInSettings />
       <Metadata />
       <Invites />
       <Users />

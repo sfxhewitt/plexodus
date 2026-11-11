@@ -475,6 +475,16 @@ html.tv [data-hscroll]::-webkit-scrollbar, html.tv [data-vscroll]::-webkit-scrol
 .tv-login-logo img { width: 4.2rem; height: 4.2rem; filter: drop-shadow(0 0 0.8rem rgba(34, 228, 255, 0.6)); }
 .tv-login-logo span { margin-left: 1.2rem; font-size: 3.6rem; font-weight: 800; letter-spacing: -0.03em; }
 .tv-login-card > .tv-muted { margin-bottom: 2rem; }
+.tv-btn.plex { background: #e5a00d; color: #1a1205; }
+.tv-btn.plex:focus { background: #ffc23d; color: #1a1205; box-shadow: 0 0 1.6rem 0.3rem rgba(229, 160, 13, 0.55); }
+.tv-login-card > .tv-login-or { margin: 1.4rem 0 1rem; text-align: center; font-size: 1.15rem; }
+.tv-plex-link { align-items: center; text-align: center; }
+.tv-plex-link > .tv-muted { margin-bottom: 0.6rem; }
+.tv-plex-url { font-size: 2.6rem; font-weight: 700; color: #e5a00d; margin-bottom: 1.4rem; }
+.tv-plex-code {
+  font-size: 6rem; font-weight: 800; letter-spacing: 0.3em; padding-left: 0.3em; margin-bottom: 1.4rem;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace; color: var(--tv-text); text-shadow: 0 0 2rem rgba(34, 228, 255, 0.45);
+}
 .tv-login-card input {
   height: 4.4rem; margin-bottom: 1rem; padding: 0 1.4rem; border-radius: 1rem; font-size: 1.45rem;
   background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); color: var(--tv-text);

@@ -75,6 +75,9 @@ func migrate(w *sql.DB) error {
 		{"items", "content_rating", "TEXT"},
 		{"items", "age", "INTEGER"},
 		{"markers", "source", "TEXT NOT NULL DEFAULT 'plex'"}, // plex | chapter | audio
+		// Sign in with Plex: the plex.tv account linked to a Plexodus account.
+		{"users", "plex_id", "INTEGER"},
+		{"users", "plex_username", "TEXT"},
 	}
 	for _, c := range columns {
 		var n int
@@ -88,6 +91,9 @@ func migrate(w *sql.DB) error {
 		}
 	}
 	if _, err := w.Exec(`CREATE INDEX IF NOT EXISTS users_parent ON users(parent_id)`); err != nil {
+		return err
+	}
+	if _, err := w.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_plex ON users(plex_id) WHERE plex_id IS NOT NULL`); err != nil {
 		return err
 	}
 	return seedHistory(w)

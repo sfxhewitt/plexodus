@@ -5,6 +5,7 @@ import { api, art, Card, Detail, episodeLabel, Library, User } from "../api";
 import { Play, Search as SearchIcon } from "../components/Icons";
 import { UserContext, useUser } from "../hooks";
 import { native, NativeEnded } from "../native";
+import { PlexPin, startPlexPin, waitForPlex } from "../plexAuth";
 import { Backdrop, BackdropCtx, Spinner, TvButton } from "./components";
 import { focusEl, focusInitial, focusables, installKeys, onBack } from "./focus";
 import { focusPage, setCurrentKey, ToastCtx, useLibraries, useToast } from "./hooks";
@@ -244,15 +245,18 @@ function Shell() {
 
 // ---------- sign in ----------
 
-function Login({ setup }: { setup: boolean }) {
+function Login({ setup, plex }: { setup: boolean; plex: boolean }) {
   const { setUser } = useUser();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [pin, setPin] = useState<PlexPin>();
+  const [signal, setSignal] = useState({ cancelled: false });
   useEffect(() => {
     requestAnimationFrame(() => focusInitial());
-  }, []);
+  }, [pin]);
+  useEffect(() => () => { signal.cancelled = true; }, [signal]);
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
     if (!username || !password) return;
@@ -266,13 +270,61 @@ function Login({ setup }: { setup: boolean }) {
       setBusy(false);
     }
   };
+  const plexStart = async () => {
+    setError(undefined);
+    setBusy(true);
+    const sig = { cancelled: false };
+    setSignal(sig);
+    try {
+      const p = await startPlexPin(false);
+      setPin(p);
+      setUser(await waitForPlex(p, sig));
+    } catch (err) {
+      if (!sig.cancelled) {
+        setError((err as Error).message);
+        setPin(undefined);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+  const plexCancel = () => {
+    signal.cancelled = true;
+    setPin(undefined);
+    setBusy(false);
+  };
+  if (pin) {
+    return (
+      <div className="tv-app tv-login">
+        <div className="tv-grain" />
+        <div className="tv-login-card tv-plex-link">
+          <div className="tv-login-logo"><img src="/favicon.svg" alt="" /><span>plex<b>odus</b></span></div>
+          <p className="tv-muted">On your phone or computer, go to</p>
+          <div className="tv-plex-url">plex.tv/link</div>
+          <p className="tv-muted">and enter this code</p>
+          <div className="tv-plex-code">{pin.code}</div>
+          <p className="tv-muted small">Waiting for Plex…</p>
+          {error && <div className="tv-error">{error}</div>}
+          <button data-f data-autofocus className="tv-btn ghost wide" type="button" onClick={plexCancel}><span>Cancel</span></button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="tv-app tv-login">
       <div className="tv-grain" />
       <form className="tv-login-card" onSubmit={submit}>
         <div className="tv-login-logo"><img src="/favicon.svg" alt="" /><span>plex<b>odus</b></span></div>
         <p className="tv-muted">{setup ? "Create the admin account to get started." : "Sign in to your library."}</p>
-        <input data-f data-autofocus placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
+        {plex && !setup && (
+          <>
+            <button data-f data-autofocus className="tv-btn plex wide" type="button" onClick={plexStart} disabled={busy}>
+              <span>Sign in with Plex</span>
+            </button>
+            <p className="tv-muted tv-login-or">or use a Plexodus password</p>
+          </>
+        )}
+        <input data-f data-autofocus={!plex || setup ? true : undefined} placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
         <input data-f type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)}
           autoComplete={setup ? "new-password" : "current-password"} />
         {error && <div className="tv-error">{error}</div>}
@@ -292,19 +344,19 @@ function Login({ setup }: { setup: boolean }) {
 // ---------- root ----------
 
 function App() {
-  const [state, setState] = useState<{ loading: boolean; setup: boolean; user: User | null; error?: string }>({ loading: true, setup: false, user: null });
+  const [state, setState] = useState<{ loading: boolean; setup: boolean; plex?: boolean; user: User | null; error?: string }>({ loading: true, setup: false, user: null });
   // "Who's watching?": on each app start when the account has profiles, or from Settings.
   const [picker, setPicker] = useState<null | "pick" | "manage" | "start">(null);
 
   const load = useCallback(async () => {
     try {
-      const status = await api.get<{ setupRequired: boolean }>("/api/status");
+      const status = await api.get<{ setupRequired: boolean; plexSignIn?: boolean }>("/api/status");
       const user = status.setupRequired ? null : await api.get<User>("/api/me").catch(() => null);
       if (user) {
         const info = await loadProfiles().catch(() => null);
         if (info && shouldPick(info)) setPicker("start");
       }
-      setState({ loading: false, setup: status.setupRequired, user });
+      setState({ loading: false, setup: status.setupRequired, plex: !!status.plexSignIn, user });
     } catch (e) {
       setState({ loading: false, setup: false, user: null, error: (e as Error).message });
     }
@@ -347,7 +399,7 @@ function App() {
           <Shell />
         </BrowserRouter>
       ) : (
-        <Login setup={state.setup} />
+        <Login setup={state.setup} plex={!!state.plex} />
       )}
     </UserContext.Provider>
   );
