@@ -293,6 +293,12 @@ click the **gear icon** (Settings, top right):
   simply use **Sign in with Plex** and sees the libraries you share with them
   in Plex.
 
+**Use Portainer?** Then Plex runs in Docker, and you don't need any
+commands: in Portainer open **Containers** → your Plex container and scroll
+to **Volumes**. The **Host** column is the real folder (give that to the
+setup), the **Container** column is the folder Plex sees. The path mapping
+is `Container=Host`.
+
 **Not sure if your Plex runs in Docker?** On the server, first run:
 
 ```sh
