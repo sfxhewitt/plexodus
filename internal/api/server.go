@@ -95,6 +95,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/setup", s.handleSetup)
 	mux.HandleFunc("POST /api/login", s.handleLogin)
 	mux.HandleFunc("POST /api/logout", s.handleLogout)
+	mux.HandleFunc("POST /api/auth/plex/pin", s.handlePlexPin)
+	mux.HandleFunc("GET /api/auth/plex/pin/{id}", s.handlePlexPinCheck)
+	mux.HandleFunc("POST /api/auth/plex", s.handlePlexToken)
+	mux.HandleFunc("GET /identity", handlePlexIdentity)
 	mux.HandleFunc("GET /api/invites/{token}", s.handleGetInvite)
 	mux.HandleFunc("POST /api/invites/{token}/accept", s.handleAcceptInvite)
 	mux.HandleFunc("GET /art/{size}/{file}", s.handleArt)
@@ -332,6 +336,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"name":          "Plexodus",
 		"setupRequired": !s.auth.HasUsers(r.Context()),
+		"plexSignIn":    s.plexSignInEnabled(r.Context()),
 		"ffmpeg":        s.streams.Available(),
 	})
 }
@@ -397,7 +402,11 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, currentUser(r))
+	u := currentUser(r)
+	if u.IsAdmin {
+		s.notePublicURL(r)
+	}
+	writeJSON(w, u)
 }
 
 func (s *Server) handleMyPassword(w http.ResponseWriter, r *http.Request) {

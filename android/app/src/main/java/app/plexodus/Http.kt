@@ -5,7 +5,11 @@ import java.net.URL
 
 /** The little bit of HTTP the shell needs outside the WebView. */
 object Http {
-    class Result(val code: Int, val body: String)
+    class Result(val code: Int, val body: String, val headers: Map<String?, List<String>> = emptyMap()) {
+        /** All values of a response header, matched without regard to case. */
+        fun header(name: String): List<String> =
+            headers.entries.filter { it.key.equals(name, ignoreCase = true) }.flatMap { it.value }
+    }
 
     fun request(
         url: String,
@@ -29,7 +33,7 @@ object Http {
             val code = c.responseCode
             val stream = if (code >= 400) c.errorStream else c.inputStream
             val text = stream?.bufferedReader()?.use { it.readText() } ?: ""
-            return Result(code, text)
+            return Result(code, text, c.headerFields ?: emptyMap())
         } finally {
             c.disconnect()
         }

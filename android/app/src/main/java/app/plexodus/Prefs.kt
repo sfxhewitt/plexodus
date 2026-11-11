@@ -13,6 +13,17 @@ object Prefs {
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString(KEY_SERVER, url).apply()
     }
 
+    private const val KEY_CLIENT_ID = "plexClientId"
+
+    /** This install's id towards plex.tv (Plex lists the app under it). */
+    fun clientId(ctx: Context): String {
+        val p = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+        p.getString(KEY_CLIENT_ID, null)?.let { return it }
+        val id = "plexodus-app-" + java.util.UUID.randomUUID().toString()
+        p.edit().putString(KEY_CLIENT_ID, id).apply()
+        return id
+    }
+
     private const val KEY_AUDIO_DELAY = "audioDelayMs"
 
     /**

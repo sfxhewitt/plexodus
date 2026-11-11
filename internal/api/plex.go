@@ -49,6 +49,14 @@ func (s *Server) handlePlexGet(w http.ResponseWriter, r *http.Request) {
 		"pathMap":      pm,
 		"status":       s.importer.Status(),
 		"sync":         s.plexSync.Status(r.Context()),
+		"signIn": map[string]any{
+			"enabled":   s.db.Setting(r.Context(), "plex_signin") != "off",
+			"publish":   s.db.Setting(r.Context(), "plex_publish") != "off",
+			"publicUrl": s.db.Setting(r.Context(), "public_url"),
+			"seenUrl":   s.db.Setting(r.Context(), "public_url_seen"),
+			"published": s.db.Setting(r.Context(), "plex_published_url"),
+			"status":    publishStatus(),
+		},
 	})
 }
 
@@ -58,6 +66,9 @@ func (s *Server) handlePlexPut(w http.ResponseWriter, r *http.Request) {
 		Token   *string `json:"token"`
 		PathMap *string `json:"pathMap"`
 		Sync    *bool   `json:"syncEnabled"`
+		SignIn  *bool   `json:"signInEnabled"`
+		Publish *bool   `json:"publish"`
+		Public  *string `json:"publicUrl"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, 400, err.Error())
@@ -81,6 +92,28 @@ func (s *Server) handlePlexPut(w http.ResponseWriter, r *http.Request) {
 		if *body.Sync {
 			s.plexSync.Kick()
 		}
+	}
+	onOff := func(b bool) string {
+		if b {
+			return "on"
+		}
+		return "off"
+	}
+	if body.SignIn != nil {
+		s.db.SetSetting(r.Context(), "plex_signin", onOff(*body.SignIn))
+	}
+	if body.Publish != nil {
+		s.db.SetSetting(r.Context(), "plex_publish", onOff(*body.Publish))
+	}
+	if body.Public != nil {
+		u := strings.TrimRight(strings.TrimSpace(*body.Public), "/")
+		if u != "" && !strings.Contains(u, "://") {
+			u = "http://" + u
+		}
+		s.db.SetSetting(r.Context(), "public_url", u)
+	}
+	if body.SignIn != nil || body.Publish != nil || body.Public != nil {
+		kickPublish()
 	}
 	s.handlePlexGet(w, r)
 }
