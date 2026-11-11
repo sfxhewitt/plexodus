@@ -16,7 +16,7 @@ New to servers? Run the guided setup, which asks a few questions (port, admin ac
 bash <(curl -fsSL https://github.com/sfxhewitt/plexodus/releases/download/latest/setup.sh)
 ```
 
-The [step-by-step setup guide](docs/setup-guide.md) walks through it in plain English, through to the TV app.
+The [quick start](docs/setup-guide.md) covers the rest, through to the TV app.
 
 Plexodus is a single static Linux binary with no dependencies, so it runs anywhere, including unprivileged LXC containers where Docker doesn't work. On the server, as the account that can read your rclone mount:
 
