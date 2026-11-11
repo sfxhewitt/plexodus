@@ -82,7 +82,7 @@ if [ "$(id -u)" -eq 0 ]; then
   fi
 fi
 DEFUSER="$ME"
-[ "$ME" = root ] && DEFUSER=admin
+[ "$ME" = root ] && DEFUSER="admin"
 SUDO=""
 [ "$(id -u)" -ne 0 ] && SUDO="sudo"
 
