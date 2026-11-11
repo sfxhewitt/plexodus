@@ -304,12 +304,13 @@ means it doesn't. If it does, this lists its folders (put your container's
 name instead of `plex`):
 
 ```sh
-sudo docker inspect plex --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}'
+sudo docker inspect plex | grep -A1 '"Source"'
 ```
 
-Each line reads `real folder -> folder Plex sees`. Give the setup the real
-folders, and if the Plex import says folders can't be seen, enter
-`folder Plex sees=real folder` as the path mapping.
+Each pair shows a `"Source"` (the real folder) and a `"Destination"` (the
+folder Plex sees). Give the setup the real folders, and if the Plex import
+says folders can't be seen, enter `Destination=Source` as the path mapping,
+for example `/data/movies=/mnt/storage/movies`.
 
 If a title gets matched to the wrong film or show, open it and press the
 **magic wand** button (Fix match) to pick the right one.
