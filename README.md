@@ -10,6 +10,14 @@ A fast, self-hosted media server with a cinematic web UI, built for very large l
 
 ## Install on a seedbox (recommended)
 
+New to servers? Run the guided setup, which asks a few questions (port, admin account, library folders, TMDB key, optional Plex import) and does the rest. It works with or without sudo, and running it again updates:
+
+```sh
+bash <(curl -fsSL https://github.com/sfxhewitt/plexodus/releases/download/latest/setup.sh)
+```
+
+The [step-by-step setup guide](docs/setup-guide.md) walks through it in plain English, through to the TV app.
+
 Plexodus is a single static Linux binary with no dependencies, so it runs anywhere, including unprivileged LXC containers where Docker doesn't work. On the server, as the account that can read your rclone mount:
 
 ```sh
