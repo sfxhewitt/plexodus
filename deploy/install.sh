@@ -63,5 +63,6 @@ systemctl restart plexodus
 sleep 1
 systemctl --no-pager --lines=5 status plexodus || true
 echo
-echo "Plexodus $(/usr/local/bin/plexodus -version) is running as $SERVICE_USER on port 8484."
+PORT="$(sed -n 's/^PLEXODUS_ADDR=.*:\([0-9]*\)$/\1/p' /etc/plexodus.env | tail -n1)"
+echo "Plexodus $(/usr/local/bin/plexodus -version) is running as $SERVICE_USER on port ${PORT:-8484}."
 echo "Settings: /etc/plexodus.env   Data: /var/lib/plexodus   Logs: journalctl -u plexodus -f"
