@@ -11,7 +11,7 @@ Download `plexodus.apk` from the
 [latest release](https://github.com/sfxhewitt/plexodus/releases/download/latest/plexodus.apk),
 open it on the device and allow installing from this source. On first launch
 enter your server address (the one you use in a browser, for example
-`ftl19.seedit4.me:8104`) and sign in as usual.
+`http://your-server:8484`) and sign in as usual.
 
 To update, install the newer APK over the old one. Updates install over each
 other because every build is signed with the same key.
