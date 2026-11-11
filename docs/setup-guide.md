@@ -77,8 +77,9 @@ ending in `$`.
 
 If your box is a PC on your desk, just open its **Terminal** app instead.
 
-Log in as **your normal user** (the one that can open your media folders),
-not as `root`.
+Log in as the user that can open your media folders. On a shared seedbox
+that's your normal user. On your own server (Hetzner, a VPS) where you only
+have `root`, root is fine: Plexodus will run as root.
 
 ---
 
@@ -148,6 +149,34 @@ Sign in with the username and password you chose.
 - **Home PC or Pi:** at home it works on your local network as it is. To
   watch away from home you'd need to forward the port on your router; only
   do that if you know how.
+- **Behind Cloudflare or a VPN:** see the next part.
+
+### If your server is behind Cloudflare or a VPN
+
+Many people run Plex on a rented server (Hetzner, OVH, a VPS) behind a
+**Cloudflare Tunnel**, sometimes with a VPN such as ProtonVPN on the server
+too. A VPN on the server usually blocks incoming connections, which is why the
+tunnel is used. Plexodus works the same way: don't open any port, add it to
+the tunnel instead.
+
+1. In the Cloudflare dashboard, go to **Zero Trust** → **Networks** →
+   **Tunnels**, pick the tunnel your Plex already uses, and open **Public
+   Hostname** → **Add a public hostname**.
+2. Pick a name, for example `plexodus` on your domain, and set the service
+   to **HTTP** and `localhost:8484` (or the port you chose in the setup).
+3. Save. Plexodus is now at `https://plexodus.yourdomain.com`. Use that
+   address in the browser and in the TV app.
+
+The VPN doesn't get in the way of anything else: Plexodus fetching posters,
+talking to Plex and to plex.tv all work through it.
+
+If you use Cloudflare without a tunnel (an orange-cloud DNS record pointing
+at the server), Cloudflare only passes certain ports, and 8484 isn't one of
+them. Put a reverse proxy such as Caddy in front on port 443; the
+[README](../README.md#sharing-with-friends-and-family) shows how.
+
+Cloudflare's terms restrict serving lots of video through its network. That
+applies to Plex behind Cloudflare just the same, so it's your call.
 
 ---
 
@@ -203,8 +232,9 @@ two ways in:
 3. The app finds your Plexodus server by itself and signs you in. No address
    to type.
 
-For this to work, open Plexodus in a browser once first (section 4), so it
-knows its own address. If the app says no server was found, check
+For this to work, open Plexodus in a browser once first (section 4), at the
+address your TV and friends will use (your Cloudflare address, if you use
+one), so it knows its own address. If the app says no server was found, check
 **Settings** → **Sign in with Plex** in the web page: both switches should be
 on and **Public address of this server** should be the address from
 section 4.
@@ -253,7 +283,11 @@ click the **gear icon** (Settings, top right):
 - **Metadata** to add or change the TMDB key. Then press **Refresh
   metadata** on a library to fetch posters for titles already scanned.
 - **Import from Plex** to import later, or to fix **Path mapping** if Plex
-  sees your files at a different path (common when Plex runs in Docker).
+  sees your files at a different path. This is common when Plex runs in
+  Docker: Plex might call a folder `/data/movies` when on the server it's
+  really `/mnt/storage/movies`. Path mapping is then
+  `/data=/mnt/storage`. The **Save & check connection** button shows
+  whether every Plex folder can be found.
 - **Share libraries** to invite friends and family with their own logins.
   If Plex is connected, anyone you already share your Plex server with can
   simply use **Sign in with Plex** and sees the libraries you share with them
