@@ -9,7 +9,7 @@ test.afterEach(({ unhandled }) => {
   expect(unhandled, "API calls the mock doesn't answer (add them to e2e/mock.ts)").toEqual([]);
 });
 
-test("sign in with Plex shows a plex.tv/link code and lands on Home", async ({ page, openTv }) => {
+test("sign in with Plex shows a plex.tv/link code and lands on Home", async ({ page }) => {
   let signedIn = false;
   let approved = false;
   await page.route("**/api/status", (route) =>
