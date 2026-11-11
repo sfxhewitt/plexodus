@@ -288,19 +288,28 @@ click the **gear icon** (Settings, top right):
   really `/mnt/storage/movies`. Path mapping is then
   `/data=/mnt/storage`. The **Save & check connection** button shows
   whether every Plex folder can be found.
-
-  **Not sure if your Plex runs in Docker?** Run
-  `sudo docker ps --format '{{.Names}}  {{.Image}}'`. A line mentioning
-  plex means it does ("command not found" or no Plex line means it doesn't).
-  Then
-  `sudo docker inspect plex --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}'`
-  (with your container's name instead of `plex`) lists each
-  `real folder -> folder Plex sees`. Give the setup the real folders, and
-  use `folder Plex sees=real folder` as the path mapping.
 - **Share libraries** to invite friends and family with their own logins.
   If Plex is connected, anyone you already share your Plex server with can
   simply use **Sign in with Plex** and sees the libraries you share with them
   in Plex.
+
+**Not sure if your Plex runs in Docker?** On the server, run:
+
+```sh
+sudo docker ps --format '{{.Names}}  {{.Image}}'
+```
+
+A line mentioning plex means it does. "command not found", or no Plex line,
+means it doesn't. If it does, this lists its folders (put your container's
+name instead of `plex`):
+
+```sh
+sudo docker inspect plex --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}'
+```
+
+Each line reads `real folder -> folder Plex sees`. Give the setup the real
+folders, and if the Plex import says folders can't be seen, enter
+`folder Plex sees=real folder` as the path mapping.
 
 If a title gets matched to the wrong film or show, open it and press the
 **magic wand** button (Fix match) to pick the right one.
