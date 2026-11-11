@@ -2,6 +2,7 @@
 /plexodus
 /bin/
 web/node_modules/
+*.local
 web/dist/*
 !web/dist/.gitkeep
 *.db

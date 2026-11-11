@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Plexodus</string>
     <string name="connect_title">Connect to your server</string>
-    <string name="connect_hint">ftl19.seedit4.me:8104</string>
+    <string name="connect_hint">http://your-server:8484</string>
     <string name="connect_help">The address you use to open Plexodus in a browser.</string>
     <string name="connect_button">Connect</string>
     <string name="connect_enter_address">Enter your server address.</string>

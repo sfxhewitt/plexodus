@@ -65,10 +65,12 @@ about a second, with no build, release or server update.
    npm run dev:tv
    ```
 
-   This listens on port 5173 on all interfaces and proxies to
-   `http://ftl19.seedit4.me:8104` (set in `web/.env.tv`; override with the
-   `PLEXODUS_SERVER` environment variable). Vite prints the Network URL, such
-   as `http://192.168.0.23:5173`.
+   This listens on port 5173 on all interfaces and proxies to your Plexodus
+   server. Put its address in `web/.env.tv.local` (not committed), for
+   example `PLEXODUS_SERVER=http://your-server:8484`, or set the
+   `PLEXODUS_SERVER` environment variable. Without either it proxies to
+   `http://localhost:8484`. Vite prints the Network URL, such as
+   `http://192.168.1.50:5173`.
 
 2. Allow port 5173 through Windows Firewall. The home network is on the
    **Public** profile, so the rule must include it. In an admin PowerShell:
@@ -82,7 +84,7 @@ about a second, with no build, release or server update.
    both Private and Public.
 
 3. On the TV, open Plexodus, go to Settings, choose **Change server**, and
-   enter the PC's address, e.g. `192.168.0.23:5173`. The Connect screen checks
+   enter the PC's address, e.g. `192.168.1.50:5173`. The Connect screen checks
    `/api/status`, which goes through the proxy to the seedbox. Sign in as
    usual (the login cookie is kept for the PC's address).
 
@@ -90,7 +92,7 @@ about a second, with no build, release or server update.
    Component changes hot-reload and keep the page you're on. Changes to
    `focus.ts` reload the page.
 
-To go back, use **Change server** again and enter `ftl19.seedit4.me:8104`.
+To go back, use **Change server** again and enter your server's usual address.
 
 Notes:
 
