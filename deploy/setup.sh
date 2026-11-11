@@ -361,6 +361,7 @@ if confirm "Do you want to import from Plex?" n; then
       libs="$(printf '%s' "$res" | grep -o '"title":"[^"]*"' | wc -l)"
       missing="$(printf '%s' "$res" | grep -o '"exists":false' | wc -l)"
       ok "Connected to Plex ($libs film/TV libraries)."
+      PLEX_OK=1
       go=0
       if [ "$missing" -gt 0 ]; then
         warn "$missing of Plex's folders can't be seen from here, so those titles won't play."
@@ -404,11 +405,16 @@ If none of these open, the port is probably blocked; see the setup guide.${N}
 ${B}On your TV${N} (Fire TV, Shield, Android TV / Google TV):
   1. Install the free ${B}Downloader${N} app and allow it to install apps.
   2. In Downloader, type:  ${B}$APK_URL${N}
-  3. Install, open Plexodus, type the address above, and sign in as ${B}$USERNAME${N}.
+  3. Install, open Plexodus, type the address above, and sign in as ${B}${USERNAME:-$ME}${N}.
 
 ${B}To update later${N}, run this same setup command again. Your libraries,
 account and watch history are kept.
 EOF
+if [ "${PLEX_OK:-}" = 1 ]; then
+  say "Tip: on the TV you can also choose ${B}Sign in with Plex${N} instead of typing the address."
+  say "Open Plexodus in a browser once first, so it knows its own address. Friends you"
+  say "share your Plex server with can sign in the same way."
+fi
 if [ "$MODE" = system ]; then
   say "${DIM}Logs: journalctl -u plexodus -f    Settings file: /etc/plexodus.env${N}"
 else

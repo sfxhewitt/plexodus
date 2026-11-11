@@ -111,7 +111,8 @@ Then answer the questions. Pressing **Enter** accepts the suggestion shown in
    libraries as you like. Press Enter on its own when you're done.
 7. **TMDB key** for posters. Paste it, or press Enter to skip.
 8. **Import from Plex?** Type `y` if you want to, then your Plex address
-   (press Enter if Plex is on the same machine) and your token.
+   (press Enter if Plex is on the same machine) and your token. Connecting
+   Plex also switches on **Sign in with Plex** (see section 6).
 
 At the end it shows **the address to open in a browser**, and how to get the
 TV app. Write the address down.
@@ -192,7 +193,23 @@ and allow installing when asked.
 
 ## 6. Connect the app
 
-Open **Plexodus** on the TV. It asks **"Connect to your server"**:
+Open **Plexodus** on the TV. It asks **"Connect to your server"**. There are
+two ways in:
+
+**Sign in with Plex (easiest, if you connected Plex in the setup).**
+
+1. Choose **Sign in with Plex**. The TV shows a short code.
+2. On your phone or computer, go to **plex.tv/link** and type the code.
+3. The app finds your Plexodus server by itself and signs you in. No address
+   to type.
+
+For this to work, open Plexodus in a browser once first (section 4), so it
+knows its own address. If the app says no server was found, check
+**Settings** → **Sign in with Plex** in the web page: both switches should be
+on and **Public address of this server** should be the address from
+section 4.
+
+**Or type the address.**
 
 1. Type the same address you use in the browser, for example
    `your-server-address:8484` (it adds `http://` for you).
@@ -238,6 +255,9 @@ click the **gear icon** (Settings, top right):
 - **Import from Plex** to import later, or to fix **Path mapping** if Plex
   sees your files at a different path (common when Plex runs in Docker).
 - **Share libraries** to invite friends and family with their own logins.
+  If Plex is connected, anyone you already share your Plex server with can
+  simply use **Sign in with Plex** and sees the libraries you share with them
+  in Plex.
 
 If a title gets matched to the wrong film or show, open it and press the
 **magic wand** button (Fix match) to pick the right one.
@@ -295,8 +315,6 @@ shows how: in Plex on the web, open any film → **⋯** → **Get Info** → **
 XML**, and copy the part after `X-Plex-Token=` in the address bar. Treat it
 like a password.
 
-**Sign in with Plex** (log in with your Plex account instead of pasting a
-token) is coming soon.
 
 ### Google Drive (rclone)
 
