@@ -95,24 +95,25 @@ Many cheap seedboxes are shared between customers, so you can't install
 things system-wide. Plexodus still runs; you just start it yourself.
 
 1. Ask your provider (or check their help pages) **which port number you're
-   allowed to use** for your own apps. This guide uses `12345` as an
-   example; use yours instead.
+    allowed to use** for your own apps. This guide uses `12345` as an
+    example; use yours instead.
 2. Download Plexodus into your home folder:
 
-   ```sh
-   curl -fsSL -o ~/plexodus https://github.com/sfxhewitt/plexodus/releases/download/latest/plexodus-linux-amd64
-   chmod +x ~/plexodus
-   ```
+    ```sh
+    curl -fsSL -o ~/plexodus https://github.com/sfxhewitt/plexodus/releases/download/latest/plexodus-linux-amd64
+    chmod +x ~/plexodus
+    ```
 
-   (On a Raspberry Pi or other ARM box, change `amd64` to `arm64`.)
+    (On a Raspberry Pi or other ARM box, change `amd64` to `arm64`.)
+
 3. Start it so it keeps running after you log out:
 
-   ```sh
-   nohup ~/plexodus -data ~/plexodus-data -addr :12345 > ~/plexodus.log 2>&1 &
-   ```
+    ```sh
+    nohup ~/plexodus -data ~/plexodus-data -addr :12345 > ~/plexodus.log 2>&1 &
+    ```
 
 4. Your web address is `http://your-server-address:12345`. Carry on from
-   [section 4](#4-open-plexodus-and-create-your-account).
+    [section 4](#4-open-plexodus-and-create-your-account).
 
 What's different without sudo:
 
@@ -198,13 +199,13 @@ If the page in section 4 doesn't load, something is blocking port 8484.
 - **Seedbox:** many providers only let you use certain ports. Look in your
   provider's control panel for "ports" or "port forwarding", or ask their
   support to open/forward a port to **8484**. If they give you a different
-  outside number (say 8104 → 8484), your address becomes
-  `http://your-server-address:8104`.
+  outside number (say 20123 → 8484), your address becomes
+  `http://your-server-address:20123`.
 - **Server with a firewall (ufw):** run
 
-  ```sh
-  sudo ufw allow 8484/tcp
-  ```
+    ```sh
+    sudo ufw allow 8484/tcp
+    ```
 
 - **Home PC or Pi, watching at home:** nothing to do. Use the local address
   (like `http://192.168.1.50:8484`) on the TV.
@@ -230,11 +231,11 @@ In Plexodus, click the **gear icon** (Settings, top right). Under
 
 1. **Name:** for example `Movies`.
 2. **Type:** **Movies** or **TV shows**. Keep films and TV in separate
-   libraries.
+    libraries.
 3. **Folders:** click the **folder icon** next to the box to browse to the
-   folder, then **Use this folder**. You can also type the path, for example
-   `/home/yourusername/media/Movies`. If one library is spread over several
-   folders or drives, press **Add folder** to add more.
+    folder, then **Use this folder**. You can also type the path, for example
+    `/home/yourusername/media/Movies`. If one library is spread over several
+    folders or drives, press **Add folder** to add more.
 4. Press **Add library**.
 
 Plexodus starts scanning straight away. It never opens your video files while
@@ -295,13 +296,13 @@ Without this, your library still works but has no posters or descriptions.
 
 1. Make a free account at [themoviedb.org](https://www.themoviedb.org/).
 2. Go to your profile → **Settings** → **API**, and request an API key
-   (choose "Developer"; any sensible answers to the form are fine).
+    (choose "Developer"; any sensible answers to the form are fine).
 3. Copy the **API Key** (or the longer "API Read Access Token"; either
-   works).
+    works).
 4. In Plexodus: **Settings** → **Metadata** → paste it into **TMDB API key**
-   → **Save key**.
+    → **Save key**.
 5. On each library, press **Refresh metadata** to fetch artwork for titles
-   that were already scanned.
+    that were already scanned.
 
 ---
 
@@ -313,14 +314,14 @@ and Plex's intro/credits markers (for **Skip intro**). It doesn't read your
 video files, so it only takes minutes.
 
 1. Find your **Plex token**: Plex's own help page
-   ["Finding an authentication token / X-Plex-Token"](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)
-   shows how (open any item → **Get Info** → **View XML**, and copy the part
-   after `X-Plex-Token=` in the address bar). Treat it like a password.
+    ["Finding an authentication token / X-Plex-Token"](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)
+    shows how (open any item → **Get Info** → **View XML**, and copy the part
+    after `X-Plex-Token=` in the address bar). Treat it like a password.
 2. In Plexodus: **Settings** → **Import from Plex**.
 3. **Plex URL:** if Plex runs on the same machine, `http://127.0.0.1:32400`.
-   Otherwise the address of your Plex server.
+    Otherwise the address of your Plex server.
 4. Paste the token, press **Save & check connection**. It lists your Plex
-   libraries and whether Plexodus can see their folders.
+    libraries and whether Plexodus can see their folders.
 5. Press **Import**.
 
 If the check says folders aren't visible, Plex sees your files at a different
@@ -352,22 +353,22 @@ https://github.com/sfxhewitt/plexodus/releases/download/latest/plexodus.apk
 ### Fire TV
 
 1. On the home screen, search for **Downloader** (orange icon, by
-   AFTVnews) and install it.
+    AFTVnews) and install it.
 2. Allow it to install apps: **Settings** → **My Fire TV** → **Developer
-   options** → **Install unknown apps** → turn **Downloader** on.
-   (If you can't see **Developer options**: go to **Settings** → **My Fire
-   TV** → **About**, click on your device's name 7 times, then go back.)
+    options** → **Install unknown apps** → turn **Downloader** on.
+    (If you can't see **Developer options**: go to **Settings** → **My Fire
+    TV** → **About**, click on your device's name 7 times, then go back.)
 3. Open **Downloader**, select the address box, type the app address above
-   exactly, and press **Go**.
+    exactly, and press **Go**.
 4. When it's downloaded, choose **Install**, then **Done** (you can delete
-   the downloaded file when it asks).
+    the downloaded file when it asks).
 
 ### Nvidia Shield / Android TV / Google TV
 
 1. Install **Downloader** from the Google Play Store.
 2. Allow it to install apps: **Settings** → **Apps** (or **Device
-   preferences** → **Security & restrictions**) → **Unknown sources** → turn
-   **Downloader** on. The exact menu names vary by box.
+    preferences** → **Security & restrictions**) → **Unknown sources** → turn
+    **Downloader** on. The exact menu names vary by box.
 3. Open Downloader, type the app address above, **Go**, then **Install**.
 
 ### Android phone or tablet
@@ -382,7 +383,7 @@ and allow installing when asked.
 Open **Plexodus** on the TV. It asks **"Connect to your server"**:
 
 1. Type the same address you use in the browser, for example
-   `your-server-address:8484` (it adds `http://` for you).
+    `your-server-address:8484` (it adds `http://` for you).
 2. Press **Connect**, then sign in with your Plexodus username and password.
 
 On a TV the app switches to a big-screen layout made for the remote. It plays
