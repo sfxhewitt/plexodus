@@ -293,14 +293,21 @@ click the **gear icon** (Settings, top right):
   simply use **Sign in with Plex** and sees the libraries you share with them
   in Plex.
 
-**Not sure if your Plex runs in Docker?** On the server, run:
+**Not sure if your Plex runs in Docker?** On the server, first run:
+
+```sh
+docker -v
+```
+
+If it says "command not found", Docker isn't installed, so Plex isn't in
+Docker and you can skip this. If it shows a version, check whether Plex is
+one of the running containers:
 
 ```sh
 sudo docker ps --format '{{.Names}}  {{.Image}}'
 ```
 
-A line mentioning plex means it does. "command not found", or no Plex line,
-means it doesn't. If it does, this lists its folders (put your container's
+A line mentioning plex means it is. If it is, this lists its folders (put your container's
 name instead of `plex`):
 
 ```sh
