@@ -10,6 +10,8 @@ A fast, self-hosted media server with a cinematic web UI, built for very large l
 
 ## Install on a seedbox (recommended)
 
+New to servers? The [step-by-step setup guide](docs/setup-guide.md) walks through everything in plain English, from installing to the TV app.
+
 Plexodus is a single static Linux binary with no dependencies, so it runs anywhere, including unprivileged LXC containers where Docker doesn't work. On the server, as the account that can read your rclone mount:
 
 ```sh
