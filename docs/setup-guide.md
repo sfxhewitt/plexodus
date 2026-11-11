@@ -77,8 +77,9 @@ ending in `$`.
 
 If your box is a PC on your desk, just open its **Terminal** app instead.
 
-Log in as **your normal user** (the one that can open your media folders),
-not as `root`.
+Log in as the user that can open your media folders. On a shared seedbox
+that's your normal user. On your own server (Hetzner, a VPS) where you only
+have `root`, root is fine: Plexodus will run as root.
 
 ---
 
@@ -111,7 +112,8 @@ Then answer the questions. Pressing **Enter** accepts the suggestion shown in
    libraries as you like. Press Enter on its own when you're done.
 7. **TMDB key** for posters. Paste it, or press Enter to skip.
 8. **Import from Plex?** Type `y` if you want to, then your Plex address
-   (press Enter if Plex is on the same machine) and your token.
+   (press Enter if Plex is on the same machine) and your token. Connecting
+   Plex also switches on **Sign in with Plex** (see section 6).
 
 At the end it shows **the address to open in a browser**, and how to get the
 TV app. Write the address down.
@@ -147,6 +149,34 @@ Sign in with the username and password you chose.
 - **Home PC or Pi:** at home it works on your local network as it is. To
   watch away from home you'd need to forward the port on your router; only
   do that if you know how.
+- **Behind Cloudflare or a VPN:** see the next part.
+
+### If your server is behind Cloudflare or a VPN
+
+Many people run Plex on a rented server (Hetzner, OVH, a VPS) behind a
+**Cloudflare Tunnel**, sometimes with a VPN such as ProtonVPN on the server
+too. A VPN on the server usually blocks incoming connections, which is why the
+tunnel is used. Plexodus works the same way: don't open any port, add it to
+the tunnel instead.
+
+1. In the Cloudflare dashboard, go to **Zero Trust** → **Networks** →
+   **Tunnels**, pick the tunnel your Plex already uses, and open **Public
+   Hostname** → **Add a public hostname**.
+2. Pick a name, for example `plexodus` on your domain, and set the service
+   to **HTTP** and `localhost:8484` (or the port you chose in the setup).
+3. Save. Plexodus is now at `https://plexodus.yourdomain.com`. Use that
+   address in the browser and in the TV app.
+
+The VPN doesn't get in the way of anything else: Plexodus fetching posters,
+talking to Plex and to plex.tv all work through it.
+
+If you use Cloudflare without a tunnel (an orange-cloud DNS record pointing
+at the server), Cloudflare only passes certain ports, and 8484 isn't one of
+them. Put a reverse proxy such as Caddy in front on port 443; the
+[README](../README.md#sharing-with-friends-and-family) shows how.
+
+Cloudflare's terms restrict serving lots of video through its network. That
+applies to Plex behind Cloudflare just the same, so it's your call.
 
 ---
 
@@ -192,7 +222,24 @@ and allow installing when asked.
 
 ## 6. Connect the app
 
-Open **Plexodus** on the TV. It asks **"Connect to your server"**:
+Open **Plexodus** on the TV. It asks **"Connect to your server"**. There are
+two ways in:
+
+**Sign in with Plex (easiest, if you connected Plex in the setup).**
+
+1. Choose **Sign in with Plex**. The TV shows a short code.
+2. On your phone or computer, go to **plex.tv/link** and type the code.
+3. The app finds your Plexodus server by itself and signs you in. No address
+   to type.
+
+For this to work, open Plexodus in a browser once first (section 4), at the
+address your TV and friends will use (your Cloudflare address, if you use
+one), so it knows its own address. If the app says no server was found, check
+**Settings** → **Sign in with Plex** in the web page: both switches should be
+on and **Public address of this server** should be the address from
+section 4.
+
+**Or type the address.**
 
 1. Type the same address you use in the browser, for example
    `your-server-address:8484` (it adds `http://` for you).
@@ -236,8 +283,47 @@ click the **gear icon** (Settings, top right):
 - **Metadata** to add or change the TMDB key. Then press **Refresh
   metadata** on a library to fetch posters for titles already scanned.
 - **Import from Plex** to import later, or to fix **Path mapping** if Plex
-  sees your files at a different path (common when Plex runs in Docker).
+  sees your files at a different path. This is common when Plex runs in
+  Docker: Plex might call a folder `/data/movies` when on the server it's
+  really `/mnt/storage/movies`. Path mapping is then
+  `/data=/mnt/storage`. The **Save & check connection** button shows
+  whether every Plex folder can be found.
 - **Share libraries** to invite friends and family with their own logins.
+  If Plex is connected, anyone you already share your Plex server with can
+  simply use **Sign in with Plex** and sees the libraries you share with them
+  in Plex.
+
+**Use Portainer?** Then Plex runs in Docker, and you don't need any
+commands: in Portainer open **Containers** → your Plex container and scroll
+to **Volumes**. The **Host** column is the real folder (give that to the
+setup), the **Container** column is the folder Plex sees. The path mapping
+is `Container=Host`.
+
+**Not sure if your Plex runs in Docker?** On the server, first run:
+
+```sh
+docker -v
+```
+
+If it says "command not found", Docker isn't installed, so Plex isn't in
+Docker and you can skip this. If it shows a version, check whether Plex is
+one of the running containers:
+
+```sh
+sudo docker ps --format '{{.Names}}  {{.Image}}'
+```
+
+A line mentioning plex means it is. If it is, this lists its folders (put your container's
+name instead of `plex`):
+
+```sh
+sudo docker inspect plex | grep -A1 '"Source"'
+```
+
+Each pair shows a `"Source"` (the real folder) and a `"Destination"` (the
+folder Plex sees). Give the setup the real folders, and if the Plex import
+says folders can't be seen, enter `Destination=Source` as the path mapping,
+for example `/data/movies=/mnt/storage/movies`.
 
 If a title gets matched to the wrong film or show, open it and press the
 **magic wand** button (Fix match) to pick the right one.
@@ -295,8 +381,6 @@ shows how: in Plex on the web, open any film → **⋯** → **Get Info** → **
 XML**, and copy the part after `X-Plex-Token=` in the address bar. Treat it
 like a password.
 
-**Sign in with Plex** (log in with your Plex account instead of pasting a
-token) is coming soon.
 
 ### Google Drive (rclone)
 

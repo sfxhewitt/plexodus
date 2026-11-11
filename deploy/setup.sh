@@ -5,8 +5,9 @@
 #
 #   bash <(curl -fsSL https://github.com/sfxhewitt/plexodus/releases/download/latest/setup.sh)
 #
-# Run it as your normal user (not root). It asks for your password when it
-# needs sudo. Safe to run again: it updates Plexodus and skips what's done.
+# Run it as the user that can read your media (root is fine on your own
+# server). It asks for your password when it needs sudo. Safe to run
+# again: it updates Plexodus and skips what's done.
 set -uo pipefail
 
 REPO="${PLEXODUS_REPO:-sfxhewitt/plexodus}"
@@ -77,11 +78,11 @@ if [ "$(id -u)" -eq 0 ]; then
   if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
     ME="$SUDO_USER"
   else
-    warn "You're logged in as root. Plexodus will run as a separate 'plexodus' user,"
-    warn "which may not be able to read your media folders. Logging in as your normal user is better."
-    confirm "Carry on as root anyway?" n || exit 1
+    say "You're logged in as root, so Plexodus will run as root and can read every folder."
   fi
 fi
+DEFUSER="$ME"
+[ "$ME" = root ] && DEFUSER="admin"
 SUDO=""
 [ "$(id -u)" -ne 0 ] && SUDO="sudo"
 
@@ -98,9 +99,11 @@ step "1. Installing Plexodus"
 MODE=""
 if [ "${PLEXODUS_NO_SUDO:-}" = 1 ]; then
   MODE=user
+elif ! command -v systemctl >/dev/null || [ ! -d /run/systemd/system ]; then
+  MODE=user
 elif [ "$(id -u)" -eq 0 ]; then
   MODE=system
-elif command -v sudo >/dev/null && command -v systemctl >/dev/null && [ -d /run/systemd/system ]; then
+elif command -v sudo >/dev/null; then
   say "Checking you have admin rights (sudo). Type your password if asked; nothing shows while you type."
   if sudo -v <&3; then MODE=system; else MODE=user; fi
 else
@@ -233,7 +236,7 @@ api_error() { printf '%s' "$1" | json_field error; }
 
 if printf '%s' "$STATUS" | grep -q '"setupRequired":true'; then
   say "Choose the username and password you'll sign in with, on the TV and in a browser."
-  ask USERNAME "Username" "$ME"
+  ask USERNAME "Username" "$DEFUSER"
   while :; do
     ask_secret PASS "Password (nothing shows while you type)"
     [ ${#PASS} -lt 6 ] && { warn "Please use at least 6 characters."; continue; }
@@ -250,7 +253,7 @@ else
   say "Plexodus already has an admin account. Sign in with it to continue."
   tries=0
   while :; do
-    ask USERNAME "Username" "$ME"
+    ask USERNAME "Username" "$DEFUSER"
     ask_secret PASS "Password"
     res="$(api POST /api/login "{\"username\":$(json_str "$USERNAME"),\"password\":$(json_str "$PASS")}")" && break
     warn "$(api_error "$res")"
@@ -269,7 +272,7 @@ step "3. Your films and TV shows"
 cat <<EOF
 Now tell Plexodus where your videos are. Each library is either films or TV
 shows, in one or more folders. Type the folder's full path, like
-${DIM}/home/$ME/media/Movies${N}. Tip: press Tab to finish folder names for you.
+${DIM}$HOME/media/Movies${N}. Tip: press Tab to finish folder names for you.
 EOF
 EXISTING="$(api GET /api/libraries 2>/dev/null || true)"
 if printf '%s' "$EXISTING" | grep -q '"name"'; then
@@ -361,6 +364,7 @@ if confirm "Do you want to import from Plex?" n; then
       libs="$(printf '%s' "$res" | grep -o '"title":"[^"]*"' | wc -l)"
       missing="$(printf '%s' "$res" | grep -o '"exists":false' | wc -l)"
       ok "Connected to Plex ($libs film/TV libraries)."
+      PLEX_OK=1
       go=0
       if [ "$missing" -gt 0 ]; then
         warn "$missing of Plex's folders can't be seen from here, so those titles won't play."
@@ -404,11 +408,16 @@ If none of these open, the port is probably blocked; see the setup guide.${N}
 ${B}On your TV${N} (Fire TV, Shield, Android TV / Google TV):
   1. Install the free ${B}Downloader${N} app and allow it to install apps.
   2. In Downloader, type:  ${B}$APK_URL${N}
-  3. Install, open Plexodus, type the address above, and sign in as ${B}$USERNAME${N}.
+  3. Install, open Plexodus, type the address above, and sign in as ${B}${USERNAME:-$ME}${N}.
 
 ${B}To update later${N}, run this same setup command again. Your libraries,
 account and watch history are kept.
 EOF
+if [ "${PLEX_OK:-}" = 1 ]; then
+  say "Tip: on the TV you can also choose ${B}Sign in with Plex${N} instead of typing the address."
+  say "Open Plexodus in a browser once first, so it knows its own address. Friends you"
+  say "share your Plex server with can sign in the same way."
+fi
 if [ "$MODE" = system ]; then
   say "${DIM}Logs: journalctl -u plexodus -f    Settings file: /etc/plexodus.env${N}"
 else
