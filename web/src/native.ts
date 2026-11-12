@@ -37,6 +37,8 @@ interface Bridge {
   setAudioDelay?(ms: number): void;
   /** Opens the flash-and-beep calibration in the app's player. */
   calibrateAudio?(): void;
+  /** Apps with "update": checks GitHub and shows the app's own update dialogs. */
+  checkForUpdates?(): void;
 }
 
 export const native: Bridge | undefined = (window as unknown as { PlexodusNative?: Bridge }).PlexodusNative;

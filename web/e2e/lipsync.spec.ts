@@ -65,3 +65,23 @@ test("the file's saved fix goes to the app's player", async ({ page, openTv }) =
   await expect.poll(() => page.evaluate(() => (window as unknown as W).__played?.audioOffsetMs)).toBe(-120);
   expect(await page.evaluate(() => (window as unknown as W).__played?.fileId)).toBeGreaterThan(0);
 });
+
+test("Settings asks an app that can update itself to check for updates", async ({ page, openTv }) => {
+  await page.addInitScript(app, "recap,avsync,update");
+  await page.addInitScript(() => {
+    const w = window as unknown as { PlexodusNative: Record<string, unknown>; __checked?: boolean };
+    w.PlexodusNative.checkForUpdates = () => { w.__checked = true; };
+  });
+  await openTv("/settings");
+  await waitForFocus(page);
+  await page.locator('[data-fk="app-update"]').focus();
+  await page.keyboard.press("Enter");
+  expect(await page.evaluate(() => (window as unknown as { __checked?: boolean }).__checked)).toBe(true);
+});
+
+test("older apps get no update button", async ({ page, openTv }) => {
+  await page.addInitScript(app, "recap,avsync");
+  await openTv("/settings");
+  await waitForFocus(page);
+  await expect(page.locator('[data-fk="app-update"]')).toHaveCount(0);
+});

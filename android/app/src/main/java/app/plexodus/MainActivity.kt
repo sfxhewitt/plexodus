@@ -32,6 +32,7 @@ class MainActivity : Activity() {
     private lateinit var web: WebView
     private lateinit var errorView: View
     private lateinit var server: String
+    private val updater by lazy { Updater(this) }
 
     /** Fire TV, Android TV, Shield: the page shows its 10-foot interface. */
     private val isTv: Boolean by lazy {
@@ -120,6 +121,7 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.change_server).setOnClickListener { changeServer() }
 
         if (savedInstanceState == null) web.loadUrl(server) else web.restoreState(savedInstanceState)
+        Updater.cleanup(this)
     }
 
     private fun sameServer(u: Uri): Boolean {
@@ -166,7 +168,10 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (::web.isInitialized) web.onResume()
+        if (::web.isInitialized) {
+            web.onResume()
+            updater.autoCheck()
+        }
     }
 
     override fun onPause() {
@@ -176,7 +181,10 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        if (::web.isInitialized) web.destroy()
+        if (::web.isInitialized) {
+            updater.dismiss()
+            web.destroy()
+        }
         super.onDestroy()
     }
 
@@ -230,7 +238,13 @@ class MainActivity : Activity() {
 
         /** Player features the web UI can rely on (older apps lack this). */
         @JavascriptInterface
-        fun features(): String = "recap,avsync"
+        fun features(): String = "recap,avsync,update"
+
+        /** "Check for updates" in Settings: the app shows its own dialogs. */
+        @JavascriptInterface
+        fun checkForUpdates() {
+            runOnUiThread { updater.manualCheck() }
+        }
 
         /** This device's lip sync offset in ms (positive = sound later). */
         @JavascriptInterface

@@ -173,6 +173,14 @@ jobs:
           git tag -f latest && git push -f origin latest
           gh release view latest >/dev/null 2>&1 || gh release create latest --prerelease --title "Latest build" --notes "Built automatically from main."
           gh release upload latest dist/* --clobber
+          # Last, once the APK is up: the app reads this to offer updates
+          # (android/app/src/main/java/app/plexodus/Updater.kt).
+          mkdir -p meta
+          printf '{"versionCode":%s,"versionName":"%s","size":%s,"sha256":"%s","url":"https://github.com/%s/releases/download/latest/plexodus.apk"}\n' \
+            "$GITHUB_RUN_NUMBER" "${GITHUB_REF_NAME}-${GITHUB_SHA::7}" "$(stat -c %s dist/plexodus.apk)" \
+            "$(sha256sum dist/plexodus.apk | cut -d' ' -f1)" "$GITHUB_REPOSITORY" > meta/android-version.json
+          cat meta/android-version.json
+          gh release upload latest meta/android-version.json --clobber
 
       - name: Publish tagged release
         if: startsWith(github.ref, 'refs/tags/v')
