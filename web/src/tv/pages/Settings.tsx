@@ -199,6 +199,20 @@ export default function SettingsPage() {
     setUser(null);
   };
 
+  // Store policy: anyone who can make an account in the app can delete it there.
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const deleteAccount = async () => {
+    if (!confirmDelete) return setConfirmDelete(true);
+    try {
+      await api.del("/api/me");
+      api.invalidate();
+      setUser(null);
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const classic = () => {
     try {
       sessionStorage.setItem("plexodus.tv.session", "0");
@@ -227,7 +241,13 @@ export default function SettingsPage() {
         {native && <TvButton fk="server" onClick={() => native?.changeServer()}>Change server</TvButton>}
         {!user?.kids && <TvButton fk="classic" onClick={classic}>Use the phone-style interface</TvButton>}
         <TvButton fk="logout" icon={<Logout size={22} />} onClick={signOut}>Sign out</TvButton>
+        {user && !user.isAdmin && !user.isProfile && (
+          <TvButton fk="delete-account" onClick={deleteAccount}>
+            {confirmDelete ? "Press again to delete your account" : "Delete my account"}
+          </TvButton>
+        )}
       </div>
+      {deleteError && <p className="tv-muted tv-note">{deleteError}</p>}
       {user?.isAdmin && !user.isProfile && <NowWatching />}
       <LibraryChoices />
       <AmbientChoices />

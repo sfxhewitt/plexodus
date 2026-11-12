@@ -525,6 +525,7 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
 .pf-menu button { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 0; border-radius: 10px; background: none; text-align: left; font-weight: 500; }
 .pf-menu button:hover { background: var(--surface-2); }
 .pf-menu button.current { font-weight: 700; }
+.pf-menu button.danger { color: #ff6b6b; }
 .pf-menu hr { width: 100%; border: 0; border-top: 1px solid var(--border); margin: 6px 0; }
 .nav-avatar-btn { padding: 0; border: 0; background: none; border-radius: 28%; }
 

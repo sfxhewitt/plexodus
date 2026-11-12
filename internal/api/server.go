@@ -123,6 +123,7 @@ func (s *Server) Handler() http.Handler {
 	user("DELETE /api/profiles/{id}", s.handleDeleteProfile)
 	user("POST /api/profiles/{id}/switch", s.handleSwitchProfile)
 	user("PUT /api/me/password", s.handleMyPassword)
+	user("DELETE /api/me", s.handleDeleteMe)
 	user("GET /api/home", s.handleHome)
 	user("GET /api/wrapped", s.handleWrapped)
 	user("GET /api/libraries", s.handleLibraries)
@@ -434,6 +435,29 @@ func (s *Server) handleMyPassword(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// handleDeleteMe deletes the signed-in account and everything kept for it
+// (profiles, watch state, history, watchlist, sessions). App stores require
+// that anyone who can create an account in the app can delete it there too.
+// The server's admins manage their accounts from Settings > Users instead.
+func (s *Server) handleDeleteMe(w http.ResponseWriter, r *http.Request) {
+	u := currentUser(r)
+	if u.IsProfile {
+		writeErr(w, http.StatusForbidden, "switch to the main profile to delete the account")
+		return
+	}
+	if u.IsAdmin {
+		writeErr(w, http.StatusForbidden, "an admin account can't delete itself; another admin can remove it in Settings > Users")
+		return
+	}
+	if _, err := s.db.W.ExecContext(r.Context(), `DELETE FROM users WHERE id = ?`, u.AccountID); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.auth.Forget()
+	s.setCookie(w, r, "", -1)
 	writeJSON(w, map[string]bool{"ok": true})
 }
 

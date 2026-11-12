@@ -115,7 +115,9 @@ export default function Item() {
   const { data: d, error, reload } = useApi<Detail>(`/api/items/${id}`);
   const [matching, setMatching] = useState(false);
 
-  useEffect(() => window.scrollTo(0, 0), [id]);
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [id]);
 
   if (error) return <div className="page-msg">{error}</div>;
   if (!d) return <div className="page-loading"><div className="spinner" /></div>;

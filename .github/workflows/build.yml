@@ -41,7 +41,7 @@ jobs:
               -ldflags "-s -w -X main.version=${VERSION}" \
               -o dist/plexodus-linux-$arch ./cmd/plexodus
           done
-          cp deploy/install.sh deploy/setup.sh deploy/plexodus.service dist/
+          cp deploy/install.sh deploy/setup.sh deploy/store-demo.py deploy/plexodus.service dist/
           ls -la dist
 
       - uses: actions/upload-artifact@v4
@@ -124,15 +124,22 @@ jobs:
           PLEXODUS_VERSION_CODE: ${{ github.run_number }}
         run: |
           export PLEXODUS_VERSION_NAME="${GITHUB_REF_NAME}-${GITHUB_SHA::7}"
-          gradle --no-daemon assembleRelease
+          # github: the self-updating APK. store: Google Play (AAB) and the
+          # Amazon Appstore (APK), without the self-updater.
+          gradle --no-daemon assembleGithubRelease assembleStoreRelease bundleStoreRelease
           mkdir -p ../dist
-          cp app/build/outputs/apk/release/app-release.apk ../dist/plexodus.apk
+          cp app/build/outputs/apk/github/release/app-github-release.apk ../dist/plexodus.apk
+          cp app/build/outputs/apk/store/release/app-store-release.apk ../dist/plexodus-amazon.apk
+          cp app/build/outputs/bundle/storeRelease/app-store-release.aab ../dist/plexodus-play.aab
           ls -la ../dist
 
       - uses: actions/upload-artifact@v4
         with:
           name: plexodus-android
-          path: dist/plexodus.apk
+          path: |
+            dist/plexodus.apk
+            dist/plexodus-amazon.apk
+            dist/plexodus-play.aab
 
   release:
     needs: [server, android]
@@ -154,7 +161,7 @@ jobs:
           merge-multiple: true
 
       - name: Checksums
-        run: (cd dist && sha256sum plexodus-linux-* plexodus.apk > SHA256SUMS && ls -la)
+        run: (cd dist && sha256sum plexodus-linux-* plexodus*.apk plexodus-play.aab > SHA256SUMS && ls -la)
 
       # Every push to main refreshes the rolling "latest" release, so the
       # install script and the APK always have a stable download URL.

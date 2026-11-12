@@ -322,8 +322,11 @@ class Updater(private val activity: Activity) {
         private val MANIFEST_URL =
             "https://github.com/${BuildConfig.UPDATE_REPO}/releases/download/latest/android-version.json"
 
-        /** Only CI release builds update themselves; local and debug builds have version code 1. */
-        fun enabled() = !BuildConfig.DEBUG && BuildConfig.VERSION_CODE > 1
+        /**
+         * Only CI release builds of the GitHub APK update themselves; local and
+         * debug builds have version code 1, and store builds are updated by the store.
+         */
+        fun enabled() = BuildConfig.SELF_UPDATE && !BuildConfig.DEBUG && BuildConfig.VERSION_CODE > 1
 
         private fun prefs(ctx: Context) = ctx.getSharedPreferences("plexodus", Context.MODE_PRIVATE)
 
