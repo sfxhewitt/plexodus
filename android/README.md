@@ -13,8 +13,14 @@ open it on the device and allow installing from this source. On first launch
 enter your server address (the one you use in a browser, for example
 `http://your-server:8484`) and sign in as usual.
 
-To update, install the newer APK over the old one. Updates install over each
-other because every build is signed with the same key.
+After that the app updates itself. On start (at most every six hours) it
+reads `android-version.json` from the `latest` release, and when that build
+is newer it offers to download it and hands it to the system installer. TV
+Settings has a "Check for updates" button too. The first update asks you once
+to let Plexodus install apps ("Install unknown apps"). Updates install over
+the top, keeping the server address and sign-in, because every build is
+signed with the same key. Most TV interface changes come from the server and
+need no app update at all.
 
 ## How it works
 
@@ -37,6 +43,13 @@ other because every build is signed with the same key.
   sleep and closes after 30 minutes. Once the player has offered the next
   episode itself it reports `ended: false` (with the started item's id), so
   the page doesn't offer it again.
+
+- `Updater` is the self-update: the release workflow writes
+  `android-version.json` (version code, name, size, SHA-256) after uploading
+  the APK; the app downloads into its cache, checks the hash and that the APK
+  is a newer `app.plexodus`, and opens it through its own small content
+  provider (`UpdateFileProvider`). Local and debug builds (version code 1)
+  don't update themselves.
 
 ## On a TV
 

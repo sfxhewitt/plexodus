@@ -17,6 +17,8 @@ android {
         targetSdk = 35
         versionCode = versionCodeEnv
         versionName = versionNameEnv
+        // Where the app looks for its own updates (the "latest" release).
+        buildConfigField("String", "UPDATE_REPO", "\"${System.getenv("GITHUB_REPOSITORY") ?: "sfxhewitt/plexodus"}\"")
         ndk {
             // Phones and tablets (arm64), older phones and Fire TV sticks (armv7), emulators (x86_64).
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")

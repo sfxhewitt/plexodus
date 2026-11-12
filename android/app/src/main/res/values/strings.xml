@@ -58,4 +58,24 @@
     <string name="audio_sync_saved">Audio sync saved for this file</string>
     <string name="audio_sync_failed">Couldn\'t save audio sync: %1$s</string>
     <string name="calibration_text">Lip sync calibration for this TV\nThe beep should land exactly when the bar hits the line and the screen flashes.\n\n◀ sound earlier      %1$s      sound later ▶\n\nOK to save · Back to cancel</string>
+    <string name="update_title">Plexodus update</string>
+    <string name="update_title_version">Updating to %1$s</string>
+    <string name="update_checking">Checking for updates…</string>
+    <string name="update_check_failed">Couldn\'t check for updates: %1$s</string>
+    <string name="update_up_to_date">You\'re up to date</string>
+    <string name="update_up_to_date_text">This is the newest Plexodus app (%1$s).</string>
+    <string name="update_dev_build">This is a development build, so it doesn\'t update itself.</string>
+    <string name="update_available">Update available</string>
+    <string name="update_available_text">A new Plexodus app (%1$s) is ready. You have %2$s.\n\nThe download is %3$d MB. Your server and sign-in stay as they are.</string>
+    <string name="update_now">Update</string>
+    <string name="update_later">Later</string>
+    <string name="update_allow_title">Allow updates</string>
+    <string name="update_allow_text">Android needs your OK once before Plexodus can install its own updates.\n\nOpen settings, turn on Plexodus under \"Install unknown apps\", then press Back to return here.</string>
+    <string name="update_open_settings">Open settings</string>
+    <string name="update_continue">Continue</string>
+    <string name="update_downloading">Downloading… %1$d%%</string>
+    <string name="update_failed">The update didn\'t download: %1$s</string>
+    <string name="update_no_space">There isn\'t enough free space (it needs about %1$d MB).</string>
+    <string name="update_bad_checksum">The download was damaged or the release changed while it downloaded. Try again.</string>
+    <string name="update_bad_apk">The download isn\'t a newer Plexodus app.</string>
 </resources>

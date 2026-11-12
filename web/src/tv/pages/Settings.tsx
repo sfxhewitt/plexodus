@@ -183,6 +183,9 @@ export default function SettingsPage() {
         <TvButton autoFocus fk="profiles" onClick={() => openProfiles?.()}>Switch profile</TvButton>
         {!user?.isProfile && <TvButton fk="manage-profiles" onClick={() => openProfiles?.(true)}>Manage profiles</TvButton>}
         <TvButton fk="reload" icon={<Refresh size={22} />} onClick={() => window.location.reload()}>Reload</TvButton>
+        {native && nativeHas("update") && (
+          <TvButton fk="app-update" onClick={() => native?.checkForUpdates?.()}>Check for updates</TvButton>
+        )}
         {native && <TvButton fk="server" onClick={() => native?.changeServer()}>Change server</TvButton>}
         {!user?.kids && <TvButton fk="classic" onClick={classic}>Use the phone-style interface</TvButton>}
         <TvButton fk="logout" icon={<Logout size={22} />} onClick={signOut}>Sign out</TvButton>
