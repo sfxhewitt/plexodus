@@ -609,3 +609,6 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
   .np-poster { flex-basis: 64px; }
   .np-poster img, .np-poster span { width: 64px; }
 }
+
+.invite-code { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-radius: 12px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border); }
+.invite-code b { font: 800 26px ui-monospace, monospace; letter-spacing: 0.12em; }

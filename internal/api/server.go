@@ -58,6 +58,7 @@ type Server struct {
 
 	smart      smartCache
 	nowPlaying *nowPlaying
+	directory  *directory
 	files      fileStats
 	homes      homeCache
 }
@@ -65,7 +66,7 @@ type Server struct {
 func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner, agent *metadata.Agent,
 	art *metadata.ArtCache, prober *probe.Worker, streams *stream.Manager, web fs.FS) *Server {
 	s := &Server{cfg: cfg, db: d, auth: auth.New(d), scanner: sc, agent: agent, art: art, prober: prober, streams: streams,
-		importer: plex.NewImporter(d), web: web, baseCtx: ctx, plexArtInflight: map[string]*artFetch{}, nowPlaying: newNowPlaying(),
+		importer: plex.NewImporter(d), web: web, baseCtx: ctx, plexArtInflight: map[string]*artFetch{}, nowPlaying: newNowPlaying(), directory: newDirectory(),
 		subs: subs.New(cfg.FFmpeg, cfg.FFprobe, filepath.Join(cfg.DataDir, "subs"))}
 	key := d.Setting(ctx, "stream_sign_key")
 	if key == "" {

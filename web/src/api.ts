@@ -184,8 +184,16 @@ export interface Activity {
   recent?: RecentPlay[];
 }
 
+/** Matches /invite/<link token or typed code>. */
+export const inviteFromPath = (path: string) => path.match(/^\/invite\/([A-Za-z0-9-]{8,64})\/?$/)?.[1];
+
 export interface Invite {
   token: string;
+  /** "K7QM-2XPA": typed into the app instead of a server address. */
+  code?: string;
+  /** 0 = any number of people (e.g. an app store reviewer's code). */
+  maxUses: number;
+  uses: number;
   note?: string;
   allLibraries: boolean;
   libraries: number[];

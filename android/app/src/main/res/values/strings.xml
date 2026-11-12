@@ -2,10 +2,12 @@
 <resources>
     <string name="app_name">Plexodus</string>
     <string name="connect_title">Connect to your server</string>
-    <string name="connect_hint">http://your-server:8484</string>
-    <string name="connect_help">The address you use to open Plexodus in a browser.</string>
+    <string name="connect_hint">Invite code or http://your-server:8484</string>
+    <string name="connect_help">Type the invite code a friend sent you, or the address you use to open Plexodus in a browser.</string>
     <string name="connect_button">Connect</string>
-    <string name="connect_or_address">Or connect with an address</string>
+    <string name="connect_or_address">Or use an invite code or address</string>
+    <string name="invite_unknown">That invite code isn\'t valid. It may have expired or been revoked.</string>
+    <string name="invite_lookup_failed">Couldn\'t check the invite code (%1$s)</string>
     <string name="plex_signin">Sign in with Plex</string>
     <string name="plex_go_to">On your phone or computer, go to</string>
     <string name="plex_link_url">plex.tv/link</string>

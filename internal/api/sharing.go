@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -82,21 +83,28 @@ func (s *Server) handleUserAccess(w http.ResponseWriter, r *http.Request) {
 
 // ---- invites ----
 
-const inviteTTL = 7 * 24 * time.Hour
+const (
+	inviteTTL     = 7 * 24 * time.Hour
+	maxInviteDays = 365
+)
 
 type Invite struct {
 	Token        string  `json:"token"`
+	Code         string  `json:"code,omitempty"` // "K7QM-2XPA"
 	Note         string  `json:"note,omitempty"`
 	AllLibraries bool    `json:"allLibraries"`
 	Libraries    []int64 `json:"libraries"`
 	CreatedAt    int64   `json:"createdAt"`
 	ExpiresAt    int64   `json:"expiresAt"`
-	UsedBy       string  `json:"usedBy,omitempty"`
+	// MaxUses 0 means any number of people can use it.
+	MaxUses int    `json:"maxUses"`
+	Uses    int    `json:"uses"`
+	UsedBy  string `json:"usedBy,omitempty"`
 }
 
 func (s *Server) handleListInvites(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.R.QueryContext(r.Context(), `SELECT i.token, COALESCE(i.note, ''), i.all_libraries, i.libraries, i.created_at,
-		i.expires_at, COALESCE(u.username, '') FROM invites i LEFT JOIN users u ON u.id = i.used_by
+	rows, err := s.db.R.QueryContext(r.Context(), `SELECT i.token, COALESCE(i.code, ''), COALESCE(i.note, ''), i.all_libraries, i.libraries,
+		i.created_at, i.expires_at, i.max_uses, i.uses, COALESCE(u.username, '') FROM invites i LEFT JOIN users u ON u.id = i.used_by
 		WHERE i.used_by IS NOT NULL OR i.expires_at > ? ORDER BY i.created_at DESC LIMIT 50`, db.Now())
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -107,7 +115,8 @@ func (s *Server) handleListInvites(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var inv Invite
 		var libs string
-		rows.Scan(&inv.Token, &inv.Note, &inv.AllLibraries, &libs, &inv.CreatedAt, &inv.ExpiresAt, &inv.UsedBy)
+		rows.Scan(&inv.Token, &inv.Code, &inv.Note, &inv.AllLibraries, &libs, &inv.CreatedAt, &inv.ExpiresAt, &inv.MaxUses, &inv.Uses, &inv.UsedBy)
+		inv.Code = formatCode(inv.Code)
 		json.Unmarshal([]byte(libs), &inv.Libraries)
 		out = append(out, inv)
 	}
@@ -118,6 +127,10 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 	var b struct {
 		accessBody
 		Note string `json:"note"`
+		// Days until it expires (default 7, at most a year).
+		Days int `json:"days"`
+		// MaxUses: 1 (default) for one friend; 0 for any number of people.
+		MaxUses *int `json:"maxUses"`
 	}
 	if err := readJSON(r, &b); err != nil {
 		writeErr(w, 400, err.Error())
@@ -130,39 +143,98 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 	if b.Libraries == nil {
 		b.Libraries = []int64{}
 	}
+	ttl := inviteTTL
+	if b.Days > 0 {
+		ttl = time.Duration(min(b.Days, maxInviteDays)) * 24 * time.Hour
+	}
+	maxUses := 1
+	if b.MaxUses != nil && *b.MaxUses >= 0 {
+		maxUses = *b.MaxUses
+	}
 	libs, _ := json.Marshal(b.Libraries)
 	tok := randomHex(16)
 	now := time.Now()
-	if _, err := s.db.W.ExecContext(r.Context(), `INSERT INTO invites(token, created_by, note, all_libraries, libraries, created_at, expires_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?)`, tok, currentUser(r).ID, b.Note, b.AllLibraries, string(libs), now.Unix(), now.Add(inviteTTL).Unix()); err != nil {
-		writeErr(w, 500, err.Error())
+	expires := now.Add(ttl)
+	var code string
+	for range 5 {
+		code = newInviteCode()
+		_, err := s.db.W.ExecContext(r.Context(), `INSERT INTO invites(token, code, created_by, note, all_libraries, libraries, created_at, expires_at, max_uses)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`, tok, code, currentUser(r).ID, b.Note, b.AllLibraries, string(libs), now.Unix(), expires.Unix(), maxUses)
+		if err == nil {
+			break
+		}
+		if !strings.Contains(err.Error(), "UNIQUE") {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		code = ""
+	}
+	if code == "" {
+		writeErr(w, 500, "couldn't pick an invite code")
 		return
 	}
-	writeJSON(w, map[string]string{"token": tok, "url": externalBase(r) + "/invite/" + tok})
+	out := map[string]any{"token": tok, "url": externalBase(r) + "/invite/" + tok, "code": formatCode(code)}
+	// Publish the code so the app can find this server from it.
+	addr := s.inviteAddress(r)
+	if addr == "" {
+		out["codeError"] = "The code needs this server's public address: set it under Sign in with Plex, or open Plexodus once from outside your home network. The link works meanwhile."
+	} else if err := s.registerCode(r.Context(), code, addr, expires); err != nil {
+		log.Printf("invites: couldn't publish code: %v", err)
+		out["codeError"] = "Couldn't publish the code (" + err.Error() + "). The link works meanwhile."
+	} else {
+		out["address"] = addr
+	}
+	writeJSON(w, out)
 }
 
 func (s *Server) handleDeleteInvite(w http.ResponseWriter, r *http.Request) {
-	s.db.W.ExecContext(r.Context(), `DELETE FROM invites WHERE token = ? AND used_by IS NULL`, r.PathValue("token"))
+	key := r.PathValue("token")
+	var code string
+	s.db.R.QueryRowContext(r.Context(), `SELECT COALESCE(code, '') FROM invites WHERE token = ? AND used_by IS NULL`, key).Scan(&code)
+	s.db.W.ExecContext(r.Context(), `DELETE FROM invites WHERE token = ? AND used_by IS NULL`, key)
+	go s.revokeCode(code)
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
-func (s *Server) openInvite(r *http.Request) (inviter string, all bool, libs []int64, ok bool) {
+// inviteToken finds the invite a link token or a typed code names.
+func (s *Server) inviteToken(r *http.Request) string {
+	key := r.PathValue("token")
+	if code := normalizeCode(key); code != "" {
+		var tok string
+		if s.db.R.QueryRowContext(r.Context(), `SELECT token FROM invites WHERE code = ?`, code).Scan(&tok) == nil {
+			return tok
+		}
+	}
+	return key
+}
+
+// openInvite returns a usable invite: not expired and with uses left.
+func (s *Server) openInvite(r *http.Request) (token, inviter string, all bool, libs []int64, ok bool) {
 	var raw string
+	token = s.inviteToken(r)
 	err := s.db.R.QueryRowContext(r.Context(), `SELECT u.username, i.all_libraries, i.libraries FROM invites i
-		JOIN users u ON u.id = i.created_by WHERE i.token = ? AND i.used_by IS NULL AND i.expires_at > ?`,
-		r.PathValue("token"), db.Now()).Scan(&inviter, &all, &raw)
+		JOIN users u ON u.id = i.created_by WHERE i.token = ? AND i.expires_at > ?
+		AND (i.max_uses = 0 OR i.uses < i.max_uses) AND (i.max_uses <> 1 OR i.used_by IS NULL)`,
+		token, db.Now()).Scan(&inviter, &all, &raw)
 	if err != nil {
-		return "", false, nil, false
+		return "", "", false, nil, false
 	}
 	json.Unmarshal([]byte(raw), &libs)
-	return inviter, all, libs, true
+	return token, inviter, all, libs, true
 }
+
+const inviteGone = "this invite is invalid, expired or already used"
 
 // handleGetInvite is public: it tells the invite page whether the link works.
 func (s *Server) handleGetInvite(w http.ResponseWriter, r *http.Request) {
-	inviter, _, _, ok := s.openInvite(r)
+	if limiter.blocked(clientIP(r)) {
+		writeErr(w, http.StatusTooManyRequests, "too many attempts, try again in a few minutes")
+		return
+	}
+	_, inviter, _, _, ok := s.openInvite(r)
 	if !ok {
-		writeErr(w, 404, "this invite link is invalid, expired or already used")
+		limiter.fail(clientIP(r)) // slows guessing codes
+		writeErr(w, 404, inviteGone)
 		return
 	}
 	writeJSON(w, map[string]string{"inviter": inviter})
@@ -170,9 +242,14 @@ func (s *Server) handleGetInvite(w http.ResponseWriter, r *http.Request) {
 
 // handleAcceptInvite creates the account with the invite's library access and signs in.
 func (s *Server) handleAcceptInvite(w http.ResponseWriter, r *http.Request) {
-	_, all, libs, ok := s.openInvite(r)
+	if limiter.blocked(clientIP(r)) {
+		writeErr(w, http.StatusTooManyRequests, "too many attempts, try again in a few minutes")
+		return
+	}
+	tok, _, all, libs, ok := s.openInvite(r)
 	if !ok {
-		writeErr(w, 404, "this invite link is invalid, expired or already used")
+		limiter.fail(clientIP(r))
+		writeErr(w, 404, inviteGone)
 		return
 	}
 	var c credentials
@@ -180,20 +257,26 @@ func (s *Server) handleAcceptInvite(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	// Claim the invite first so two people can't use one link.
-	res, err := s.db.W.ExecContext(r.Context(), `UPDATE invites SET used_at = ?, used_by = (SELECT created_by FROM invites WHERE token = ?)
-		WHERE token = ? AND used_by IS NULL`, db.Now(), r.PathValue("token"), r.PathValue("token"))
+	// Claim a use first so two people can't share a single-use invite.
+	res, err := s.db.W.ExecContext(r.Context(), `UPDATE invites SET used_at = ?, uses = uses + 1
+		WHERE token = ? AND (max_uses = 0 OR uses < max_uses) AND (max_uses <> 1 OR used_by IS NULL)`, db.Now(), tok)
 	if n, _ := res.RowsAffected(); err != nil || n == 0 {
 		writeErr(w, 409, "this invite was just used")
 		return
 	}
 	u, err := s.auth.CreateUser(r.Context(), c.Username, c.Password, false)
 	if err != nil {
-		s.db.W.ExecContext(r.Context(), `UPDATE invites SET used_at = NULL, used_by = NULL WHERE token = ?`, r.PathValue("token"))
+		s.db.W.ExecContext(r.Context(), `UPDATE invites SET uses = uses - 1 WHERE token = ?`, tok)
 		writeErr(w, 400, err.Error())
 		return
 	}
-	s.db.W.ExecContext(r.Context(), `UPDATE invites SET used_by = ? WHERE token = ?`, u.ID, r.PathValue("token"))
+	var code string
+	var maxUses int
+	s.db.R.QueryRowContext(r.Context(), `SELECT COALESCE(code, ''), max_uses FROM invites WHERE token = ?`, tok).Scan(&code, &maxUses)
+	if maxUses == 1 {
+		s.db.W.ExecContext(r.Context(), `UPDATE invites SET used_by = ? WHERE token = ?`, u.ID, tok)
+		go s.revokeCode(code) // used up
+	}
 	if err := s.auth.SetAccess(r.Context(), u.ID, all, libs); err != nil {
 		writeErr(w, 500, err.Error())
 		return

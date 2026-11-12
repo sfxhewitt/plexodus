@@ -81,6 +81,11 @@ func migrate(w *sql.DB) error {
 		// 1 when an admin chose a Plex friend's libraries in Plexodus, so
 		// the hourly Plex sharing check leaves them alone.
 		{"users", "access_custom", "INTEGER NOT NULL DEFAULT 0"},
+		// Invite codes typed into the app, and invites usable more than once
+		// (max_uses 0 = any number, e.g. an app store reviewer's code).
+		{"invites", "code", "TEXT"},
+		{"invites", "max_uses", "INTEGER NOT NULL DEFAULT 1"},
+		{"invites", "uses", "INTEGER NOT NULL DEFAULT 0"},
 	}
 	for _, c := range columns {
 		var n int
@@ -97,6 +102,13 @@ func migrate(w *sql.DB) error {
 		return err
 	}
 	if _, err := w.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_plex ON users(plex_id) WHERE plex_id IS NOT NULL`); err != nil {
+		return err
+	}
+	if _, err := w.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS invites_code ON invites(code) WHERE code IS NOT NULL`); err != nil {
+		return err
+	}
+	// Invites used before uses was counted.
+	if _, err := w.Exec(`UPDATE invites SET uses = 1 WHERE used_by IS NOT NULL AND uses = 0`); err != nil {
 		return err
 	}
 	return seedHistory(w)
