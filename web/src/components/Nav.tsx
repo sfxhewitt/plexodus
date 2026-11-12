@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
-import { api, Library } from "../api";
+import { Activity, api, Library } from "../api";
 import { useApi, useUser } from "../hooks";
-import { Film, Grid, Home, Logout, Search, Settings, Tv } from "./Icons";
+import { Film, Grid, Home, Logout, Pulse, Search, Settings, Tv } from "./Icons";
 import { ProfileAvatar } from "./Profiles";
 
 export function Logo() {
@@ -11,6 +11,30 @@ export function Logo() {
       <img src="/favicon.svg" alt="" width={28} height={28} />
       <span>plex<b>odus</b></span>
     </Link>
+  );
+}
+
+/** Admins' link to Now watching, with how many streams are live. */
+function NowWatchingLink() {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      if (document.visibilityState !== "visible") return;
+      api.get<Activity>("/api/activity?recent=0").then((a) => alive && setN(a.streams.length), () => {});
+    };
+    load();
+    const t = setInterval(load, 20000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
+  return (
+    <NavLink to="/activity" className="icon-btn np-link" aria-label={`Now watching${n ? `: ${n}` : ""}`} title="Now watching">
+      <Pulse />
+      {n > 0 && <span className="np-badge">{n}</span>}
+    </NavLink>
   );
 }
 
@@ -93,6 +117,7 @@ export function Nav() {
             }} />
           <kbd>/</kbd>
         </label>
+        {user?.isAdmin && !user.isProfile && <NowWatchingLink />}
         {user?.isAdmin && <NavLink to="/settings" className="icon-btn" aria-label="Settings"><Settings /></NavLink>}
         <div className="nav-profile">
           <button className="nav-avatar-btn" aria-label="Profile menu" title={user?.name || user?.username}

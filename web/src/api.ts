@@ -121,6 +121,69 @@ export interface User {
   kids?: boolean;
 }
 
+/** A row in Settings > Users. */
+export interface AdminUser extends User {
+  /** Set for accounts linked to plex.tv (Sign in with Plex). */
+  plexUsername?: string;
+  /** A Plex friend whose libraries follow their Plex share. */
+  followPlex: boolean;
+  /** Last sign-in (unix seconds). */
+  lastSeen?: number;
+}
+
+/** One live stream on the Now watching page. */
+export interface NowPlaying {
+  key: string;
+  userId: number;
+  username: string;
+  profile?: string;
+  itemId: number;
+  kind: string;
+  title: string;
+  year?: number;
+  showTitle?: string;
+  seasonNumber?: number;
+  episodeNumber?: number;
+  poster?: string;
+  backdrop?: string;
+  library?: string;
+  state: "playing" | "paused";
+  position: number;
+  duration: number;
+  method: "direct" | "remux";
+  device: string;
+  app: string;
+  ip: string;
+  local: boolean;
+  startedAt: number;
+  container?: string;
+  videoCodec?: string;
+  audioCodec?: string;
+  width?: number;
+  height?: number;
+  bitrate?: number;
+  bytesServed: number;
+}
+
+export interface RecentPlay {
+  username: string;
+  profile?: string;
+  itemId: number;
+  kind: string;
+  title: string;
+  showTitle?: string;
+  seasonNumber?: number;
+  episodeNumber?: number;
+  poster?: string;
+  at: number;
+  source: string;
+}
+
+export interface Activity {
+  streams: NowPlaying[];
+  recent?: RecentPlay[];
+}
+
 export interface Invite {
   token: string;
   note?: string;

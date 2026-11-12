@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -122,6 +123,46 @@ func TestSignInWithPlex(t *testing.T) {
 	if code != 200 || u.AllLibraries || len(u.Libraries) != 1 || u.Libraries[0] != 2 {
 		t.Fatalf("partial: %d %s", code, body)
 	}
+	kimID := u.ID
+
+	// An admin overrides Kim's libraries in Plexodus: the hourly Plex check
+	// and signing in again both leave the choice alone.
+	setAccess := func(body string) int {
+		r := httptest.NewRequest("PUT", "/api/users/x/access", strings.NewReader(body))
+		r.SetPathValue("id", strconv.FormatInt(kimID, 10))
+		w := httptest.NewRecorder()
+		s.handleUserAccess(w, r)
+		return w.Code
+	}
+	kimLibs := func() []int64 {
+		k, _ := s.auth.ByID(ctx, kimID)
+		return k.Libraries
+	}
+	if code := setAccess(`{"allLibraries":false,"libraries":[1,2]}`); code != 200 {
+		t.Fatalf("override: %d", code)
+	}
+	s.refreshPlexFriends(ctx)
+	if _, u, _ = signIn("partial-token"); len(u.Libraries) != 2 || len(kimLibs()) != 2 {
+		t.Fatalf("override lost: %v / %v", u.Libraries, kimLibs())
+	}
+	// Following Plex again puts the Plex share back straight away.
+	if code := setAccess(`{"followPlex":true}`); code != 200 {
+		t.Fatalf("follow plex: %d", code)
+	}
+	if l := kimLibs(); len(l) != 1 || l[0] != 2 {
+		t.Fatalf("follow plex: %v", l)
+	}
+	// Following Plex is refused for an account that isn't linked to Plex.
+	r := httptest.NewRequest("PUT", "/api/users/x/access", strings.NewReader(`{"followPlex":true}`))
+	r.SetPathValue("id", strconv.FormatInt(admin.ID, 10))
+	w := httptest.NewRecorder()
+	s.db.W.Exec(`UPDATE users SET plex_id = NULL WHERE id = ?`, admin.ID)
+	s.handleUserAccess(w, r)
+	if w.Code != 400 {
+		t.Fatalf("follow plex without plex: %d", w.Code)
+	}
+	s.db.W.Exec(`UPDATE users SET plex_id = 1 WHERE id = ?`, admin.ID)
+
 	// Someone without access is turned away.
 	if code, _, body = signIn("stranger-token"); code != 403 || !strings.Contains(body, "doesn't have access") {
 		t.Fatalf("stranger: %d %s", code, body)

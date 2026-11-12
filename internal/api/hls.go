@@ -75,6 +75,7 @@ func (s *Server) handleHLSStart(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.nowPlaying.remuxStart(r, currentUser(r).ID, itemID, b.FileID)
 	writeJSON(w, map[string]any{"id": sess.ID, "url": "/api/hls/" + sess.ID + "/index.m3u8", "start": sess.Opts.Start, "vod": sess.VOD(), "audioOffsetMs": sess.Opts.AudioShiftMs})
 }
 
@@ -84,6 +85,7 @@ func (s *Server) handleHLSPing(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]bool{"ok": false, "running": false, "finished": false})
 		return
 	}
+	s.nowPlaying.remuxTouch(r, currentUser(r).ID, sess.FileID, 0)
 	writeJSON(w, map[string]bool{"ok": true, "running": sess.Running(), "finished": sess.Finished()})
 }
 
@@ -122,6 +124,7 @@ func (s *Server) handleHLSFile(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	s.nowPlaying.remuxTouch(r, currentUser(r).ID, sess.FileID, c.Size)
 	w.Header().Set("Cache-Control", "no-store")
 	switch {
 	case playlist != nil:

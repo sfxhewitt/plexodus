@@ -326,6 +326,7 @@ addEventListener("message", function (e) {
       return json(route, { externalUrl: `http://media.test/stream/${mm[1]}`, position: 0, file: { id: Number(mm[1]), duration: 5400 }, audioOffsetMs: -120 });
     }
     if (p === "/api/screensaver") return json(route, [...movies.slice(0, 6), ...shows.slice(0, 2)]);
+    if (p === "/api/activity") return json(route, { streams: [], recent: [] });
     if ((mm = p.match(/^\/api\/items\/(\d+)\/watched$/)) && m === "POST") return json(route, {});
     if ((mm = p.match(/^\/api\/items\/(\d+)$/))) {
       const c = byId.get(Number(mm[1]));

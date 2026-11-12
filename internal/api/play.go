@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -150,5 +151,36 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename*=UTF-8''%s", url.PathEscape(fi.Name())))
+	if r.Method == http.MethodGet {
+		cw := &countingWriter{ResponseWriter: w}
+		done := s.nowPlaying.direct(r, uid, itemID, fileID)
+		defer func() { done(cw.n) }()
+		w = cw
+	}
 	http.ServeContent(w, r, fi.Name(), fi.ModTime(), f)
 }
+
+// countingWriter counts the bytes a response sends, keeping the
+// ResponseWriter's ReadFrom so files still go out with sendfile.
+type countingWriter struct {
+	http.ResponseWriter
+	n int64
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.ResponseWriter.Write(p)
+	c.n += int64(n)
+	return n, err
+}
+
+func (c *countingWriter) ReadFrom(src io.Reader) (int64, error) {
+	if rf, ok := c.ResponseWriter.(io.ReaderFrom); ok {
+		n, err := rf.ReadFrom(src)
+		c.n += n
+		return n, err
+	}
+	n, err := io.Copy(struct{ io.Writer }{c}, src)
+	return n, err
+}
+
+func (c *countingWriter) Unwrap() http.ResponseWriter { return c.ResponseWriter }

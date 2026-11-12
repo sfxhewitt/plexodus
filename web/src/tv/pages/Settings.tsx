@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, Library, LibraryPrefs, setLibraryPrefs } from "../../api";
+import { Activity, api, fmtTime, Library, LibraryPrefs, setLibraryPrefs } from "../../api";
 import { Check, Logout, Refresh, X } from "../../components/Icons";
 import { useUser } from "../../hooks";
 import { native, nativeHas } from "../../native";
@@ -88,6 +88,44 @@ function AmbientChoices() {
           </>
         )}
       </div>
+    </section>
+  );
+}
+
+/** Who is watching what right now (admins only), refreshed every few seconds. */
+function NowWatching() {
+  const [data, setData] = useState<Activity>();
+  useEffect(() => {
+    let alive = true;
+    const load = () => api.get<Activity>("/api/activity?recent=0").then((a) => alive && setData(a), () => {});
+    load();
+    const t = setInterval(load, 5000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
+  if (!data) return null;
+  return (
+    <section className="tv-lib-prefs">
+      <h2 className="tv-section-title">Now watching</h2>
+      {!data.streams.length && <p className="tv-muted tv-section-note">Nobody is watching right now.</p>}
+      {data.streams.map((s) => {
+        const title = s.kind === "episode" && s.showTitle
+          ? `${s.showTitle} · S${s.seasonNumber ?? "?"} E${s.episodeNumber ?? "?"}`
+          : s.title;
+        return (
+          <div key={s.key} className="tv-pref-row">
+            <div className="tv-pref-name">
+              <span>{s.profile ? `${s.username} · ${s.profile}` : s.username} — {title}</span>
+              <span className="tv-muted">
+                {s.state === "playing" ? "Playing" : "Paused"} · {fmtTime(s.position)} of {fmtTime(s.duration)} · {s.device} ·{" "}
+                {s.method === "direct" ? "Direct play" : "Remux"}
+              </span>
+            </div>
+          </div>
+        );
+      })}
     </section>
   );
 }
@@ -190,6 +228,7 @@ export default function SettingsPage() {
         {!user?.kids && <TvButton fk="classic" onClick={classic}>Use the phone-style interface</TvButton>}
         <TvButton fk="logout" icon={<Logout size={22} />} onClick={signOut}>Sign out</TvButton>
       </div>
+      {user?.isAdmin && !user.isProfile && <NowWatching />}
       <LibraryChoices />
       <AmbientChoices />
       {native && <LipSyncChoices />}
