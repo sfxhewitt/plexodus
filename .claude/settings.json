@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Google_Docs__update_doc"
+    ]
+  }
+}
