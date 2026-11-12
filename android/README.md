@@ -69,9 +69,16 @@ Android SDK:
 
 ```
 cd android
-gradle assembleRelease
-# app/build/outputs/apk/release/app-release.apk
+gradle assembleGithubRelease   # app/build/outputs/apk/github/release/ (self-updating APK)
+gradle bundleStoreRelease      # app/build/outputs/bundle/storeRelease/ (Google Play AAB)
+gradle assembleStoreRelease    # app/build/outputs/apk/store/release/ (Amazon Appstore APK)
 ```
+
+There are two flavours. `github` is the APK on the `latest` release and
+updates itself. `store` is for Google Play and the Amazon Appstore: the stores
+update it, so it leaves out the self-updater, its file provider and the
+`REQUEST_INSTALL_PACKAGES` permission (both stores forbid apps updating
+themselves). See `docs/store/README.md` for the listing kit.
 
 ## Signing
 

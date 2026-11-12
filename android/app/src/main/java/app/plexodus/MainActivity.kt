@@ -240,7 +240,7 @@ class MainActivity : Activity() {
 
         /** Player features the web UI can rely on (older apps lack this). */
         @JavascriptInterface
-        fun features(): String = "recap,avsync,update"
+        fun features(): String = if (BuildConfig.SELF_UPDATE) "recap,avsync,update" else "recap,avsync"
 
         /** "Check for updates" in Settings: the app shows its own dialogs. */
         @JavascriptInterface

@@ -93,6 +93,19 @@ export function Nav() {
     setUser(null);
   };
 
+  // Store policy: anyone who can make an account in the app can delete it there.
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const deleteAccount = async () => {
+    if (!confirmDelete) return setConfirmDelete(true);
+    try {
+      await api.del("/api/me");
+      api.invalidate();
+      setUser(null);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   return (
     <header className={`nav ${scrolled ? "scrolled" : ""}`}>
       <Logo />
@@ -133,6 +146,11 @@ export function Nav() {
               {!user?.isProfile && <button onClick={() => (setMenu(false), openProfiles?.(true))}>Manage profiles</button>}
               <hr />
               <button onClick={logout}><Logout size={16} /> Sign out{user?.isProfile ? ` of ${user.username}` : ""}</button>
+              {user && !user.isAdmin && !user.isProfile && (
+                <button className="danger" onClick={deleteAccount}>
+                  {confirmDelete ? "Click again to delete your account" : "Delete my account"}
+                </button>
+              )}
             </div>
           )}
         </div>

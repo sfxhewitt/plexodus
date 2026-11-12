@@ -16,6 +16,21 @@ const MOVIE_TITLES = [
 const SHOW_TITLES = ["Station Eleven Below", "The Vale", "Dead Reckoning", "Harbourmaster", "Kestrel", "Overground", "The Bureau of Lost Things", "Signal Fire"];
 const GENRES = ["Drama", "Thriller", "Science Fiction", "Comedy", "Mystery", "Crime"];
 
+// Made-up synopses for the made-up titles above.
+const LOGLINES = [
+  "A harbour pilot takes one last night crossing and finds the lights on the far shore were never meant for ships.",
+  "Three sisters return to the family orchard for one summer and learn what their mother buried under the oldest tree.",
+  "When the tide goes out further than anyone remembers, a fishing town walks out to see what it left behind.",
+  "A lantern maker and a night-market thief strike a deal that neither of them intends to keep.",
+  "An engineer racing to finish a railway across the mountains discovers the survey maps were drawn to hide something.",
+  "Twelve months, one small house, and a family learning to talk to each other again.",
+];
+const SHOW_LOGLINES = [
+  "Deep under a flooded city, the crew of a research station keep the lights on and the secrets in.",
+  "A quiet valley town, a new doctor, and a winter that refuses to end.",
+  "A navigator with no memory of the voyage is the only survivor who knows where the ship was going.",
+];
+
 export const MOVIES_LIB = 1;
 export const SHOWS_LIB = 2;
 
@@ -27,7 +42,7 @@ for (let i = 0; i < 60; i++) {
     id: 100 + i, libraryId: MOVIES_LIB, kind: "movie", title, year: 1985 + (i % 38),
     poster: `/p/m${i}.jpg`, backdrop: `/b/m${i}.jpg`, rating: 5 + ((i * 7) % 45) / 10, runtime: 85 + (i * 13) % 70,
     addedAt: NOW - i * DAY, watched: i % 5 === 0, position: i === 3 ? 2400 : undefined, duration: i === 3 ? 6000 : undefined,
-    overview: `${title} is a film about people, places and the long way round. Placeholder synopsis for the test library.`,
+    overview: LOGLINES[i % LOGLINES.length],
   });
 }
 
@@ -40,7 +55,7 @@ SHOW_TITLES.forEach((title, si) => {
   const show: Card = {
     id: showId, libraryId: SHOWS_LIB, kind: "show", title, year: 2008 + si, poster: `/p/s${si}.jpg`, backdrop: `/b/s${si}.jpg`,
     rating: 7 + (si % 3) / 2, addedAt: NOW - si * 2 * DAY, leafCount: 0, viewedLeafCount: 0,
-    overview: `${title}: a series. Placeholder synopsis for the test library.`,
+    overview: SHOW_LOGLINES[si % SHOW_LOGLINES.length],
   };
   const ss: Card[] = [];
   const nSeasons = si === 0 ? 4 : 1 + (si % 3);
@@ -74,6 +89,13 @@ const allEpisodes = [...episodes.values()].flat();
 const byId = new Map<number, Card>([...movies, ...shows, ...[...seasons.values()].flat(), ...allEpisodes].map((c) => [c.id, c]));
 
 /** Well-known ids the specs navigate to. */
+/** Artwork path -> the title it belongs to (store screenshots letter it onto the poster). */
+export const artTitles = new Map<string, string>();
+for (const c of [...movies, ...shows]) {
+  if (c.poster) artTitles.set(c.poster, c.title);
+  if (c.backdrop) artTitles.set(c.backdrop, c.title);
+}
+
 export const ids = {
   movie: movies[0].id,
   show: shows[0].id,

@@ -14,7 +14,7 @@ android {
     defaultConfig {
         applicationId = "app.plexodus"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = versionCodeEnv
         versionName = versionNameEnv
         // Where the app looks for its own updates (the "latest" release).
@@ -38,6 +38,23 @@ android {
                 keyAlias = "plexodus"
                 keyPassword = keystorePassword
             }
+        }
+    }
+
+    // Two ways the app reaches people:
+    //  - github: the APK on the "latest" release. It updates itself (Updater.kt).
+    //  - store:  Google Play (AAB) and the Amazon Appstore (APK). The store
+    //            updates it, so the self-updater and the install-packages
+    //            permission are left out (store policy forbids both).
+    flavorDimensions += "channel"
+    productFlavors {
+        create("github") {
+            dimension = "channel"
+            buildConfigField("boolean", "SELF_UPDATE", "true")
+        }
+        create("store") {
+            dimension = "channel"
+            buildConfigField("boolean", "SELF_UPDATE", "false")
         }
     }
 
