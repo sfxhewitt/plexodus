@@ -619,13 +619,16 @@ function Invites() {
   const [all, setAll] = useState(false);
   const [libs, setLibs] = useState<number[]>([]);
   const [note, setNote] = useState("");
-  const [link, setLink] = useState<string>();
+  const [days, setDays] = useState(7);
+  const [anyone, setAnyone] = useState(false);
+  const [made, setMade] = useState<{ url: string; code?: string; codeError?: string }>();
   const [error, setError] = useState<string>();
   const create = async () => {
     setError(undefined);
     try {
-      const r = await api.post<{ url: string }>("/api/invites", { allLibraries: all, libraries: libs, note });
-      setLink(r.url);
+      const r = await api.post<{ url: string; code?: string; codeError?: string }>("/api/invites",
+        { allLibraries: all, libraries: libs, note, days, maxUses: anyone ? 0 : 1 });
+      setMade(r);
       setNote("");
       reload();
     } catch (e) {
@@ -641,26 +644,54 @@ function Invites() {
     <section className="settings-section">
       <h2>Share libraries</h2>
       <div className="card form">
-        <p className="muted small" style={{ margin: 0 }}>Create an invite link and send it to a friend. They choose their own username and password, see only the libraries you pick, and get their own watch history. Links work once and expire after 7 days.</p>
+        <p className="muted small" style={{ margin: 0 }}>
+          Invite a friend: they type the invite code into the Plexodus app (no server address needed) or open the link. They choose their own
+          username and password, see only the libraries you pick, and get their own watch history and profiles.
+        </p>
         <LibraryPicker all={all} libs={libs} onChange={(a, l) => { setAll(a); setLibs(l); }} />
+        <div className="lib-picker">
+          {[1, 7, 30, 365].map((d) => (
+            <button key={d} type="button" className={`pick ${days === d ? "on" : ""}`} onClick={() => setDays(d)}>
+              {d === 1 ? "1 day" : d === 365 ? "1 year" : `${d} days`}
+            </button>
+          ))}
+          <button type="button" className={`pick ${!anyone ? "on" : ""}`} onClick={() => setAnyone(false)}>One person</button>
+          <button type="button" className={`pick ${anyone ? "on" : ""}`} onClick={() => setAnyone(true)}
+            title="Anyone with the code can make an account until it expires or you revoke it, e.g. for an app store reviewer">Anyone with the code</button>
+        </div>
         <div className="path-row">
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Who is it for? (optional note)" />
-          <button className="btn primary" onClick={create} disabled={!all && libs.length === 0}>Create invite link</button>
+          <button className="btn primary" onClick={create} disabled={!all && libs.length === 0}>Create invite</button>
         </div>
         {error && <div className="err">{error}</div>}
-        {link && (
-          <div className="path-row">
-            <input readOnly value={link} onFocus={(e) => e.target.select()} />
-            <button className="btn glass sm" onClick={() => navigator.clipboard?.writeText(link)}><Copy size={16} /> Copy</button>
-          </div>
+        {made && (
+          <>
+            {made.code && !made.codeError && (
+              <div className="invite-code">
+                <span className="muted small">Invite code</span>
+                <b>{made.code}</b>
+                <button className="btn glass sm" onClick={() => navigator.clipboard?.writeText(made.code!)}><Copy size={16} /> Copy</button>
+              </div>
+            )}
+            {made.codeError && <div className="muted small">{made.codeError}</div>}
+            <div className="path-row">
+              <input readOnly value={made.url} onFocus={(e) => e.target.select()} />
+              <button className="btn glass sm" onClick={() => navigator.clipboard?.writeText(made.url)}><Copy size={16} /> Copy link</button>
+            </div>
+          </>
         )}
         {invites && invites.length > 0 && (
           <div className="invite-list">
             {invites.map((inv) => (
               <div key={inv.token} className="invite-row">
                 <div>
-                  <div className="t">{inv.note || "Invite"} <span className="muted small">· {names(inv)}</span></div>
-                  <div className="muted small">{inv.usedBy ? `Accepted by ${inv.usedBy}` : `Expires ${new Date(inv.expiresAt * 1000).toLocaleDateString()}`}</div>
+                  <div className="t">
+                    {inv.code && <span className="chip">{inv.code}</span>} {inv.note || "Invite"} <span className="muted small">· {names(inv)}</span>
+                  </div>
+                  <div className="muted small">
+                    {inv.usedBy ? `Accepted by ${inv.usedBy}` : `Expires ${new Date(inv.expiresAt * 1000).toLocaleDateString()}`}
+                    {inv.maxUses === 0 && ` · anyone with the code · used ${inv.uses} ${inv.uses === 1 ? "time" : "times"}`}
+                  </div>
                 </div>
                 {!inv.usedBy && <button className="btn glass sm" onClick={() => revoke(inv.token)}>Revoke</button>}
               </div>

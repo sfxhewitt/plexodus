@@ -1,7 +1,7 @@
 import { FormEvent, StrictMode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
-import { api, art, Card, Detail, episodeLabel, Library, User } from "../api";
+import { api, art, Card, Detail, episodeLabel, inviteFromPath, Library, User } from "../api";
 import { Play, Search as SearchIcon } from "../components/Icons";
 import { UserContext, useUser } from "../hooks";
 import { native, NativeEnded } from "../native";
@@ -247,6 +247,12 @@ function Shell() {
 
 function Login({ setup, plex }: { setup: boolean; plex: boolean }) {
   const { setUser } = useUser();
+  // An invite code typed into the app opens /invite/<code>.
+  const [invite] = useState(() => inviteFromPath(window.location.pathname));
+  const [inviter, setInviter] = useState<string>();
+  useEffect(() => {
+    if (invite) api.get<{ inviter: string }>(`/api/invites/${invite}`).then((d) => setInviter(d.inviter), (e) => setError(e.message));
+  }, [invite]);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string>();
@@ -263,7 +269,10 @@ function Login({ setup, plex }: { setup: boolean; plex: boolean }) {
     setBusy(true);
     setError(undefined);
     try {
-      setUser(await api.post<User>(setup ? "/api/setup" : "/api/login", { username, password }));
+      const url = invite ? `/api/invites/${invite}/accept` : setup ? "/api/setup" : "/api/login";
+      const u = await api.post<User>(url, { username, password });
+      if (invite) window.history.replaceState(null, "", "/");
+      setUser(u);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -315,8 +324,12 @@ function Login({ setup, plex }: { setup: boolean; plex: boolean }) {
       <div className="tv-grain" />
       <form className="tv-login-card" onSubmit={submit}>
         <div className="tv-login-logo"><img src="/favicon.svg" alt="" /><span>plex<b>odus</b></span></div>
-        <p className="tv-muted">{setup ? "Create the admin account to get started." : "Sign in to your library."}</p>
-        {plex && !setup && (
+        <p className="tv-muted">
+          {invite
+            ? inviter ? `${inviter} invited you. Choose a username and password.` : "Checking your invite…"
+            : setup ? "Create the admin account to get started." : "Sign in to your library."}
+        </p>
+        {plex && !setup && !invite && (
           <>
             <button data-f data-autofocus className="tv-btn plex wide" type="button" onClick={plexStart} disabled={busy}>
               <span>Sign in with Plex</span>
@@ -324,12 +337,12 @@ function Login({ setup, plex }: { setup: boolean; plex: boolean }) {
             <p className="tv-muted tv-login-or">or use a Plexodus password</p>
           </>
         )}
-        <input data-f data-autofocus={!plex || setup ? true : undefined} placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
+        <input data-f data-autofocus={!plex || setup || invite ? true : undefined} placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
         <input data-f type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)}
-          autoComplete={setup ? "new-password" : "current-password"} />
+          autoComplete={setup || invite ? "new-password" : "current-password"} />
         {error && <div className="tv-error">{error}</div>}
         <button data-f className="tv-btn primary wide" type="submit" disabled={busy}>
-          <span>{busy ? "Signing in…" : setup ? "Create account" : "Sign in"}</span>
+          <span>{busy ? "Signing in…" : setup || invite ? "Create account" : "Sign in"}</span>
         </button>
         {native && (
           <button data-f type="button" className="tv-btn ghost wide" onClick={() => native?.changeServer()}>

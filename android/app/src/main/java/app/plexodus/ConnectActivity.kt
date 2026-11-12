@@ -82,7 +82,38 @@ class ConnectActivity : Activity() {
 
         field.setOnEditorActionListener { _, _, _ -> button.performClick(); true }
         button.setOnClickListener {
-            val url = Prefs.normalize(field.text.toString())
+            val typed = field.text.toString().trim()
+            InviteCodes.normalize(typed)?.let { inviteCode ->
+                button.isEnabled = false
+                spinner.visibility = View.VISIBLE
+                error.text = ""
+                io.execute {
+                    val found = try {
+                        InviteCodes.resolve(inviteCode)?.let { u -> Prefs.normalize(u) }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            button.isEnabled = true
+                            spinner.visibility = View.GONE
+                            error.text = getString(R.string.invite_lookup_failed, e.message ?: e.javaClass.simpleName)
+                        }
+                        return@execute
+                    }
+                    val problem = if (found == null) getString(R.string.invite_unknown) else check(found)
+                    runOnUiThread {
+                        button.isEnabled = true
+                        spinner.visibility = View.GONE
+                        if (found != null && problem == null) {
+                            Prefs.setServer(this, found)
+                            startActivity(Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_START_PATH, "/invite/$inviteCode"))
+                            finish()
+                        } else {
+                            error.text = problem
+                        }
+                    }
+                }
+                return@setOnClickListener
+            }
+            val url = Prefs.normalize(typed)
             if (url.isEmpty() || url.endsWith("://")) {
                 error.text = getString(R.string.connect_enter_address)
                 return@setOnClickListener

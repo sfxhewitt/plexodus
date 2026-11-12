@@ -120,7 +120,9 @@ class MainActivity : Activity() {
         }
         findViewById<View>(R.id.change_server).setOnClickListener { changeServer() }
 
-        if (savedInstanceState == null) web.loadUrl(server) else web.restoreState(savedInstanceState)
+        // An invite code opens its sign-up page first.
+        val start = intent.getStringExtra(EXTRA_START_PATH)?.let { server.trimEnd('/') + it } ?: server
+        if (savedInstanceState == null) web.loadUrl(start) else web.restoreState(savedInstanceState)
         Updater.cleanup(this)
     }
 
@@ -273,6 +275,7 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        const val EXTRA_START_PATH = "startPath"
         private const val REQ_PLAY = 1
         private const val REQ_CALIBRATE = 2
         const val BG = 0xFF050505.toInt()

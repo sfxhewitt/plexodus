@@ -1,7 +1,7 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { api, User } from "./api";
+import { api, inviteFromPath, User } from "./api";
 import { Nav } from "./components/Nav";
 import { WhoIsWatching } from "./components/Profiles";
 import { forgetPicked, goHome, loadProfiles, shouldPick } from "./profiles";
@@ -86,7 +86,7 @@ function App() {
           <Shell />
         </BrowserRouter>
       ) : (
-        <Login setup={state.setup} invite={window.location.pathname.match(/^\/invite\/([a-f0-9]+)$/)?.[1]} />
+        <Login setup={state.setup} invite={inviteFromPath(window.location.pathname)} />
       )}
     </UserContext.Provider>
   );
