@@ -15,6 +15,7 @@ import Player from "./pages/Player";
 import Search from "./pages/Search";
 import Settings from "./pages/Settings";
 import Wrapped from "./pages/Wrapped";
+import Activity from "./pages/Activity";
 import "./styles.css";
 
 function Shell() {
@@ -35,6 +36,7 @@ function Shell() {
           <Route path="/play/:id" element={<Player />} />
           <Route path="/search" element={<Search />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/activity" element={<Activity />} />
           <Route path="/wrapped" element={<Wrapped />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

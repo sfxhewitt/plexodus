@@ -93,17 +93,40 @@ func (a *Auth) EndSessions(ctx context.Context, userID int64) {
 }
 
 // PlexFriends lists non-admin accounts linked to Plex: user id -> plex id.
-func (a *Auth) PlexFriends(ctx context.Context) (map[int64]int64, error) {
-	rows, err := a.db.R.QueryContext(ctx, `SELECT id, plex_id FROM users WHERE plex_id IS NOT NULL AND is_admin = 0 AND parent_id IS NULL`)
+func (a *Auth) PlexFriends(ctx context.Context) (map[int64]PlexFriend, error) {
+	rows, err := a.db.R.QueryContext(ctx, `SELECT id, plex_id, access_custom FROM users
+		WHERE plex_id IS NOT NULL AND is_admin = 0 AND parent_id IS NULL`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	m := map[int64]int64{}
+	m := map[int64]PlexFriend{}
 	for rows.Next() {
-		var id, pid int64
-		rows.Scan(&id, &pid)
-		m[id] = pid
+		var id int64
+		var f PlexFriend
+		rows.Scan(&id, &f.PlexID, &f.Custom)
+		m[id] = f
 	}
 	return m, rows.Err()
+}
+
+// PlexFriend is a Plex-linked account: Custom is set once an admin picked
+// its libraries in Plexodus instead of following the Plex share.
+type PlexFriend struct {
+	PlexID int64
+	Custom bool
+}
+
+// AccessCustom reports whether an admin overrode the account's Plex share.
+func (a *Auth) AccessCustom(ctx context.Context, userID int64) bool {
+	var c bool
+	a.db.R.QueryRowContext(ctx, `SELECT access_custom FROM users WHERE id = ?`, userID).Scan(&c)
+	return c
+}
+
+// SetAccessCustom marks whether the account's libraries are chosen in
+// Plexodus (true) or follow its Plex share (false).
+func (a *Auth) SetAccessCustom(ctx context.Context, userID int64, custom bool) error {
+	_, err := a.db.W.ExecContext(ctx, `UPDATE users SET access_custom = ? WHERE id = ?`, custom, userID)
+	return err
 }

@@ -147,6 +147,10 @@ func (s *Server) plexSignIn(ctx context.Context, token string) (int64, error) {
 		}
 		log.Printf("plex sign-in: created an account for Plex friend %s", me.Name())
 	}
+	if s.auth.AccessCustom(ctx, id) {
+		// An admin chose this friend's libraries in Plexodus.
+		return id, nil
+	}
 	if shareErr != nil {
 		// plex.tv confirmed they can reach the server, but not which
 		// libraries: let them see everything rather than an empty app.
@@ -434,14 +438,17 @@ func (s *Server) refreshPlexFriends(ctx context.Context) {
 		log.Printf("plex friends: couldn't read Plex sharing: %v", err)
 		return
 	}
-	for userID, plexID := range friends {
-		sh, ok := findShare(shares, plexID, "")
+	for userID, f := range friends {
+		sh, ok := findShare(shares, f.PlexID, "")
 		if !ok {
 			if err := s.auth.SetAccess(ctx, userID, false, nil); err == nil {
 				s.auth.EndSessions(ctx, userID)
 				log.Printf("plex friends: user %d is no longer shared in Plex; signed out", userID)
 			}
 			continue
+		}
+		if f.Custom {
+			continue // libraries chosen in Plexodus
 		}
 		if err := s.applyShare(ctx, userID, sh); err != nil {
 			log.Printf("plex friends: user %d: %v", userID, err)

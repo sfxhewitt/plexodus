@@ -778,11 +778,15 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Position float64 `json:"position"`
 		Duration float64 `json:"duration"`
+		// State is what the player is doing: playing, paused or stopped
+		// (older players leave it out). It only feeds Now watching.
+		State string `json:"state"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	s.nowPlaying.progress(r, currentUser(r).ID, id, body.Position, body.Duration, body.State)
 	watched := body.Duration > 0 && body.Position/body.Duration > 0.92
 	pos := body.Position
 	if watched {

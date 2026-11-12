@@ -56,15 +56,16 @@ type Server struct {
 	plexArtMu       sync.Mutex
 	plexArtInflight map[string]*artFetch
 
-	smart smartCache
-	files fileStats
-	homes homeCache
+	smart      smartCache
+	nowPlaying *nowPlaying
+	files      fileStats
+	homes      homeCache
 }
 
 func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner, agent *metadata.Agent,
 	art *metadata.ArtCache, prober *probe.Worker, streams *stream.Manager, web fs.FS) *Server {
 	s := &Server{cfg: cfg, db: d, auth: auth.New(d), scanner: sc, agent: agent, art: art, prober: prober, streams: streams,
-		importer: plex.NewImporter(d), web: web, baseCtx: ctx, plexArtInflight: map[string]*artFetch{},
+		importer: plex.NewImporter(d), web: web, baseCtx: ctx, plexArtInflight: map[string]*artFetch{}, nowPlaying: newNowPlaying(),
 		subs: subs.New(cfg.FFmpeg, cfg.FFprobe, filepath.Join(cfg.DataDir, "subs"))}
 	key := d.Setting(ctx, "stream_sign_key")
 	if key == "" {
@@ -161,6 +162,7 @@ func (s *Server) Handler() http.Handler {
 	admin("POST /api/items/{id}/refresh", s.handleRefresh)
 	admin("GET /api/settings", s.handleGetSettings)
 	admin("PUT /api/settings", s.handlePutSettings)
+	admin("GET /api/activity", s.handleActivity)
 	admin("GET /api/users", s.handleUsers)
 	admin("POST /api/users", s.handleCreateUser)
 	admin("DELETE /api/users/{id}", s.handleDeleteUser)

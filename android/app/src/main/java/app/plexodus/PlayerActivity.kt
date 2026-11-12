@@ -766,7 +766,7 @@ class PlayerActivity : Activity() {
         autoPlays = if (auto) autoPlays + 1 else 0
         hideUpNext()
         if (syncMode) closeSync(keep = true)
-        report(force = true, positionMs = lengthMs)
+        report(force = true, positionMs = lengthMs, stopped = true)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         root.keepScreenOn = true
         spinner.visibility = View.VISIBLE
@@ -996,12 +996,14 @@ class PlayerActivity : Activity() {
 
     // ---- progress reporting, same contract as the web player ----
 
-    private fun report(force: Boolean = false, positionMs: Long = timeMs) {
+    private fun report(force: Boolean = false, positionMs: Long = timeMs, stopped: Boolean = false) {
         if (calibrating || lengthMs <= 0 || itemId == 0L) return
         val now = System.currentTimeMillis()
         if (!force && now - lastReport < 10_000) return
         lastReport = now
-        val body = "{\"position\":${positionMs / 1000.0},\"duration\":${lengthMs / 1000.0}}"
+        // state feeds the server's Now watching page.
+        val state = if (finished || stopped) "stopped" else if (playing) "playing" else "paused"
+        val body = "{\"position\":${positionMs / 1000.0},\"duration\":${lengthMs / 1000.0},\"state\":\"$state\"}"
         io.execute {
             try {
                 Http.request("$server/api/items/$itemId/progress", "POST", body, mapOf("Cookie" to cookie))

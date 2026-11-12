@@ -1,6 +1,7 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -16,20 +17,65 @@ type accessBody struct {
 	Libraries    []int64 `json:"libraries"`
 }
 
+// handleUserAccess sets which libraries an account sees. For a Plex friend,
+// followPlex=true goes back to mirroring their Plex share; otherwise the
+// libraries given here stick and the hourly Plex check leaves them alone.
 func (s *Server) handleUserAccess(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r, "id")
 	if !ok {
 		writeErr(w, 400, "bad id")
 		return
 	}
-	var b accessBody
+	var b struct {
+		accessBody
+		FollowPlex bool `json:"followPlex"`
+	}
 	if err := readJSON(r, &b); err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	if err := s.auth.SetAccess(r.Context(), id, b.AllLibraries, b.Libraries); err != nil {
+	ctx := r.Context()
+	var plexID sql.NullInt64
+	if err := s.db.R.QueryRowContext(ctx, `SELECT plex_id FROM users WHERE id = ? AND parent_id IS NULL`, id).Scan(&plexID); err != nil {
+		writeErr(w, 404, "no such user")
+		return
+	}
+	if b.FollowPlex {
+		if !plexID.Valid {
+			writeErr(w, 400, "this account isn't linked to Plex")
+			return
+		}
+		if err := s.auth.SetAccessCustom(ctx, id, false); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		shares, err := s.plexShares(ctx)
+		if err != nil {
+			writeErr(w, 502, "saved, but couldn't read Plex sharing just now ("+err.Error()+"); it will catch up within the hour")
+			return
+		}
+		sh, shared := findShare(shares, plexID.Int64, "")
+		if !shared {
+			err = s.auth.SetAccess(ctx, id, false, nil)
+		} else {
+			err = s.applyShare(ctx, id, sh)
+		}
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+		return
+	}
+	if err := s.auth.SetAccess(ctx, id, b.AllLibraries, b.Libraries); err != nil {
 		writeErr(w, 500, err.Error())
 		return
+	}
+	if plexID.Valid {
+		if err := s.auth.SetAccessCustom(ctx, id, true); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
 	}
 	writeJSON(w, map[string]bool{"ok": true})
 }

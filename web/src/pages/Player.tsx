@@ -162,6 +162,7 @@ export default function Player() {
   const [upNext, setUpNext] = useState<Card | null>(null);
   const [countdown, setCountdown] = useState(0);
   const lastReport = useRef(0);
+  const lastSent = useRef<{ id: number; position: number; duration: number }>();
   const [markers, setMarkers] = useState<Marker[]>([]);
   const nativeMode = !!native;
 
@@ -478,7 +479,7 @@ export default function Player() {
   const absTime = () => offset + (video.current?.currentTime || 0);
 
   const report = useCallback(
-    (force = false) => {
+    (force = false, stopped = false) => {
       const v = video.current;
       if (!v || !item) return;
       const duration = inHls ? dur : v.duration;
@@ -486,7 +487,10 @@ export default function Player() {
       const now = Date.now();
       if (!force && now - lastReport.current < 10000) return;
       lastReport.current = now;
-      const body = JSON.stringify({ position: offset + v.currentTime, duration });
+      // state feeds the admin's Now watching page.
+      const state = stopped ? "stopped" : v.paused ? "paused" : "playing";
+      lastSent.current = { id: item.id, position: offset + v.currentTime, duration };
+      const body = JSON.stringify({ position: offset + v.currentTime, duration, state });
       if (force && navigator.sendBeacon) {
         navigator.sendBeacon(`/api/items/${item.id}/progress`, new Blob([body], { type: "application/json" }));
       } else {
@@ -497,7 +501,7 @@ export default function Player() {
   );
 
   useEffect(() => {
-    const onHide = () => report(true);
+    const onHide = () => report(true, true);
     window.addEventListener("pagehide", onHide);
     return () => {
       window.removeEventListener("pagehide", onHide);
@@ -506,6 +510,20 @@ export default function Player() {
       api.invalidate("/api/items");
     };
   }, [report]);
+
+  // Leaving the player (or moving to another item) tells Now watching this
+  // stream stopped. It runs after the video element is gone, so it reuses the
+  // last position reported.
+  const itemId = item?.id;
+  useEffect(() => {
+    if (!itemId) return;
+    return () => {
+      const last = lastSent.current;
+      if (!last || last.id !== itemId || !navigator.sendBeacon) return;
+      const body = JSON.stringify({ position: last.position, duration: last.duration, state: "stopped" });
+      navigator.sendBeacon(`/api/items/${itemId}/progress`, new Blob([body], { type: "application/json" }));
+    };
+  }, [itemId]);
 
   // Start position: resume unless ?from=0.
   const onLoaded = () => {
@@ -539,7 +557,7 @@ export default function Player() {
   };
 
   const onEnded = async () => {
-    report(true);
+    report(true, true);
     if (item?.kind !== "episode" || !item.showId) return;
     // Give the server a moment to record the watch before asking what's next.
     await new Promise((r) => setTimeout(r, 400));

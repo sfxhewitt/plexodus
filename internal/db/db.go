@@ -78,6 +78,9 @@ func migrate(w *sql.DB) error {
 		// Sign in with Plex: the plex.tv account linked to a Plexodus account.
 		{"users", "plex_id", "INTEGER"},
 		{"users", "plex_username", "TEXT"},
+		// 1 when an admin chose a Plex friend's libraries in Plexodus, so
+		// the hourly Plex sharing check leaves them alone.
+		{"users", "access_custom", "INTEGER NOT NULL DEFAULT 0"},
 	}
 	for _, c := range columns {
 		var n int

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, fmtSize, Invite, Library, PlexStatus, PlexSyncStatus, ScanProgress, User } from "../api";
+import { AdminUser, api, fmtSize, Invite, Library, PlexStatus, PlexSyncStatus, ScanProgress, User } from "../api";
 import { Copy, Folder, Plus, Refresh, Trash, X } from "../components/Icons";
 import { useApi, useUser } from "../hooks";
 
@@ -571,12 +571,19 @@ function LibraryPicker({ all, libs, onChange }: { all: boolean; libs: number[]; 
   );
 }
 
-function AccessModal({ u, onClose, onSaved }: { u: User; onClose: () => void; onSaved: () => void }) {
+function AccessModal({ u, onClose, onSaved }: { u: AdminUser; onClose: () => void; onSaved: () => void }) {
   const [all, setAll] = useState(u.allLibraries);
   const [libs, setLibs] = useState(u.libraries);
+  const [followPlex, setFollowPlex] = useState(u.followPlex);
+  const [error, setError] = useState<string>();
   const save = async () => {
-    await api.put(`/api/users/${u.id}/access`, { allLibraries: all, libraries: libs });
-    onSaved();
+    setError(undefined);
+    try {
+      await api.put(`/api/users/${u.id}/access`, { allLibraries: all, libraries: libs, followPlex });
+      onSaved();
+    } catch (e) {
+      setError((e as Error).message);
+    }
   };
   return (
     <div className="modal-back" onClick={onClose}>
@@ -585,8 +592,22 @@ function AccessModal({ u, onClose, onSaved }: { u: User; onClose: () => void; on
           <h2>Libraries {u.username} can see</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Close"><X /></button>
         </div>
-        <LibraryPicker all={all} libs={libs} onChange={(a, l) => { setAll(a); setLibs(l); }} />
-        <div className="modal-foot"><button className="btn primary" onClick={save} disabled={!all && libs.length === 0}>Save</button></div>
+        {u.plexUsername && (
+          <div className="lib-picker">
+            <button type="button" className={`pick ${followPlex ? "on" : ""}`} onClick={() => setFollowPlex(true)}>Same as their Plex share</button>
+            <button type="button" className={`pick ${!followPlex ? "on" : ""}`} onClick={() => setFollowPlex(false)}>Choose in Plexodus</button>
+          </div>
+        )}
+        {u.plexUsername && (
+          <p className="muted small" style={{ margin: "8px 0" }}>
+            {followPlex
+              ? `${u.plexUsername} sees the libraries you share with them in Plex, checked every hour.`
+              : "Your choice below sticks, whatever you share in Plex. Removing them from Plex sharing altogether still signs them out."}
+          </p>
+        )}
+        {!followPlex && <LibraryPicker all={all} libs={libs} onChange={(a, l) => { setAll(a); setLibs(l); }} />}
+        {error && <div className="err">{error}</div>}
+        <div className="modal-foot"><button className="btn primary" onClick={save} disabled={!followPlex && !all && libs.length === 0}>Save</button></div>
       </div>
     </div>
   );
@@ -653,22 +674,24 @@ function Invites() {
 
 function Users() {
   const { user } = useUser();
-  const { data: users, reload } = useApi<User[]>("/api/users");
+  const { data: users, reload } = useApi<AdminUser[]>("/api/users");
   const { data: libraries } = useApi<Library[]>("/api/libraries");
   const [name, setName] = useState("");
   const [pass, setPass] = useState("");
   const [admin, setAdmin] = useState(false);
   const [error, setError] = useState<string>();
-  const [editing, setEditing] = useState<User>();
+  const [editing, setEditing] = useState<AdminUser>();
   const add = async (e: FormEvent) => {
     e.preventDefault();
     setError(undefined);
     try {
-      await api.post("/api/users", { username: name, password: pass, isAdmin: admin });
+      const u = await api.post<User>("/api/users", { username: name, password: pass, isAdmin: admin });
       setName("");
       setPass("");
       setAdmin(false);
       reload();
+      // Pick what a new friend can see straight away.
+      if (!u.isAdmin) setEditing({ ...u, followPlex: false });
     } catch (err) {
       setError((err as Error).message);
     }
@@ -682,10 +705,13 @@ function Users() {
     const p = prompt(`New password for ${u.username}`);
     if (p) await api.put(`/api/users/${u.id}/password`, { password: p }).catch((e) => alert(e.message));
   };
-  const access = (u: User) => {
-    if (u.isAdmin || u.allLibraries) return "All libraries";
-    if (!u.libraries.length) return "No libraries";
-    return u.libraries.map((id) => libraries?.find((l) => l.id === id)?.name).filter(Boolean).join(", ");
+  const access = (u: AdminUser) => {
+    let s: string;
+    if (u.isAdmin || u.allLibraries) s = "All libraries";
+    else if (!u.libraries.length) s = "No libraries";
+    else s = u.libraries.map((id) => libraries?.find((l) => l.id === id)?.name).filter(Boolean).join(", ");
+    if (u.plexUsername && !u.isAdmin) s += u.followPlex ? " · from Plex sharing" : " · chosen in Plexodus";
+    return s;
   };
   return (
     <section className="settings-section">
@@ -695,7 +721,10 @@ function Users() {
           <div key={u.id} className="user-row">
             <span className="avatar static"><span>{u.username[0].toUpperCase()}</span></span>
             <div className="user-main">
-              <span className="t">{u.username} {u.isAdmin && <span className="chip">admin</span>}</span>
+              <span className="t">
+                {u.username} {u.isAdmin && <span className="chip">admin</span>}{" "}
+                {u.plexUsername && <span className="chip" title={`Plex account: ${u.plexUsername}`}>Plex</span>}
+              </span>
               <span className="muted small">{access(u)}</span>
             </div>
             <span className="spacer" />

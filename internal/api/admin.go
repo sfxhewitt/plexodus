@@ -423,22 +423,39 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 
 // ---- users ----
 
+// adminUser is a row in Settings > Users.
+type adminUser struct {
+	auth.User
+	// PlexUsername is set for accounts linked to plex.tv (Sign in with Plex).
+	PlexUsername string `json:"plexUsername,omitempty"`
+	// FollowPlex: a Plex friend's libraries track their Plex share; false
+	// once an admin picks them in Plexodus.
+	FollowPlex bool  `json:"followPlex"`
+	LastSeen   int64 `json:"lastSeen,omitempty"`
+}
+
 func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.R.QueryContext(r.Context(), `SELECT id, username, is_admin FROM users WHERE parent_id IS NULL ORDER BY username`)
+	rows, err := s.db.R.QueryContext(r.Context(), `SELECT u.id, u.username, u.is_admin, COALESCE(u.plex_username, ''),
+		u.plex_id IS NOT NULL AND u.access_custom = 0,
+		COALESCE((SELECT MAX(created_at) FROM sessions se WHERE se.user_id = u.id), 0)
+		FROM users u WHERE u.parent_id IS NULL ORDER BY u.username`)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
 	defer rows.Close()
-	out := []auth.User{}
+	out := []adminUser{}
 	for rows.Next() {
-		var u auth.User
-		rows.Scan(&u.ID, &u.Username, &u.IsAdmin)
+		var u adminUser
+		rows.Scan(&u.ID, &u.Username, &u.IsAdmin, &u.PlexUsername, &u.FollowPlex, &u.LastSeen)
 		out = append(out, u)
 	}
 	rows.Close()
 	for i := range out {
-		auth.LoadAccess(r.Context(), s.db.R, &out[i])
+		auth.LoadAccess(r.Context(), s.db.R, &out[i].User)
+		if out[i].IsAdmin {
+			out[i].FollowPlex = false
+		}
 	}
 	writeJSON(w, out)
 }
