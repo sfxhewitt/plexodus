@@ -161,6 +161,20 @@
                 android:tint="@color/control_fg" />
         </LinearLayout>
 
+        <!-- Scrub preview: the frame at the time you're seeking to. -->
+        <ImageView
+            android:id="@+id/scrub_preview"
+            android:layout_width="208dp"
+            android:layout_height="117dp"
+            android:layout_gravity="bottom|start"
+            android:layout_marginBottom="96dp"
+            android:background="@drawable/bg_track_panel"
+            android:contentDescription="@null"
+            android:elevation="6dp"
+            android:padding="2dp"
+            android:scaleType="centerCrop"
+            android:visibility="gone" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

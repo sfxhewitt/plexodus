@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/sfxhewitt/plexodus/internal/thumbs"
 	"io/fs"
 	"log"
 	"net/http"
@@ -61,13 +62,15 @@ type Server struct {
 	directory  *directory
 	files      fileStats
 	homes      homeCache
+	thumbs     *thumbs.Manager
 }
 
 func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner, agent *metadata.Agent,
 	art *metadata.ArtCache, prober *probe.Worker, streams *stream.Manager, web fs.FS) *Server {
 	s := &Server{cfg: cfg, db: d, auth: auth.New(d), scanner: sc, agent: agent, art: art, prober: prober, streams: streams,
 		importer: plex.NewImporter(d), web: web, baseCtx: ctx, plexArtInflight: map[string]*artFetch{}, nowPlaying: newNowPlaying(), directory: newDirectory(),
-		subs: subs.New(cfg.FFmpeg, cfg.FFprobe, filepath.Join(cfg.DataDir, "subs"))}
+		subs:   subs.New(cfg.FFmpeg, cfg.FFprobe, filepath.Join(cfg.DataDir, "subs")),
+		thumbs: thumbs.New(cfg.FFmpeg, filepath.Join(cfg.DataDir, "thumbs"))}
 	key := d.Setting(ctx, "stream_sign_key")
 	if key == "" {
 		key = randomHex(32)
@@ -151,6 +154,8 @@ func (s *Server) Handler() http.Handler {
 	user("GET /api/items/{id}/markers", s.handleMarkers)
 	user("GET /api/items/{id}/trailer", s.handleTrailer)
 	user("GET /api/items/{id}/extras", s.handleExtras)
+	user("GET /api/files/{id}/thumbs", s.handleThumbs)
+	user("GET /api/files/{id}/thumbs/{n}", s.handleThumbSheet)
 	user("GET /api/screensaver", s.handleScreensaver)
 	user("GET /api/subs/{fileId}", s.handleSubtitleTracks)
 	user("GET /api/subs/{fileId}/tracks/{track}", s.handleSubtitleTrack)

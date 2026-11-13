@@ -231,7 +231,10 @@ class PlayerActivity : Activity() {
 
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
-                if (fromUser) timeText.text = fmt(progress * 1000L)
+                if (fromUser) {
+                    timeText.text = fmt(progress * 1000L)
+                    showScrubPreview(progress * 1000L)
+                }
             }
 
             override fun onStartTrackingTouch(bar: SeekBar) {
@@ -298,6 +301,7 @@ class PlayerActivity : Activity() {
 
         requestAudioFocus()
         load(url, startMs)
+        loadThumbs()
         if (calibrating) {
             overlay.visibility = View.GONE
             controlsVisible = false
@@ -454,6 +458,7 @@ class PlayerActivity : Activity() {
         timeMs = target
         updateTime()
         setControls(true)
+        showScrubPreview(target)
     }
 
     private fun setControls(visible: Boolean) {
@@ -617,6 +622,88 @@ class PlayerActivity : Activity() {
         setTextColor(fg)
         setOnFocusChangeListener { v, has -> (v as TextView).setTextColor(if (has) dark else fg) }
         setOnClickListener { onPick() }
+    }
+
+    // ---- scrub previews ----
+
+    private class Thumbs(val fileId: Long, val interval: Double, val count: Int, val cols: Int, val rows: Int,
+                         val w: Int, val h: Int, val sheets: List<String>)
+
+    private var thumbs: Thumbs? = null
+    private val sheetCache = HashMap<String, android.graphics.Bitmap>()
+    private val sheetLoading = HashSet<String>()
+    private val thumbRetry = Any()
+    private val hidePreview = Runnable { findViewById<View>(R.id.scrub_preview).visibility = View.GONE }
+
+    /** Asks for the file's preview sheets; they're made a few minutes into its first play, so ask again later. */
+    private fun loadThumbs() {
+        val id = fileId
+        thumbs = null
+        sheetCache.clear()
+        ui.removeCallbacksAndMessages(thumbRetry)
+        if (id <= 0 || server.isEmpty() || calibrating) return
+        for (after in longArrayOf(0, 5 * 60_000, 12 * 60_000)) {
+            ui.postAtTime({ fetchThumbs(id) }, thumbRetry, SystemClock.uptimeMillis() + after)
+        }
+    }
+
+    private fun fetchThumbs(id: Long) {
+        if (thumbs?.fileId == id || finished) return
+        io.execute {
+            try {
+                val r = Http.request("$server/api/files/$id/thumbs", headers = mapOf("Cookie" to cookie))
+                if (r.code != 200) return@execute
+                val j = org.json.JSONObject(r.body)
+                val sheets = j.getJSONArray("sheets").let { a -> List(a.length()) { a.getString(it) } }
+                val t = Thumbs(id, j.getDouble("interval"), j.getInt("count"), j.getInt("cols"), j.getInt("rows"),
+                    j.getInt("width"), j.getInt("height"), sheets)
+                ui.post { if (fileId == id) thumbs = t }
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun showScrubPreview(ms: Long) {
+        val t = thumbs ?: return
+        if (t.count <= 0 || lengthMs <= 0) return
+        val idx = ((ms / 1000.0) / t.interval).toInt().coerceIn(0, t.count - 1)
+        val perSheet = t.cols * t.rows
+        val url = t.sheets.getOrNull(idx / perSheet) ?: return
+        val sheet = sheetCache[url]
+        if (sheet == null) {
+            if (sheetLoading.add(url)) {
+                io.execute {
+                    val b = Http.bytes(server + url, mapOf("Cookie" to cookie))
+                    val bmp = b?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }
+                    ui.post {
+                        sheetLoading.remove(url)
+                        if (bmp != null && thumbs === t) {
+                            sheetCache[url] = bmp
+                            if (seeking || controlsVisible) showScrubPreview(timeMs)
+                        }
+                    }
+                }
+            }
+            return
+        }
+        val cell = idx % perSheet
+        val x = (cell % t.cols) * t.w
+        val y = (cell / t.cols) * t.h
+        if (x + t.w > sheet.width || y + t.h > sheet.height) return
+        val preview = findViewById<android.widget.ImageView>(R.id.scrub_preview)
+        preview.setImageBitmap(android.graphics.Bitmap.createBitmap(sheet, x, y, t.w, t.h))
+        // Centre it over the seek bar at that time.
+        val seekLoc = IntArray(2)
+        val parentLoc = IntArray(2)
+        seek.getLocationInWindow(seekLoc)
+        (preview.parent as View).getLocationInWindow(parentLoc)
+        val frac = ms.toFloat() / lengthMs
+        val cx = seekLoc[0] - parentLoc[0] + seek.paddingLeft + frac * (seek.width - seek.paddingLeft - seek.paddingRight)
+        val maxX = ((preview.parent as View).width - preview.width).toFloat().coerceAtLeast(0f)
+        preview.translationX = (cx - preview.width / 2f).coerceIn(0f, maxX)
+        preview.visibility = View.VISIBLE
+        ui.removeCallbacks(hidePreview)
+        ui.postDelayed(hidePreview, 1500)
     }
 
     // ---- Dolby / DTS badge ----
@@ -1059,6 +1146,7 @@ class PlayerActivity : Activity() {
                 overviewText.visibility = View.GONE
                 skipButton.visibility = View.GONE
                 load(p.optString("externalUrl"), startMs)
+                loadThumbs()
                 setControls(true)
             }
         }

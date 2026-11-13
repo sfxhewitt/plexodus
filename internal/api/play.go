@@ -97,6 +97,9 @@ func (s *Server) handlePlay(w http.ResponseWriter, r *http.Request) {
 	s.db.R.QueryRowContext(r.Context(), `SELECT position FROM watch_state WHERE user_id = ? AND item_id = ? AND watched = 0`,
 		currentUser(r).ID, itemID).Scan(&position)
 
+	// Scrub previews, made a few minutes in while the file is in rclone's cache.
+	s.thumbs.Queue(s.baseCtx, fileID, path, f.Duration)
+
 	name := filepath.Base(path)
 	rel := s.streamPath(fileID, currentUser(r).ID, name)
 	writeJSON(w, map[string]any{
