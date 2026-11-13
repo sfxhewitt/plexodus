@@ -99,13 +99,21 @@ func (s *Server) handleWrapped(w http.ResponseWriter, r *http.Request) {
 	if err != nil || r.URL.Query().Get("tz") == "" {
 		loc = time.Local
 	}
-	years := s.wrappedYears(r, u.ID)
-	year, _ := strconv.Atoi(r.URL.Query().Get("year"))
-	if year == 0 {
-		year = time.Now().In(loc).Year()
-		if len(years) > 0 && years[0] < year {
-			year = years[0]
+	season, open := wrappedSeason(wrappedNow().In(loc))
+	if !open {
+		writeErr(w, 404, "Plexodus Wrapped is back on 26 December.")
+		return
+	}
+	// Only finished (or finishing) years: in January, not the one just begun.
+	years := []int{}
+	for _, y := range s.wrappedYears(r, u.ID) {
+		if y <= season {
+			years = append(years, y)
 		}
+	}
+	year, _ := strconv.Atoi(r.URL.Query().Get("year"))
+	if year == 0 || year > season {
+		year = season
 	}
 	out := Wrapped{Year: year, Years: years, TopShows: []WrappedTitle{}, TopMovies: []WrappedTitle{}, TopGenres: []WrappedGenre{}}
 	from := time.Date(year, 1, 1, 0, 0, 0, 0, loc).Unix()
@@ -330,10 +338,9 @@ func persona(hour, plays int) (string, string) {
 // wrappedTeaser says whether Home should offer Wrapped: the user has plays
 // in the current year (or, in early January, last year).
 func (s *Server) wrappedTeaser(r *http.Request) map[string]int {
-	now := time.Now()
-	year := now.Year()
-	if now.YearDay() <= 14 {
-		year--
+	year, ok := wrappedSeason(wrappedNow())
+	if !ok {
+		return nil
 	}
 	from := time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC).Unix()
 	to := time.Date(year+1, 1, 1, 0, 0, 0, 0, time.UTC).Unix()
@@ -344,4 +351,21 @@ func (s *Server) wrappedTeaser(r *http.Request) map[string]int {
 		return nil
 	}
 	return map[string]int{"year": year, "plays": n}
+}
+
+// wrappedNow is the clock Wrapped's season is judged by (tests replace it).
+var wrappedNow = time.Now
+
+// wrappedSeason says whether Wrapped is open at t and which year it looks
+// back on. It is only around in a short window at the turn of the year:
+// from 26 December (showing the year that is ending) to the end of January
+// (showing the year just gone). The rest of the year it is hidden.
+func wrappedSeason(t time.Time) (year int, open bool) {
+	switch {
+	case t.Month() == time.December && t.Day() >= 26:
+		return t.Year(), true
+	case t.Month() == time.January:
+		return t.Year() - 1, true
+	}
+	return 0, false
 }
