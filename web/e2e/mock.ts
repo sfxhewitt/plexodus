@@ -125,8 +125,28 @@ function file(c: Card) {
 // One franchise: three films that other tests leave alone.
 const COLLECTION = {
   items: () => movies.slice(10, 13),
-  card: () => ({ id: 900, name: "The Atlas Collection", poster: movies[10].poster, backdrop: movies[10].backdrop, count: 3, watched: 0 }),
+  card: () => ({ id: 900, name: "The Atlas Collection", poster: movies[10].poster, backdrop: movies[10].backdrop, count: 3, watched: 0,
+    source: "tmdb" as const, kind: "movie" as const, group: "Franchises & series" }),
 };
+
+/** Collections from Plex: enough studios for a "See all", and one of shows. */
+const PLEX_COLLECTIONS = () => [
+  ...Array.from({ length: 34 }, (_, i) => ({ id: 1_000_000_000_100 + i, name: `Studio ${i + 1}`, poster: movies[i].poster,
+    count: 2, watched: 0, source: "plex" as const, kind: "movie" as const, group: "Studios & networks" })),
+  { id: 1_000_000_000_200, name: "Miniseries", poster: shows[0].poster, count: 1, watched: 0, source: "plex" as const,
+    kind: "show" as const, group: "TV collections", summary: "Short and sweet." },
+];
+
+function collectionsList() {
+  const all = [COLLECTION.card(), ...PLEX_COLLECTIONS()];
+  const groups: { name: string; collections: typeof all }[] = [];
+  for (const c of all) {
+    let g = groups.find((x) => x.name === c.group);
+    if (!g) groups.push((g = { name: c.group, collections: [] }));
+    g.collections.push(c);
+  }
+  return { groups, count: all.length, pending: 0 };
+}
 
 function detail(c: Card): Detail {
   const base: Detail = { ...c, genres: GENRES.slice(c.id % 3, (c.id % 3) + 3), metaState: "ok", files: [], children: [], tagline: "Every map ends somewhere." };
@@ -387,9 +407,12 @@ addEventListener("message", function (e) {
         collections: COLLECTION.card().name.toLowerCase().includes(q) ? [COLLECTION.card()] : [] });
     }
     if (p === "/api/watchlist") return json(route, { items: st.watchlist.map((id) => ({ ...byId.get(id)!, watchlisted: true })) });
-    if (p === "/api/collections") return json(route, { collections: [COLLECTION.card()], pending: 0 });
+    if (p === "/api/collections") return json(route, collectionsList());
     if ((mm = p.match(/^\/api\/collections\/(\d+)$/))) {
-      return Number(mm[1]) === 900 ? json(route, { collection: COLLECTION.card(), items: COLLECTION.items() }) : json(route, { error: "not found" }, 404);
+      if (Number(mm[1]) === 900) return json(route, { collection: COLLECTION.card(), items: COLLECTION.items() });
+      const pc = PLEX_COLLECTIONS().find((c) => c.id === Number(mm![1]));
+      if (pc) return json(route, { collection: pc, items: pc.kind === "show" ? shows.slice(0, 1) : movies.slice(0, 2) });
+      return json(route, { error: "not found" }, 404);
     }
     if (p === "/api/ask") {
       // Plain-English search: a canned answer with picks and matches.

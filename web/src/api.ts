@@ -77,7 +77,7 @@ export interface Detail extends Card {
   collectionItems?: Card[];
 }
 
-/** A film collection (franchise) from TMDB, e.g. "The Matrix Collection". */
+/** A collection: a TMDB franchise ("The Matrix Collection") or any Plex collection, of films or shows. */
 export interface Collection {
   id: number;
   name: string;
@@ -85,6 +85,22 @@ export interface Collection {
   backdrop?: string;
   count: number;
   watched: number;
+  source?: "tmdb" | "plex";
+  kind?: "movie" | "show";
+  summary?: string;
+  group?: string;
+}
+
+/** One group of collections on the Collections page ("Franchises & series"). */
+export interface CollectionShelf {
+  name: string;
+  collections: Collection[];
+}
+
+/** "3 films", "1 show". */
+export function collectionCount(c: Collection, n = c.count) {
+  const word = c.kind === "show" ? "show" : "film";
+  return `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
 }
 
 export interface Library {

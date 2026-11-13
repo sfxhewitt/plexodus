@@ -37,6 +37,26 @@ test("collections: grid, a collection, and the row on a film", async ({ page, op
   await expect(row.locator('[data-fk="col900"]')).toHaveCount(1);
 });
 
+test("collections: Plex's grouped into rows, See all, and a show collection", async ({ page, openTv }, info) => {
+  await openTv("/collection");
+  await waitForFocus(page, "col900");
+  await expect(page.locator(".tv-row-title")).toHaveText(["Franchises & series · 1", "Studios & networks · 34", "TV collections · 1"]);
+  const studios = page.locator(".tv-row", { hasText: "Studios & networks" });
+  await expect(studios.locator(".tv-collection-tile")).toHaveCount(30);
+  await expect(studios.locator(".tv-see-all")).toHaveText(/See all 34/);
+  await snap(page, info, "collections shelves");
+  await studios.locator(".tv-see-all").click();
+  await expect(page).toHaveURL(/group=Studios/);
+  await expect(page.locator(".tv-h1")).toHaveText("Studios & networks");
+  await expect(page.locator(".tv-grid .tv-collection-tile")).toHaveCount(34);
+
+  await openTv("/collection/1000000000200");
+  await expect(page.locator(".tv-detail-title")).toHaveText("Miniseries");
+  await expect(page.locator(".tv-eyebrow")).toHaveText("TV collections");
+  await expect(page.locator(".tv-meta")).toContainText("1 show");
+  await expect(page.locator(".tv-overview")).toHaveText("Short and sweet.");
+});
+
 test("a film's page: cast, then more like this", async ({ page, openTv }, info) => {
   await openTv(`/item/${ids.extras}`);
   await waitForFocus(page, "play");

@@ -248,3 +248,13 @@ CREATE TABLE IF NOT EXISTS collections (
     backdrop   TEXT,
     updated_at INTEGER NOT NULL
 );
+
+-- What is in each Plex collection (collections.source = 'plex'), in Plex's
+-- order. TMDB franchises use items.collection_id instead.
+CREATE TABLE IF NOT EXISTS collection_items (
+    collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+    item_id       INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    position      INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (collection_id, item_id)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS collection_items_item ON collection_items(item_id);
