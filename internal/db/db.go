@@ -106,7 +106,17 @@ func migrate(w *sql.DB) error {
 	if _, err := w.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_plex ON users(plex_id) WHERE plex_id IS NOT NULL`); err != nil {
 		return err
 	}
-	if _, err := w.Exec(`CREATE INDEX IF NOT EXISTS items_collection ON items(collection_id) WHERE collection_id > 0`); err != nil {
+	// Collections: the films in each, with what the access and kids checks
+	// read, so the Collections tab never touches the items table itself.
+	// Replaces items_collection, which had collection_id alone.
+	if _, err := w.Exec(`CREATE INDEX IF NOT EXISTS items_collection_films ON items(collection_id, kind, library_id, age, parent_id) WHERE collection_id > 0`); err != nil {
+		return err
+	}
+	if _, err := w.Exec(`DROP INDEX IF EXISTS items_collection`); err != nil {
+		return err
+	}
+	// Films still waiting for their collection to be looked up.
+	if _, err := w.Exec(`CREATE INDEX IF NOT EXISTS items_collection_pending ON items(kind) WHERE collection_id IS NULL AND tmdb_id > 0`); err != nil {
 		return err
 	}
 	// "More like this": TMDB recommendations mapped to local titles.

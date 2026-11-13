@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"os"
@@ -14,6 +15,45 @@ import (
 func TestScaleHome(t *testing.T) {
 	if os.Getenv("PLEXODUS_SCALE") == "" {
 		t.Skip()
+	}
+	s, u := scaleServer(t)
+	kid := u
+	age := 13
+	kid.MaxAge = &age
+	for _, who := range []auth.User{u, kid} {
+		u := who
+		for i := 0; i < 2; i++ {
+			start := time.Now()
+			call(t, s, u, s.handleLibraries, "GET", "/api/libraries", "", nil, nil)
+			t.Logf("libraries took %s", time.Since(start))
+			start = time.Now()
+			call(t, s, u, s.handleHome, "GET", "/api/home", "", nil, nil)
+			t.Logf("home took %s (kids=%v)", time.Since(start), u.MaxAge != nil)
+		}
+	}
+}
+
+// scaleServer is a library the size of Daniel's: 30k films (one in three
+// in one of 4,000 TMDB collections, half without their own artwork) and
+// 13k shows with 676k episodes.
+//
+// PLEXODUS_SCALE_DB=<file> keeps the built library there and reuses it on
+// later runs, which saves the few minutes it takes to build.
+func scaleServer(t *testing.T) (*Server, auth.User) {
+	if keep := os.Getenv("PLEXODUS_SCALE_DB"); keep != "" {
+		if _, err := os.Stat(keep); err == nil {
+			d, err := db.Open(keep)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { d.Close() })
+			s := &Server{db: d, auth: auth.New(d), baseCtx: context.Background()}
+			_, u, err := s.auth.Login(context.Background(), "daniel", "password123")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return s, u
+		}
 	}
 	s, u := testServer(t)
 	tx, _ := s.db.W.Begin()
@@ -56,12 +96,39 @@ func TestScaleHome(t *testing.T) {
 		tx.Exec(`INSERT OR REPLACE INTO watch_state(user_id, item_id, position, duration, watched, play_count, updated_at) VALUES (?, ?, 0, 3000, 1, 1, ?)`, u.ID, it, at)
 		tx.Exec(`INSERT INTO watch_history(user_id, item_id, watched_at, seconds, source) VALUES (?, ?, ?, 3000, 'plex')`, u.ID, it, at)
 	}
+	for c := 1; c <= 4000; c++ {
+		var poster any
+		if c%2 == 0 {
+			poster = "/c.jpg"
+		}
+		tx.Exec(`INSERT INTO collections(id, name, sort_name, poster, backdrop, updated_at) VALUES (?, ?, ?, ?, ?, 0)`, c, fmt.Sprint("Saga ", c), fmt.Sprint("saga ", c), poster, poster)
+	}
+	for i, m := range movies {
+		if i%3 == 0 {
+			tx.Exec(`UPDATE items SET collection_id = ? WHERE id = ?`, 1+rnd.Intn(4000), m)
+		} else if i%3 == 1 {
+			tx.Exec(`UPDATE items SET collection_id = 0 WHERE id = ?`, m)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	s.db.W.Exec(`UPDATE items SET age = (id % 4) * 6 WHERE kind IN ('movie','show')`)
 	s.db.W.Exec(`ANALYZE`)
 	t.Logf("built %d items", id)
-	s.db.W.Exec(`UPDATE items SET age = (id % 4) * 6 WHERE kind IN ('movie','show')`)
+	if keep := os.Getenv("PLEXODUS_SCALE_DB"); keep != "" {
+		if _, err := s.db.W.Exec(`VACUUM INTO ?`, keep); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return s, u
+}
+
+func TestScaleCollections(t *testing.T) {
+	if os.Getenv("PLEXODUS_SCALE") == "" {
+		t.Skip()
+	}
+	s, u := scaleServer(t)
 	kid := u
 	age := 13
 	kid.MaxAge = &age
@@ -69,11 +136,12 @@ func TestScaleHome(t *testing.T) {
 		u := who
 		for i := 0; i < 2; i++ {
 			start := time.Now()
-			call(t, s, u, s.handleLibraries, "GET", "/api/libraries", "", nil, nil)
-			t.Logf("libraries took %s", time.Since(start))
-			start = time.Now()
-			call(t, s, u, s.handleHome, "GET", "/api/home", "", nil, nil)
-			t.Logf("home took %s (kids=%v)", time.Since(start), u.MaxAge != nil)
+			var out struct {
+				Collections []CollectionCard
+				Pending     int
+			}
+			call(t, s, u, s.handleCollections, "GET", "/api/collections", "", nil, &out)
+			t.Logf("collections took %s: %d collections, %d pending (kids=%v)", time.Since(start), len(out.Collections), out.Pending, u.MaxAge != nil)
 		}
 	}
 }

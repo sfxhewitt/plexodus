@@ -70,4 +70,25 @@ func TestCollections(t *testing.T) {
 	if cs := list(friend); len(cs) != 0 {
 		t.Fatalf("friend collections = %+v", cs)
 	}
+
+	// Searching by name, and artwork from the earliest film when the
+	// collection has none of its own.
+	if _, err := s.db.W.Exec(`UPDATE collections SET poster = NULL WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.W.Exec(`UPDATE items SET year = 1995, poster = '/heat.jpg' WHERE id = 10`); err != nil {
+		t.Fatal(err)
+	}
+	var found struct{ Collections []CollectionCard }
+	call(t, s, admin, s.handleCollections, "GET", "/api/collections?q=HEAT", "", nil, &found)
+	if len(found.Collections) != 1 || found.Collections[0].Poster != "/heat.jpg" {
+		t.Fatalf("q=HEAT: %+v", found.Collections)
+	}
+	call(t, s, admin, s.handleCollections, "GET", "/api/collections?q=100%25", "", nil, &found)
+	if len(found.Collections) != 0 {
+		t.Fatalf("q=100%%: %+v", found.Collections)
+	}
+	if cs := s.searchCollections(httptest.NewRequest("GET", "/", nil).WithContext(auth.WithUser(ctx, admin)), "heat"); len(cs) != 1 {
+		t.Fatalf("search heat: %+v", cs)
+	}
 }
