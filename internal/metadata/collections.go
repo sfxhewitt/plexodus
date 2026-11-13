@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/sfxhewitt/plexodus/internal/db"
 )
@@ -79,8 +80,11 @@ func (a *Agent) backfillCollections(ctx context.Context) int {
 		if r.err != nil {
 			if ctx.Err() == nil {
 				log.Printf("metadata: collection for item %d: %v", r.id, r.err)
-				// A film TMDB no longer has: don't ask again.
-				a.db.W.ExecContext(ctx, `UPDATE items SET collection_id = 0 WHERE id = ? AND collection_id IS NULL`, r.id)
+				// A film TMDB no longer has: don't ask again. Anything else
+				// (network, server, rate limit) is asked again next run.
+				if strings.Contains(r.err.Error(), ": 404 ") {
+					a.db.W.ExecContext(ctx, `UPDATE items SET collection_id = 0 WHERE id = ? AND collection_id IS NULL`, r.id)
+				}
 			}
 			continue
 		}

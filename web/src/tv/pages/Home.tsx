@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { art, Card, fmtRuntime, HomeData } from "../../api";
+import { art, Card, episodeLabel, fmtRuntime, HomeData } from "../../api";
 import { ChevronRight, Info, Play } from "../../components/Icons";
 import { useApi } from "../../hooks";
 import { Spinner, TvButton, TvCard, TvRow, useBackdrop } from "../components";
@@ -138,6 +138,14 @@ function Hero({ items, onPlay }: { items: Card[]; onPlay: (c: Card) => void }) {
 
 const CONTINUE = { continueRow: true };
 
+/** "S2 · E4 · 12m left" on a Continue watching card: where you are and how long is left. */
+function continueSub(c: Card) {
+  const left = c.position && c.duration && !c.watched ? Math.round((c.duration - c.position) / 60) : 0;
+  const where = c.kind === "episode" ? episodeLabel(c) : "";
+  const rest = left > 0 ? `${fmtRuntime(Math.max(1, left))} left` : c.kind === "episode" ? c.title : c.year ? String(c.year) : "";
+  return [where, rest].filter(Boolean).join(" · ") || undefined;
+}
+
 /** A single wide tile that opens Plexodus Wrapped. */
 function WrappedBanner({ year }: { year: number }) {
   const nav = useNavigate();
@@ -213,6 +221,7 @@ export default function Home() {
               {r.items.map((c, i) => (
                 <TvCard key={c.id} c={c} shape="land" autoFocus={!hasHero && ri === 0 && i === 0}
                   title={c.kind === "episode" ? c.showTitle || c.title : c.title}
+                  sub={continuing ? continueSub(c) : undefined}
                   onSelect={(x) => select(x, continuing)} onPlay={play} menu={continuing ? CONTINUE : undefined} />
               ))}
               {r.link && (

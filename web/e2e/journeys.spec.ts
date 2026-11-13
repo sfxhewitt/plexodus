@@ -180,3 +180,10 @@ test("settings", async ({ page, openTv }, info) => {
   await press(page, "Enter");
   await expect(tabs.filter({ hasText: "TV Shows" })).toHaveCount(1);
 });
+
+test("continue watching says how long is left", async ({ page, openTv }) => {
+  await openTv("/");
+  await waitForFocus(page, "hero-play");
+  const card = page.locator(`[data-fk="c${ids.movie + 3}"] .tv-card-cap .s`).first();
+  await expect(card).toHaveText("1h 0m left");
+});

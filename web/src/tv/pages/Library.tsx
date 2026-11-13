@@ -10,11 +10,15 @@ import { requestTrailer, stopTrailer } from "../ambient";
 import { playCard } from "../play";
 
 const PAGE = 120;
-type Page = { items: Card[]; total: number; offset: number };
+type Letter = { l: string; offset: number };
+type Page = { items: Card[]; total: number; offset: number; letters?: Letter[] };
+// The grid holds a window of the list: `items` start at `start`. Jumping to a
+// letter starts a new window there, and scrolling up from it loads what's above.
+type Grid = { items: Card[]; total: number; start: number; letters?: Letter[] };
 
 // Loaded pages per query, so coming back from a title restores the grid
 // (and the focused poster) however far down you'd scrolled.
-const loaded = new Map<string, { items: Card[]; total: number }>();
+const loaded = new Map<string, Grid>();
 
 const SORTS: [string, string][] = [["title", "A–Z"], ["added", "Recently added"], ["release", "Release date"], ["rating", "Rating"], ["year", "Year"]];
 const FILTERS: [string, string][] = [["", "All"], ["unwatched", "Unwatched"], ["inprogress", "In progress"]];
@@ -44,6 +48,13 @@ function GenrePicker({ genres, current, onPick, onClose }: {
   );
 }
 
+/** The letter a title at `pos` in the list sits under. */
+function letterOf(letters: Letter[] | undefined, pos: number) {
+  let l: string | undefined;
+  for (const x of letters || []) if (x.offset <= pos) l = x.l;
+  return l;
+}
+
 export default function LibraryPage() {
   const { id } = useParams();
   const [params, setParams] = useSearchParams();
@@ -58,33 +69,39 @@ export default function LibraryPage() {
   const lib = libs?.find((l) => String(l.id) === id);
   const [picking, setPicking] = useState(false);
 
-  const base = `/api/libraries/${id}/items?sort=${sort}&order=${order}&genre=${encodeURIComponent(genre)}&filter=${filter}&limit=${PAGE}`;
-  const [state, setState] = useState(() => loaded.get(base) || { items: [] as Card[], total: -1 });
+  const base = `/api/libraries/${id}/items?sort=${sort}&order=${order}&genre=${encodeURIComponent(genre)}&filter=${filter}`;
+  const [state, setState] = useState<Grid>(() => loaded.get(base) || { items: [], total: -1, start: 0 });
   const loading = useRef(false);
   const key = useRef(base);
 
-  const load = useCallback(async (offset: number) => {
+  /** Loads `limit` titles from `offset`: a fresh window (`jump`), or more below or above the current one. */
+  const load = useCallback(async (offset: number, how: "jump" | "below" | "above" = "below", limit = PAGE) => {
     if (loading.current) return;
     loading.current = true;
     const myKey = base;
     try {
-      const page = await api.get<Page>(`${base}&offset=${offset}`);
+      const page = await api.get<Page>(`${base}&limit=${limit}&offset=${offset}${offset === 0 && sort === "title" ? "&letters=1" : ""}`);
       if (key.current !== myKey) return;
       setState((prev) => {
-        const next = { items: offset === 0 ? page.items : [...prev.items, ...page.items], total: page.total };
+        const letters = page.letters || prev.letters;
+        const next: Grid = how === "jump" || (offset === 0 && how === "below")
+          ? { items: page.items, total: page.total, start: offset, letters }
+          : how === "above"
+            ? { items: [...page.items, ...prev.items], total: page.total, start: offset, letters }
+            : { items: [...prev.items, ...page.items], total: page.total, start: prev.start, letters };
         loaded.set(myKey, next);
         return next;
       });
     } finally {
       loading.current = false;
     }
-  }, [base]);
+  }, [base, sort]);
 
   useEffect(() => {
     key.current = base;
     loading.current = false;
     const cached = loaded.get(base);
-    setState(cached || { items: [], total: -1 });
+    setState(cached || { items: [], total: -1, start: 0 });
     if (!cached) load(0);
   }, [base, load]);
 
@@ -123,8 +140,29 @@ export default function LibraryPage() {
     // Rest on a poster a little longer and its trailer plays behind the grid.
     requestTrailer(c.kind === "movie" || c.kind === "show" ? c.id : undefined, 3000);
     const { state: st, load: ld } = latest.current;
-    if (st.items.length < st.total && st.items.indexOf(c) > st.items.length - 40) ld(st.items.length);
+    const i = st.items.indexOf(c);
+    if (st.start + st.items.length < st.total && i > st.items.length - 40) ld(st.start + st.items.length);
+    else if (st.start > 0 && i >= 0 && i < 24) {
+      const from = Math.max(0, st.start - PAGE);
+      ld(from, "above", st.start - from);
+    }
+    // Light up the letter you're in on the A–Z bar.
+    const l = letterOf(st.letters, st.start + i);
+    document.querySelectorAll(".tv-az-letter.on").forEach((el) => el.classList.remove("on"));
+    if (l) document.querySelector(`.tv-az-letter[data-fk="az-${CSS.escape(l)}"]`)?.classList.add("on");
   }, [setBackdrop]);
+
+  const jump = useCallback(async (l: Letter) => {
+    const st = latest.current.state;
+    const i = l.offset - st.start;
+    // Already loaded: just move there.
+    if (i >= 0 && i < st.items.length) return focusKey(`c${st.items[i].id}`);
+    await latest.current.load(l.offset, "jump");
+    requestAnimationFrame(() => {
+      const first = loaded.get(key.current)?.items[0];
+      if (first) focusKey(`c${first.id}`);
+    });
+  }, []);
   const open = useCallback((c: Card) => nav(`/item/${c.id}`), [nav]);
   const playIt = useCallback((c: Card) => playCard(c).catch((e: Error) => toast(e.message)), [toast]);
 
@@ -167,6 +205,13 @@ export default function LibraryPage() {
             </div>
           ))}
         </div>
+      )}
+      {sort === "title" && state.letters && state.letters.length > 1 && state.total > 48 && (
+        <nav className="tv-az" data-group="az" aria-label="Jump to letter">
+          {state.letters.map((l) => (
+            <button key={l.l} className="tv-az-letter" data-f data-fk={`az-${l.l}`} onClick={() => jump(l)}>{l.l}</button>
+          ))}
+        </nav>
       )}
       {picking && genres && (
         <GenrePicker genres={genres} current={genre} onClose={closePicker}

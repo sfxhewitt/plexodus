@@ -325,7 +325,48 @@ func (s *Server) handleLibraryItems(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, map[string]any{"items": cards, "total": total, "offset": offset})
+	out := map[string]any{"items": cards, "total": total, "offset": offset}
+	if offset == 0 && col == "i.sort_title" && q.Get("letters") == "1" {
+		out["letters"] = s.letterOffsets(r, where, dir, countArgs)
+	}
+	writeJSON(w, out)
+}
+
+// Letter is where titles starting with L begin in an A–Z list, for the TV's jump bar.
+type Letter struct {
+	L      string `json:"l"`
+	Offset int    `json:"offset"`
+}
+
+// letterOffsets counts titles by first character in sort order and returns
+// the offset of the first title under each letter ("#" for anything else).
+func (s *Server) letterOffsets(r *http.Request, where, dir string, args []any) []Letter {
+	rows, err := s.db.R.QueryContext(r.Context(), `SELECT SUBSTR(i.sort_title, 1, 1) c, COUNT(*) FROM items i
+		LEFT JOIN watch_state w ON w.item_id = i.id AND w.user_id = ?1 `+where+` GROUP BY c ORDER BY c `+dir, args...)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	out := []Letter{}
+	seen := map[string]bool{}
+	n := 0
+	for rows.Next() {
+		var c string
+		var count int
+		if rows.Scan(&c, &count) != nil {
+			return nil
+		}
+		l := "#"
+		if len(c) == 1 && c[0] >= 'a' && c[0] <= 'z' {
+			l = strings.ToUpper(c)
+		}
+		if !seen[l] {
+			seen[l] = true
+			out = append(out, Letter{l, n})
+		}
+		n += count
+	}
+	return out
 }
 
 func (s *Server) handleLibraryGenres(w http.ResponseWriter, r *http.Request) {
