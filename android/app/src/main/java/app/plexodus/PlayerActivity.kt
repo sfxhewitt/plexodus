@@ -1,7 +1,7 @@
 package app.plexodus
 
 import android.app.Activity
-import android.app.AlertDialog
+import android.app.Dialog
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
@@ -28,6 +28,8 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
@@ -137,6 +139,8 @@ class PlayerActivity : Activity() {
     private var upNextDismissed = false
     private var askingStillWatching = false
     private var countdown = 0
+    /** A button was pressed while "Up next in N" counted down: wait for a choice. */
+    private var countdownStopped = false
     private var switching = false
     /** The player already offered (or played) the next episode, so the page shouldn't. */
     private var handledNext = false
@@ -286,6 +290,10 @@ class PlayerActivity : Activity() {
         hdmiSurround = hdmiTakesSurround()
         passthrough = hdmiSurround && !headphonesConnected()
         val opts = arrayListOf("--network-caching=4000", "--http-reconnect", "--audio-time-stretch")
+        // libVLC's default subtitles are about 6% of the picture's height, far bigger
+        // than Netflix or Apple TV. A 25th of the height (43 px at 1080p) reads well
+        // from the sofa without covering the film.
+        opts += "--freetype-rel-fontsize=25"
         if (hdmiSurround) opts += "--aout=audiotrack"
         opts += if (passthrough) "--spdif" else "--no-spdif"
         libVlc = LibVLC(this, opts)
@@ -466,20 +474,70 @@ class PlayerActivity : Activity() {
         subsButton.visibility = if (player.spuTracksCount > 0) View.VISIBLE else View.GONE
     }
 
+    /**
+     * Audio and subtitle choice as a small panel at the side, like the big
+     * streaming apps, instead of a full system dialog over the picture.
+     */
     private fun pickTrack(audio: Boolean) {
         val tracks = (if (audio) player.audioTracks else player.spuTracks) ?: return
         val current = if (audio) player.audioTrack else player.spuTrack
-        val names = tracks.map { it.name }.toTypedArray()
-        val selected = tracks.indexOfFirst { it.id == current }
         ui.removeCallbacks(hideControls)
-        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle(if (audio) R.string.audio else R.string.subtitles)
-            .setSingleChoiceItems(names, selected) { d, i ->
-                if (audio) player.setAudioTrack(tracks[i].id) else player.setSpuTrack(tracks[i].id)
-                d.dismiss()
+        val dp = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.bg_track_panel)
+            val p = (14 * dp).toInt()
+            setPadding(p, p, p, p)
+            addView(TextView(context).apply {
+                text = getString(if (audio) R.string.audio else R.string.subtitles)
+                isAllCaps = true
+                letterSpacing = 0.12f
+                textSize = 11f
+                setTextColor(getColor(R.color.muted))
+                setPadding((10 * dp).toInt(), 0, 0, (8 * dp).toInt())
+            })
+            addView(ScrollView(context).apply { isVerticalScrollBarEnabled = false; addView(list) })
+        }
+        var focus: View? = null
+        for (t in tracks) {
+            val on = t.id == current
+            val row = TextView(this).apply {
+                text = (if (on) "✓  " else "     ") + t.name
+                textSize = 14f
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                isFocusable = true
+                isClickable = true
+                minHeight = (36 * dp).toInt()
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding((10 * dp).toInt(), 0, (14 * dp).toInt(), 0)
+                setBackgroundResource(R.drawable.bg_track_row)
+                val fg = getColor(R.color.text)
+                val dark = getColor(R.color.bg)
+                setTextColor(fg)
+                setOnFocusChangeListener { v, has -> (v as TextView).setTextColor(if (has) dark else fg) }
+                setOnClickListener {
+                    if (audio) player.setAudioTrack(t.id) else player.setSpuTrack(t.id)
+                    dialog.dismiss()
+                }
             }
-            .setOnDismissListener { scheduleHide() }
-            .show()
+            list.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            if (on || focus == null) focus = row
+        }
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        dialog.setContentView(panel)
+        dialog.window?.apply {
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+            setGravity(android.view.Gravity.END or android.view.Gravity.BOTTOM)
+            setLayout((300 * dp).toInt(), android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+            attributes = attributes.also { it.x = (28 * dp).toInt(); it.y = (72 * dp).toInt(); it.dimAmount = 0f }
+            clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        }
+        dialog.setOnDismissListener { scheduleHide() }
+        dialog.show()
+        focus?.requestFocus()
     }
 
     private fun cycleAspect() {
@@ -752,6 +810,7 @@ class PlayerActivity : Activity() {
             upNextCount.visibility = View.VISIBLE
             upNextPlay.text = getString(R.string.play_now)
             upNextCancel.text = getString(R.string.cancel)
+            countdownStopped = false
             ui.removeCallbacks(tick)
             ui.postDelayed(tick, 1000)
         }
@@ -759,9 +818,19 @@ class PlayerActivity : Activity() {
         upNextPlay.requestFocus()
     }
 
+    /** Any button on the remote stops the countdown; the card stays until Play now or Cancel. */
+    private fun stopCountdown() {
+        if (!upNextVisible || askingStillWatching || countdownStopped) return
+        countdownStopped = true
+        ui.removeCallbacks(tick)
+        upNextCount.visibility = View.GONE
+        upNextEyebrow.text = getString(R.string.up_next)
+    }
+
     private fun hideUpNext() {
         upNextVisible = false
         askingStillWatching = false
+        countdownStopped = false
         ui.removeCallbacks(tick)
         ui.removeCallbacks(giveUp)
         upNext.visibility = View.GONE
@@ -776,7 +845,7 @@ class PlayerActivity : Activity() {
     }
 
     private fun onEnd() {
-        if (upNextVisible && askingStillWatching) {
+        if (upNextVisible && (askingStillWatching || countdownStopped)) {
             // Wait for an answer, but let the TV go to sleep, and close after a while.
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             root.keepScreenOn = false
@@ -939,13 +1008,19 @@ class PlayerActivity : Activity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_DOWN) {
             autoPlays = 0
+            // Volume isn't a choice about the next episode.
+            val volume = event.keyCode == KeyEvent.KEYCODE_VOLUME_UP || event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || event.keyCode == KeyEvent.KEYCODE_VOLUME_MUTE
+            if (!volume) stopCountdown()
             if (controlsVisible) scheduleHide()
         }
         return super.dispatchKeyEvent(event)
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        if (ev.actionMasked == MotionEvent.ACTION_DOWN) autoPlays = 0
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+            autoPlays = 0
+            stopCountdown()
+        }
         return super.dispatchTouchEvent(ev)
     }
 
