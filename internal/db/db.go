@@ -86,6 +86,8 @@ func migrate(w *sql.DB) error {
 		{"invites", "code", "TEXT"},
 		{"invites", "max_uses", "INTEGER NOT NULL DEFAULT 1"},
 		{"invites", "uses", "INTEGER NOT NULL DEFAULT 0"},
+		// TMDB collection (franchise) a film belongs to; 0 = none, NULL = not asked yet.
+		{"items", "collection_id", "INTEGER"},
 	}
 	for _, c := range columns {
 		var n int
@@ -102,6 +104,9 @@ func migrate(w *sql.DB) error {
 		return err
 	}
 	if _, err := w.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_plex ON users(plex_id) WHERE plex_id IS NOT NULL`); err != nil {
+		return err
+	}
+	if _, err := w.Exec(`CREATE INDEX IF NOT EXISTS items_collection ON items(collection_id) WHERE collection_id > 0`); err != nil {
 		return err
 	}
 	if _, err := w.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS invites_code ON invites(code) WHERE code IS NOT NULL`); err != nil {

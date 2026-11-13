@@ -98,6 +98,7 @@ for (const c of [...movies, ...shows]) {
 
 export const ids = {
   movie: movies[0].id,
+  collected: movies[10].id, // in "The Atlas Collection"
   show: shows[0].id,
   season: seasons.get(shows[0].id)![0].id,
   episode: episodes.get(seasons.get(shows[0].id)![0].id)![2].id,
@@ -120,9 +121,18 @@ function file(c: Card) {
   };
 }
 
+// One franchise: three films that other tests leave alone.
+const COLLECTION = {
+  items: () => movies.slice(10, 13),
+  card: () => ({ id: 900, name: "The Atlas Collection", poster: movies[10].poster, backdrop: movies[10].backdrop, count: 3, watched: 0 }),
+};
+
 function detail(c: Card): Detail {
   const base: Detail = { ...c, genres: GENRES.slice(c.id % 3, (c.id % 3) + 3), metaState: "ok", files: [], children: [], tagline: "Every map ends somewhere." };
-  if (c.kind === "movie") return { ...base, files: [file(c)] };
+  if (c.kind === "movie") {
+    const inCol = COLLECTION.items().some((f) => f.id === c.id);
+    return { ...base, files: [file(c)], ...(inCol ? { collection: COLLECTION.card(), collectionItems: COLLECTION.items() } : {}) };
+  }
   if (c.kind === "show") {
     const ss = seasons.get(c.id)!;
     const eps = ss.flatMap((s) => episodes.get(s.id)!);
@@ -357,7 +367,13 @@ addEventListener("message", function (e) {
     if (p === "/api/search") {
       const q = (u.searchParams.get("q") || "").toLowerCase();
       const hit = (c: Card) => c.title.toLowerCase().includes(q) || !!c.showTitle?.toLowerCase().includes(q);
-      return json(route, { movies: movies.filter(hit).slice(0, 20), shows: shows.filter(hit), episodes: allEpisodes.filter(hit).slice(0, 20) });
+      return json(route, { movies: movies.filter(hit).slice(0, 20), shows: shows.filter(hit), episodes: allEpisodes.filter(hit).slice(0, 20),
+        collections: COLLECTION.card().name.toLowerCase().includes(q) ? [COLLECTION.card()] : [] });
+    }
+    if (p === "/api/watchlist") return json(route, { items: st.watchlist.map((id) => ({ ...byId.get(id)!, watchlisted: true })) });
+    if (p === "/api/collections") return json(route, { collections: [COLLECTION.card()], pending: 0 });
+    if ((mm = p.match(/^\/api\/collections\/(\d+)$/))) {
+      return Number(mm[1]) === 900 ? json(route, { collection: COLLECTION.card(), items: COLLECTION.items() }) : json(route, { error: "not found" }, 404);
     }
     if (p === "/api/ask") {
       // Plain-English search: a canned answer with picks and matches.

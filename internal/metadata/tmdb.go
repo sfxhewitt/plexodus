@@ -178,6 +178,7 @@ type MovieDetails struct {
 	Genres        []Genre      `json:"genres"`
 	Images        Images       `json:"images"`
 	ReleaseDates  ReleaseDates `json:"release_dates"`
+	Collection    *Collection  `json:"belongs_to_collection"`
 }
 
 func (t *TMDB) Movie(ctx context.Context, id int64) (*MovieDetails, error) {

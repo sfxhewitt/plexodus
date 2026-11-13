@@ -7,6 +7,7 @@ import { Spinner, TvButton, TvCard, TvRow, useBackdrop } from "../components";
 import { usePageFocus, useRefresh, useToast } from "../hooks";
 import { requestTrailer, stopTrailer } from "../ambient";
 import { playItem } from "../play";
+import { CollectionTile } from "../collectionTile";
 
 function MediaChips({ d }: { d: Detail }) {
   const f = d.files[0];
@@ -140,6 +141,16 @@ export default function Item() {
           {playable && <MediaChips d={d} />}
         </div>
       </section>
+
+      {d.kind === "movie" && d.collection && d.collectionItems && d.collectionItems.length > 1 && (
+        <TvRow id={`col-${d.collection.id}`} title={d.collection.name}>
+          {d.collectionItems.map((f) => (
+            <TvCard key={f.id} c={f} shape="poster" isDefault={f.id === d.id} sub={f.id === d.id ? "Now viewing" : undefined}
+              onSelect={() => f.id !== d.id && nav(`/item/${f.id}`)} onPlay={() => play(f.id)} />
+          ))}
+          <CollectionTile c={d.collection} onSelect={(c) => nav(`/collection/${c.id}`)} />
+        </TvRow>
+      )}
 
       {d.kind === "show" && d.children.length > 0 && (
         <TvRow id={`seasons-${d.id}`} title="Seasons">

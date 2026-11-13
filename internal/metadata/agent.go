@@ -55,6 +55,9 @@ func (a *Agent) Run(ctx context.Context) {
 		if n == 0 && a.Enabled() {
 			n = a.backfillCerts(ctx)
 		}
+		if n == 0 && a.Enabled() {
+			n = a.backfillCollections(ctx)
+		}
 		if n > 0 {
 			continue
 		}
@@ -219,6 +222,7 @@ func (a *Agent) Apply(ctx context.Context, itemID int64, kind string, tmdbID int
 			nullStr(m.PosterPath), nullStr(m.BackdropPath), nullStr(m.Images.BestLogo()), db.Now(), db.Now(), itemID)
 		if err == nil {
 			a.setCert(ctx, itemID, m.ReleaseDates.Cert())
+			a.setCollection(ctx, itemID, m.Collection)
 			a.Art.Prefetch(m.PosterPath, "w342")
 			a.Art.Prefetch(m.BackdropPath, "w1280")
 		}

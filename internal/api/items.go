@@ -649,6 +649,9 @@ type Detail struct {
 	Show          *Card       `json:"show,omitempty"`
 	OnDeck        *Card       `json:"onDeck,omitempty"`
 	Siblings      []Card      `json:"siblings,omitempty"`
+	// The film's collection ("The Matrix Collection") and its other films.
+	Collection      *CollectionCard `json:"collection,omitempty"`
+	CollectionItems []Card          `json:"collectionItems,omitempty"`
 }
 
 func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
@@ -692,6 +695,12 @@ func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch d.Kind {
+	case "movie":
+		if c := s.itemCollection(r, id); c != nil {
+			d.Collection = c
+			d.CollectionItems, _ = s.cards(r, `WHERE i.collection_id = ?2 AND i.kind = 'movie'
+				ORDER BY i.release_date IS NULL, i.release_date, i.year, i.sort_title`, c.ID)
+		}
 	case "show":
 		d.Children, _ = s.cards(r, `WHERE i.parent_id = ?2 ORDER BY i.season_number = 0, i.season_number`, id)
 		for i := range d.Children {
@@ -747,7 +756,7 @@ func ftsQuery(q string) string {
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	q := ftsQuery(r.URL.Query().Get("q"))
 	if q == "" {
-		writeJSON(w, map[string]any{"movies": []Card{}, "shows": []Card{}, "episodes": []Card{}})
+		writeJSON(w, map[string]any{"movies": []Card{}, "shows": []Card{}, "episodes": []Card{}, "collections": []CollectionCard{}})
 		return
 	}
 	search := func(kind string, limit int) []Card {
@@ -761,9 +770,10 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return c
 	}
 	writeJSON(w, map[string]any{
-		"movies":   search("movie", 40),
-		"shows":    search("show", 40),
-		"episodes": search("episode", 20),
+		"movies":      search("movie", 40),
+		"shows":       search("show", 40),
+		"episodes":    search("episode", 20),
+		"collections": s.searchCollections(r, r.URL.Query().Get("q")),
 	})
 }
 

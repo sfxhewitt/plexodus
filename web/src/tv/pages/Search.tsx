@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { AskResult, Card } from "../../api";
+import { AskResult, Card, Collection } from "../../api";
 import { Search as SearchIcon, Sparkle } from "../../components/Icons";
 import { useApi, useDebounced } from "../../hooks";
 import { TvCard, TvRow, useBackdrop } from "../components";
 import { focusEl, focusKey } from "../focus";
 import { usePageFocus, useToast } from "../hooks";
 import { playItem } from "../play";
+import { CollectionTile } from "../collectionTile";
 
-type Results = { movies: Card[]; shows: Card[]; episodes: Card[] };
+type Results = { movies: Card[]; shows: Card[]; episodes: Card[]; collections?: Collection[] };
 const KEYS = "abcdefghijklmnopqrstuvwxyz1234567890".split("");
 const EXAMPLES = ["90s heist films under two hours I haven't seen", "Something like Severance", "Funny shows I haven't started", "Scary films from the 80s"];
 
@@ -51,7 +52,7 @@ export default function SearchPage() {
 
   const type = (k: string) => setQ((v) => (v + k).slice(0, 60));
   const results = data && dq && !asking ? data : undefined;
-  const empty = results && !results.movies.length && !results.shows.length && !results.episodes.length;
+  const empty = results && !results.movies.length && !results.shows.length && !results.episodes.length && !results.collections?.length;
 
   return (
     <div className="tv-search">
@@ -109,6 +110,11 @@ export default function SearchPage() {
         {results && results.movies.length > 0 && (
           <TvRow id="sr-movies" title="Movies">
             {results.movies.map((c) => <TvCard key={c.id} c={c} shape="poster" onSelect={() => nav(`/item/${c.id}`)} onPlay={() => playItem(c.id).catch((e: Error) => toast(e.message))} />)}
+          </TvRow>
+        )}
+        {results && results.collections && results.collections.length > 0 && (
+          <TvRow id="sr-collections" title="Collections">
+            {results.collections.map((c) => <CollectionTile key={c.id} c={c} onSelect={() => nav(`/collection/${c.id}`)} />)}
           </TvRow>
         )}
         {results && results.shows.length > 0 && (
