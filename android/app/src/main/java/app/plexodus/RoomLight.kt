@@ -80,7 +80,7 @@ class RoomLight(private val ctx: Context, private val videoRoot: ViewGroup) {
     }
 
     private fun connect(): Boolean {
-        val ip = Prefs.roomLightIp(ctx) ?: discover(ctx)?.also { Prefs.setRoomLightIp(ctx, it) } ?: return false
+        val ip = Prefs.roomLightIp(ctx) ?: return false
         return try {
             light = InetAddress.getByName(ip)
             socket = DatagramSocket(null).apply {
@@ -258,39 +258,56 @@ class RoomLight(private val ctx: Context, private val videoRoot: ViewGroup) {
             return null
         }
 
+        /** A Govee light that answered the LAN scan. */
+        class Found(val ip: String, val id: String, val sku: String) {
+            /** "H6008 · …AB:CD · 192.168.0.50": the id tail matches the MAC in the Govee app. */
+            val label get() = listOf(sku, id.takeLast(5).takeIf { it.isNotEmpty() }?.let { "…$it" }, ip)
+                .filter { !it.isNullOrEmpty() }.joinToString("  ·  ")
+        }
+
         /**
-         * Finds a Govee light on the network with LAN Control on. Blocks for
-         * up to ~2 s; call off the main thread. Returns its IP, or null.
+         * Finds the Govee lights on the network with LAN Control on. Blocks
+         * for about 2 s; call off the main thread.
          */
-        fun discover(ctx: Context): String? {
+        fun discover(ctx: Context): List<Found> {
             val wifi = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
             val lock = wifi?.createMulticastLock("plexodus-room-light")?.apply { setReferenceCounted(false) }
-            return try {
+            val found = LinkedHashMap<String, Found>()
+            try {
                 lock?.acquire()
                 DatagramSocket(null).use { s ->
                     s.reuseAddress = true
-                    s.soTimeout = 700
+                    s.soTimeout = 250
                     s.bind(InetSocketAddress(LISTEN_PORT))
                     val scan = """{"msg":{"cmd":"scan","data":{"account_topic":"reserve"}}}""".toByteArray()
                     val group = InetAddress.getByName(MULTICAST)
                     val buf = ByteArray(2048)
-                    repeat(3) {
-                        s.send(DatagramPacket(scan, scan.size, group, SCAN_PORT))
+                    var nextScan = 0L
+                    var scans = 0
+                    val until = SystemClock.uptimeMillis() + 2000
+                    while (SystemClock.uptimeMillis() < until) {
+                        if (scans < 3 && SystemClock.uptimeMillis() >= nextScan) {
+                            s.send(DatagramPacket(scan, scan.size, group, SCAN_PORT))
+                            scans++
+                            nextScan = SystemClock.uptimeMillis() + 600
+                        }
                         try {
                             val p = DatagramPacket(buf, buf.size)
                             s.receive(p)
-                            val data = JSONObject(String(p.data, 0, p.length)).optJSONObject("msg")?.optJSONObject("data")
-                            val ip = data?.optString("ip")?.takeIf { it.isNotEmpty() } ?: p.address.hostAddress
-                            return ip
-                        } catch (_: SocketTimeoutException) {}
+                            val msg = JSONObject(String(p.data, 0, p.length)).optJSONObject("msg") ?: continue
+                            if (msg.optString("cmd") != "scan") continue
+                            val data = msg.optJSONObject("data") ?: JSONObject()
+                            val ip = data.optString("ip").takeIf { it.isNotEmpty() } ?: p.address.hostAddress ?: continue
+                            found[ip] = Found(ip, data.optString("device"), data.optString("sku"))
+                        } catch (_: SocketTimeoutException) {
+                        } catch (_: org.json.JSONException) {}
                     }
-                    null
                 }
             } catch (_: Exception) {
-                null
             } finally {
                 lock?.release()
             }
+            return found.values.sortedBy { it.ip }
         }
     }
 }

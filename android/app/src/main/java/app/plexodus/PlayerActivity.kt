@@ -666,6 +666,12 @@ class PlayerActivity : Activity() {
                 dialog.dismiss()
                 setRoomLight(!lightOn)
             })
+            Prefs.roomLightIp(this)?.let { ip ->
+                list.addView(trackRow(getString(R.string.room_light_which, ip), dp) {
+                    dialog.dismiss()
+                    findRoomLight()
+                })
+            }
         }
         if (!audio) {
             list.addView(View(this).apply { setBackgroundColor(getColor(R.color.muted)); alpha = 0.3f },
@@ -708,25 +714,80 @@ class PlayerActivity : Activity() {
             roomLight = null
             return
         }
-        if (Prefs.roomLightIp(this) != null) {
-            startRoomLight()
-            return
-        }
+        if (Prefs.roomLightIp(this) != null) startRoomLight() else findRoomLight()
+    }
+
+    /**
+     * Scans the LAN for Govee lights. One answers: use it. Several: ask
+     * which (the id tail is the end of the MAC shown in the Govee app).
+     */
+    private fun findRoomLight() {
         Toast.makeText(this, R.string.room_light_searching, Toast.LENGTH_SHORT).show()
         Thread {
-            val ip = RoomLight.discover(this)
+            val lights = RoomLight.discover(this)
             ui.post {
                 if (isFinishing || isDestroyed) return@post
-                if (ip == null) {
-                    Prefs.setRoomLight(this, false)
-                    Toast.makeText(this, R.string.room_light_none, Toast.LENGTH_LONG).show()
-                } else {
-                    Prefs.setRoomLightIp(this, ip)
-                    Toast.makeText(this, getString(R.string.room_light_found, ip), Toast.LENGTH_SHORT).show()
-                    startRoomLight()
+                when (lights.size) {
+                    0 -> {
+                        if (Prefs.roomLightIp(this) == null) Prefs.setRoomLight(this, false)
+                        Toast.makeText(this, R.string.room_light_none, Toast.LENGTH_LONG).show()
+                    }
+                    1 -> useRoomLight(lights[0].ip)
+                    else -> pickRoomLight(lights)
                 }
             }
         }.start()
+    }
+
+    private fun useRoomLight(ip: String) {
+        Prefs.setRoomLightIp(this, ip)
+        Prefs.setRoomLight(this, true)
+        Toast.makeText(this, getString(R.string.room_light_found, ip), Toast.LENGTH_SHORT).show()
+        roomLight?.release()
+        roomLight = null
+        startRoomLight()
+    }
+
+    private fun pickRoomLight(lights: List<RoomLight.Found>) {
+        ui.removeCallbacks(hideControls)
+        val dp = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.bg_track_panel)
+            val p = (14 * dp).toInt()
+            setPadding(p, p, p, p)
+            addView(TextView(context).apply {
+                text = getString(R.string.room_light_pick)
+                isAllCaps = true
+                letterSpacing = 0.12f
+                textSize = 11f
+                setTextColor(getColor(R.color.muted))
+                setPadding((10 * dp).toInt(), 0, 0, (8 * dp).toInt())
+            })
+        }
+        var first: View? = null
+        val current = Prefs.roomLightIp(this)
+        for (l in lights) {
+            val row = trackRow((if (l.ip == current) "✓ " else "") + l.label, dp) {
+                dialog.dismiss()
+                useRoomLight(l.ip)
+            }
+            panel.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            if (first == null || l.ip == current) first = row
+        }
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        dialog.setContentView(panel)
+        dialog.window?.apply {
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+            setGravity(android.view.Gravity.END or android.view.Gravity.BOTTOM)
+            setLayout((360 * dp).toInt(), android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+            attributes = attributes.also { it.x = (28 * dp).toInt(); it.y = (72 * dp).toInt(); it.dimAmount = 0f }
+            clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        }
+        dialog.setOnDismissListener { scheduleHide() }
+        dialog.show()
+        first?.requestFocus()
     }
 
     private fun startRoomLight() {

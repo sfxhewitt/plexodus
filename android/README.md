@@ -49,7 +49,8 @@ need no app update at all.
   surface into a 32x18 bitmap, picks the main hue (weighted by saturation,
   ignoring black bars), smooths it, and sends it to the light over Govee's
   LAN API (UDP 4003; the light needs "LAN Control" on in the Govee Home app).
-  The light is found by multicast scan the first time and its state is put
+  The light is found by multicast scan the first time (a picker if several
+  answer) and its state is put
   back when the player closes. Pausing holds the colour.
 
 - `Updater` is the self-update: the release workflow writes

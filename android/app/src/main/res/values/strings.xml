@@ -46,6 +46,8 @@
     <string name="room_light_on">Room light: On</string>
     <string name="room_light_searching">Looking for a Govee light…</string>
     <string name="room_light_found">Room light: %1$s</string>
+    <string name="room_light_pick">Which light?</string>
+    <string name="room_light_which">Light: %1$s (change)</string>
     <string name="room_light_none">No Govee light found. Turn on LAN Control for it in the Govee Home app.</string>
     <string name="aspect">Aspect ratio</string>
     <string name="back">Back</string>
