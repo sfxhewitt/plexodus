@@ -2,9 +2,11 @@ package api
 
 import (
 	"fmt"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/sfxhewitt/plexodus/internal/auth"
 	"github.com/sfxhewitt/plexodus/internal/db"
 )
 
@@ -145,8 +147,60 @@ func TestProgressRecordsHistory(t *testing.T) {
 	}
 }
 
+func TestWrappedSeason(t *testing.T) {
+	cases := []struct {
+		m    time.Month
+		d    int
+		year int
+		open bool
+	}{
+		{time.November, 13, 0, false},
+		{time.December, 25, 0, false},
+		{time.December, 26, 2026, true},
+		{time.December, 31, 2026, true},
+		{time.January, 1, 2026, true},
+		{time.January, 31, 2026, true},
+		{time.February, 1, 0, false},
+		{time.July, 4, 0, false},
+	}
+	for _, c := range cases {
+		y := 2026
+		if c.m < time.December {
+			y = 2027
+		}
+		got, open := wrappedSeason(time.Date(y, c.m, c.d, 12, 0, 0, 0, time.UTC))
+		if open != c.open || got != c.year {
+			t.Errorf("%s %d: got (%d, %v), want (%d, %v)", c.m, c.d, got, open, c.year, c.open)
+		}
+	}
+}
+
+// Outside the season Wrapped is hidden: no Home tile and the API says so.
+func TestWrappedOffSeason(t *testing.T) {
+	s, u := testServer(t)
+	smartLibrary(t, s)
+	defer func(f func() time.Time) { wrappedNow = f }(wrappedNow)
+	wrappedNow = func() time.Time { return time.Date(2025, 11, 13, 12, 0, 0, 0, time.UTC) }
+	if err := db.RecordPlay(t.Context(), s.db.W, u.ID, 10, time.Date(2025, 6, 1, 20, 0, 0, 0, time.UTC).Unix(), 0, "plex"); err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest("GET", "/api/home", nil).WithContext(auth.WithUser(t.Context(), u))
+	if tz := s.wrappedTeaser(r); tz != nil {
+		t.Errorf("teaser in November = %v, want none", tz)
+	}
+	if code := call(t, s, u, s.handleWrapped, "GET", "/api/wrapped?year=2025", "", nil, nil); code != 404 {
+		t.Errorf("wrapped in November = %d, want 404", code)
+	}
+	wrappedNow = func() time.Time { return time.Date(2026, 1, 10, 12, 0, 0, 0, time.UTC) }
+	if tz := s.wrappedTeaser(r); tz == nil || tz["year"] != 2025 {
+		t.Errorf("teaser in January = %v, want 2025", tz)
+	}
+}
+
 func TestWrapped(t *testing.T) {
 	s, u := testServer(t)
+	defer func(f func() time.Time) { wrappedNow = f }(wrappedNow)
+	wrappedNow = func() time.Time { return time.Date(2026, 1, 5, 12, 0, 0, 0, time.UTC) }
 	smartLibrary(t, s)
 	loc, _ := time.LoadLocation("Europe/London")
 	at := func(m time.Month, d, h int) int64 { return time.Date(2025, m, d, h, 0, 0, 0, loc).Unix() }
