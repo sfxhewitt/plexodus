@@ -34,15 +34,18 @@ func TestSyncAppliesNewerPlexState(t *testing.T) {
 	}
 	exec(`INSERT INTO users(id, username, password_hash, is_admin, created_at) VALUES(1, 'admin', 'x', 1, 0)`)
 	exec(`INSERT INTO libraries(id, name, kind, paths, created_at) VALUES(1, 'Movies', 'movies', '[]', 0)`)
-	for id := 1; id <= 5; id++ {
+	for id := 1; id <= 6; id++ {
 		exec(`INSERT INTO items(id, library_id, kind, guid, title, sort_title, added_at, updated_at) VALUES(?, 1, 'movie', ?, 't', 't', 0, 0)`,
 			id, "g"+string(rune('0'+id)))
 	}
 	// 1-4 linked by the import; 5 arrived later and only matches by path.
-	exec(`INSERT INTO plex_links(item_id, rating_key) VALUES(1, '101'), (2, '102'), (3, '103'), (4, '104')`)
+	exec(`INSERT INTO plex_links(item_id, rating_key) VALUES(1, '101'), (2, '102'), (3, '103'), (4, '104'), (6, '106')`)
 	exec(`INSERT INTO media_files(item_id, library_id, path, size, mtime) VALUES(5, 1, '/media/new.mkv', 1, 0)`)
 	// Plexodus already has newer progress on 3 than Plex does.
 	exec(`INSERT INTO watch_state(user_id, item_id, position, duration, watched, play_count, updated_at) VALUES(1, 3, 600, 7200, 0, 0, ?)`, now)
+	// 6 is half watched here; the owner last played it in Plex weeks ago,
+	// and a friend has just watched it on the shared Plex server.
+	exec(`INSERT INTO watch_state(user_id, item_id, position, duration, watched, play_count, updated_at) VALUES(1, 6, 2400, 7200, 0, 0, ?)`, now-600)
 	// 4 was watched here a while ago, then partly rewatched in Plex.
 	exec(`INSERT INTO watch_state(user_id, item_id, position, duration, watched, play_count, updated_at) VALUES(1, 4, 0, 7200, 1, 1, ?)`, now-7200)
 
@@ -53,6 +56,7 @@ func TestSyncAppliesNewerPlexState(t *testing.T) {
 		"104": {"ratingKey": "104", "type": "movie", "viewCount": 1, "viewOffset": 900000, "lastViewedAt": now - 100, "duration": 7200000},
 		"105": {"ratingKey": "105", "type": "movie", "viewCount": 2, "lastViewedAt": now - 10, "duration": 7200000,
 			"Media": []any{map[string]any{"Part": []any{map[string]any{"file": "/plex/new.mkv"}}}}},
+		"106": {"ratingKey": "106", "type": "movie", "viewOffset": 39000, "lastViewedAt": now - 30*86400, "duration": 7200000},
 	}
 	plexSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var md []any
@@ -61,6 +65,7 @@ func TestSyncAppliesNewerPlexState(t *testing.T) {
 			md = []any{
 				map[string]any{"ratingKey": "101", "viewedAt": now - 60, "type": "movie"},
 				map[string]any{"ratingKey": "105", "viewedAt": now - 10, "type": "movie"},
+				map[string]any{"ratingKey": "106", "viewedAt": now - 30, "type": "movie", "accountID": 7},
 			}
 		case r.URL.Path == "/library/onDeck":
 			md = []any{items["102"], items["103"], items["104"]}
@@ -82,8 +87,8 @@ func TestSyncAppliesNewerPlexState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if checked != 5 || updated != 4 {
-		t.Errorf("checked %d updated %d, want 5 and 4", checked, updated)
+	if checked != 6 || updated != 4 {
+		t.Errorf("checked %d updated %d, want 6 and 4", checked, updated)
 	}
 	get := func(id int) ws {
 		var w ws
@@ -105,6 +110,9 @@ func TestSyncAppliesNewerPlexState(t *testing.T) {
 	}
 	if w := get(5); !w.watched || w.plays != 2 {
 		t.Errorf("item 5 (matched by path): %+v", w)
+	}
+	if w := get(6); w.pos != 2400 || w.at != now-600 {
+		t.Errorf("item 6 (a friend's Plex play) rolled back local progress: %+v", w)
 	}
 	var key string
 	d.R.QueryRow(`SELECT rating_key FROM plex_links WHERE item_id = 5`).Scan(&key)

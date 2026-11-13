@@ -267,9 +267,14 @@ func (s *Syncer) sync(ctx context.Context, c *Client, pm PathMap) (checked, upda
 	if err := c.History(ctx, since, func(page []HistoryEntry) error {
 		for _, h := range page {
 			if h.Type == "" || h.Type == "movie" || h.Type == "episode" {
-				add(h.RatingKey, h.ViewedAt)
 				if OwnerPlay(h) {
+					add(h.RatingKey, h.ViewedAt)
 					plays = append(plays, h)
+				} else {
+					// A friend's play only says the item is worth re-reading. Its
+					// time must not make the owner's older Plex state look new, or
+					// it rolls back progress made in Plexodus (seen 2026-11-13).
+					add(h.RatingKey, 0)
 				}
 			}
 		}
