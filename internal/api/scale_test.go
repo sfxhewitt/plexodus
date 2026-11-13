@@ -129,6 +129,34 @@ func TestScaleCollections(t *testing.T) {
 		t.Skip()
 	}
 	s, u := scaleServer(t)
+	// Plus 1,500 Plex collections of 40 films and 300 of 20 shows, half
+	// without their own poster.
+	tx, _ := s.db.W.Begin()
+	rnd := rand.New(rand.NewSource(2))
+	for c := 0; c < 1800; c++ {
+		id, kind, n, lo, span := int64(1_000_000_000_000+c), "movie", 40, 1001, 30000
+		if c >= 1500 {
+			kind, n, lo, span = "show", 20, 0, 0
+		}
+		var poster any
+		if c%2 == 0 {
+			poster = "plex:/p.jpg"
+		}
+		tx.Exec(`INSERT OR IGNORE INTO collections(id, name, sort_name, source, kind, poster, updated_at) VALUES (?, ?, ?, 'plex', ?, ?, 0)`,
+			id, fmt.Sprint("Plex ", c), fmt.Sprint("plex ", c), kind, poster)
+		for i := 0; i < n; i++ {
+			var item int64
+			if kind == "movie" {
+				item = int64(lo + 1 + rnd.Intn(span))
+			} else {
+				tx.QueryRow(`SELECT id FROM items WHERE kind = 'show' LIMIT 1 OFFSET ?`, rnd.Intn(13000)).Scan(&item)
+			}
+			tx.Exec(`INSERT OR IGNORE INTO collection_items(collection_id, item_id, position) VALUES (?, ?, ?)`, id, item, i)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
 	kid := u
 	age := 13
 	kid.MaxAge = &age
@@ -137,11 +165,11 @@ func TestScaleCollections(t *testing.T) {
 		for i := 0; i < 2; i++ {
 			start := time.Now()
 			var out struct {
-				Collections []CollectionCard
-				Pending     int
+				Count   int
+				Pending int
 			}
 			call(t, s, u, s.handleCollections, "GET", "/api/collections", "", nil, &out)
-			t.Logf("collections took %s: %d collections, %d pending (kids=%v)", time.Since(start), len(out.Collections), out.Pending, u.MaxAge != nil)
+			t.Logf("collections took %s: %d collections, %d pending (kids=%v)", time.Since(start), out.Count, out.Pending, u.MaxAge != nil)
 		}
 	}
 }

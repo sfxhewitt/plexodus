@@ -88,6 +88,14 @@ func migrate(w *sql.DB) error {
 		{"invites", "uses", "INTEGER NOT NULL DEFAULT 0"},
 		// TMDB collection (franchise) a film belongs to; 0 = none, NULL = not asked yet.
 		{"items", "collection_id", "INTEGER"},
+		// Collections from Plex as well as TMDB (see collection_items).
+		{"collections", "source", "TEXT NOT NULL DEFAULT 'tmdb'"}, // tmdb | plex
+		{"collections", "plex_key", "TEXT"},                       // Plex ratingKey
+		{"collections", "kind", "TEXT NOT NULL DEFAULT 'movie'"},  // movie | show
+		{"collections", "summary", "TEXT"},
+		{"collections", "smart", "INTEGER NOT NULL DEFAULT 0"},
+		// When TMDB was last asked for artwork this collection lacks.
+		{"collections", "art_checked_at", "INTEGER"},
 	}
 	for _, c := range columns {
 		var n int

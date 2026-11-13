@@ -195,6 +195,11 @@ func (s *Syncer) once(ctx context.Context) {
 			log.Printf("plex: %v", merr)
 		}
 		mcancel()
+		cctx, ccancel := context.WithTimeout(ctx, 20*time.Minute)
+		if cerr := s.syncCollections(cctx, c, pm, false); cerr != nil {
+			log.Printf("plex: %v", cerr)
+		}
+		ccancel()
 	}
 	rctx, rcancel := context.WithTimeout(ctx, 10*time.Minute)
 	if rerr := s.BackfillRatings(rctx, c); rerr != nil {

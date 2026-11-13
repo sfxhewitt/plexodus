@@ -58,6 +58,9 @@ func (a *Agent) Run(ctx context.Context) {
 		if n == 0 && a.Enabled() {
 			n = a.backfillCollections(ctx)
 		}
+		if n == 0 && a.Enabled() {
+			n = a.collectionArt(ctx)
+		}
 		if n > 0 {
 			continue
 		}

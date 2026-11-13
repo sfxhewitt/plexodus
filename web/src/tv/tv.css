@@ -687,3 +687,9 @@ html.tv [data-hscroll]::-webkit-scrollbar, html.tv [data-vscroll]::-webkit-scrol
   position: absolute; bottom: 1.6rem; left: 0; right: 0; text-align: center;
   font-size: 1.1rem; color: var(--tv-muted); letter-spacing: 0.05em;
 }
+
+/* Collections: "See all" at the end of a long group's row. */
+.tv-see-all .tv-card-frame {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem;
+  background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.85); font-size: 1.2rem; font-weight: 600;
+}

@@ -1,13 +1,13 @@
 import { useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { art, Card, Collection } from "../../api";
+import { art, Card, Collection, collectionCount } from "../../api";
 import { Play } from "../../components/Icons";
 import { useApi } from "../../hooks";
 import { Spinner, TvButton, TvCard, useBackdrop } from "../components";
 import { usePageFocus, useRefresh, useToast } from "../hooks";
 import { playCard } from "../play";
 
-/** One collection: its films in release order, with Play for the next one you haven't seen. */
+/** One collection: franchises in release order, Plex collections in Plex's order, with Play for the next one you haven't seen. */
 export default function CollectionPage() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -30,13 +30,14 @@ export default function CollectionPage() {
     <div className="tv-page tv-detail" data-vscroll="reveal" data-margin="4rem">
       <section className="tv-detail-hero tv-collection-hero" data-row data-row-top>
         <div className="tv-detail-info">
-          <div className="tv-eyebrow">Collection</div>
+          <div className="tv-eyebrow">{c.group && c.group !== "Franchises & series" ? c.group : "Collection"}</div>
           <h1 className="tv-detail-title">{c.name}</h1>
           <div className="tv-meta">
-            <span>{items.length} films</span>
+            <span>{collectionCount(c, items.length)}</span>
             {span && <span>{span}</span>}
             {c.watched > 0 && <span>{c.watched >= c.count ? "All watched" : `${c.watched} of ${c.count} watched`}</span>}
           </div>
+          {c.summary && <p className="tv-overview">{c.summary}</p>}
           <div className="tv-actions" data-group="actions">
             {next && (
               <TvButton primary autoFocus fk="play" icon={<Play size={24} />} onClick={() => playIt(next)}>
