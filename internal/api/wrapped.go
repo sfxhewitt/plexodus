@@ -99,7 +99,8 @@ func (s *Server) handleWrapped(w http.ResponseWriter, r *http.Request) {
 	if err != nil || r.URL.Query().Get("tz") == "" {
 		loc = time.Local
 	}
-	season, open := wrappedSeason(wrappedNow().In(loc))
+	// Judged by the server clock, as the Home tile is, so the two agree.
+	season, open := wrappedSeason(wrappedNow())
 	if !open {
 		writeErr(w, 404, "Plexodus Wrapped is back on 26 December.")
 		return
