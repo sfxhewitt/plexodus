@@ -290,17 +290,7 @@ class PlayerActivity : Activity() {
         // TV's speakers instead, so decode while they're connected.
         hdmiSurround = hdmiTakesSurround()
         passthrough = hdmiSurround && !headphonesConnected()
-        val opts = arrayListOf("--network-caching=4000", "--http-reconnect", "--audio-time-stretch")
-        // libVLC's default subtitles are about 6% of the picture's height, far bigger
-        // than Netflix or Apple TV. A 25th of the height (43 px at 1080p) reads well
-        // from the sofa without covering the film.
-        opts += "--freetype-rel-fontsize=25"
-        if (hdmiSurround) opts += "--aout=audiotrack"
-        opts += if (passthrough) "--spdif" else "--no-spdif"
-        libVlc = LibVLC(this, opts)
-        player = MediaPlayer(libVlc)
-        player.attachViews(videoLayout, null, true, false)
-        player.setEventListener { onEvent(it) }
+        createPlayer()
         if (hdmiSurround) (getSystemService(Context.AUDIO_SERVICE) as AudioManager).registerAudioDeviceCallback(deviceWatch, ui)
 
         requestAudioFocus()
@@ -314,7 +304,48 @@ class PlayerActivity : Activity() {
         }
     }
 
+    private fun createPlayer() {
+        val opts = arrayListOf("--network-caching=4000", "--http-reconnect", "--audio-time-stretch")
+        // libVLC's default subtitles are about 6% of the picture's height, far bigger
+        // than Netflix or Apple TV. Medium is a 25th of the height (43 px at 1080p),
+        // which reads well from the sofa without covering the film.
+        opts += "--freetype-rel-fontsize=" + SUB_SIZES[Prefs.subtitleSize(this)].second
+        if (Prefs.subtitleBox(this)) {
+            opts += listOf("--freetype-background-opacity=150", "--freetype-background-color=0", "--freetype-outline-thickness=0")
+        }
+        if (hdmiSurround) opts += "--aout=audiotrack"
+        opts += if (passthrough) "--spdif" else "--no-spdif"
+        libVlc = LibVLC(this, opts)
+        player = MediaPlayer(libVlc)
+        player.attachViews(videoLayout, null, true, false)
+        player.setEventListener { onEvent(it) }
+    }
+
+    /**
+     * Subtitle size and background are libVLC start-up options, so a change
+     * rebuilds the player and carries on from the same moment and tracks.
+     */
+    private fun restartPlayer() {
+        val at = timeMs
+        val audio = player.audioTrack
+        val spu = player.spuTrack
+        player.setEventListener(null)
+        player.stop()
+        player.detachViews()
+        player.release()
+        libVlc.release()
+        playing = false
+        modeSwitched = true // the display already runs at the film's rate
+        createPlayer()
+        restoreTracks = Pair(audio, spu)
+        load(mediaUrl, at)
+    }
+
+    private var restoreTracks: Pair<Int, Int>? = null
+    private var mediaUrl = ""
+
     private fun load(url: String, startMs: Long) {
+        mediaUrl = url
         val media = Media(libVlc, Uri.parse(url))
         media.setHWDecoderEnabled(true, false)
         media.addOption(":network-caching=4000")
@@ -361,6 +392,11 @@ class PlayerActivity : Activity() {
             MediaPlayer.Event.Playing -> {
                 playing = true
                 spinner.visibility = View.GONE
+                restoreTracks?.let { (a, sp) ->
+                    restoreTracks = null
+                    if (a >= 0) player.setAudioTrack(a)
+                    player.setSpuTrack(sp)
+                }
                 applyAudioDelay()
                 if (calibrating) return
                 playPause.setImageResource(R.drawable.ic_pause)
@@ -528,6 +564,22 @@ class PlayerActivity : Activity() {
             list.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
             if (on || focus == null) focus = row
         }
+        if (!audio) {
+            list.addView(View(this).apply { setBackgroundColor(getColor(R.color.muted)); alpha = 0.3f },
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply { setMargins(0, (8 * dp).toInt(), 0, (8 * dp).toInt()) })
+            val size = Prefs.subtitleSize(this)
+            list.addView(trackRow(getString(R.string.sub_size, getString(SUB_SIZES[size].first)), dp) {
+                Prefs.setSubtitleSize(this, (size + 1) % SUB_SIZES.size)
+                dialog.dismiss()
+                restartPlayer()
+            })
+            val box = Prefs.subtitleBox(this)
+            list.addView(trackRow(getString(if (box) R.string.sub_box_on else R.string.sub_box_off), dp) {
+                Prefs.setSubtitleBox(this, !box)
+                dialog.dismiss()
+                restartPlayer()
+            })
+        }
         dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         dialog.setContentView(panel)
         dialog.window?.apply {
@@ -540,6 +592,23 @@ class PlayerActivity : Activity() {
         dialog.setOnDismissListener { scheduleHide() }
         dialog.show()
         focus?.requestFocus()
+    }
+
+    private fun trackRow(label: String, dp: Float, onPick: () -> Unit) = TextView(this).apply {
+        text = "     $label"
+        textSize = 14f
+        maxLines = 1
+        isFocusable = true
+        isClickable = true
+        minHeight = (36 * dp).toInt()
+        gravity = android.view.Gravity.CENTER_VERTICAL
+        setPadding((10 * dp).toInt(), 0, (14 * dp).toInt(), 0)
+        setBackgroundResource(R.drawable.bg_track_row)
+        val fg = getColor(R.color.muted)
+        val dark = getColor(R.color.bg)
+        setTextColor(fg)
+        setOnFocusChangeListener { v, has -> (v as TextView).setTextColor(if (has) dark else fg) }
+        setOnClickListener { onPick() }
     }
 
     private fun cycleAspect() {
@@ -1228,6 +1297,8 @@ class PlayerActivity : Activity() {
 
     companion object {
         const val EXTRA_RESULT = "result"
+        /** Subtitle sizes: label and libVLC's --freetype-rel-fontsize (a 1/N of the picture's height). */
+        private val SUB_SIZES = listOf(R.string.sub_small to 30, R.string.sub_medium to 25, R.string.sub_large to 20)
         private const val SYNC_STEP_MS = 25
         private const val CALIBRATION_STEP_MS = 10
         private const val EXTRA_FILE_ID = "fileId"

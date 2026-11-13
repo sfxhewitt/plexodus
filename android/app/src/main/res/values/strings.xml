@@ -36,6 +36,12 @@
     <string name="next_episode">Next episode</string>
     <string name="audio">Audio</string>
     <string name="subtitles">Subtitles</string>
+    <string name="sub_size">Size: %1$s</string>
+    <string name="sub_small">Small</string>
+    <string name="sub_medium">Medium</string>
+    <string name="sub_large">Large</string>
+    <string name="sub_box_off">Background: Off</string>
+    <string name="sub_box_on">Background: On</string>
     <string name="aspect">Aspect ratio</string>
     <string name="back">Back</string>
     <string name="play_pause">Play or pause</string>
