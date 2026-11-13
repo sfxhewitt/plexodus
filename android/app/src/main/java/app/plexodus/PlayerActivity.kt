@@ -84,6 +84,7 @@ class PlayerActivity : Activity() {
     /** The HDMI sink takes Dolby/DTS, so passthrough is on whenever headphones aren't. */
     private var hdmiSurround = false
     private var modeSwitched = false
+    private val modeRetry = Any()
 
     private val ui = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
@@ -365,6 +366,7 @@ class PlayerActivity : Activity() {
                 playPause.setImageResource(R.drawable.ic_pause)
                 scheduleHide()
                 lookUpNext()
+                matchRefreshRate()
             }
             MediaPlayer.Event.Paused -> {
                 playing = false
@@ -554,10 +556,16 @@ class PlayerActivity : Activity() {
      * (23.976 fps -> 23.976/24 Hz instead of 59.94 Hz), so pans don't judder.
      * Android puts the old mode back when the player closes.
      */
-    private fun matchRefreshRate() {
+    private fun matchRefreshRate(attempt: Int = 0) {
         if (modeSwitched) return
-        val track = player.currentVideoTrack ?: return
-        if (track.frameRateNum <= 0 || track.frameRateDen <= 0) return
+        val track = player.currentVideoTrack
+        if (track == null || track.frameRateNum <= 0 || track.frameRateDen <= 0) {
+            // libVLC often learns the frame rate a moment after the first
+            // frame is shown, so keep asking for a few seconds.
+            ui.removeCallbacksAndMessages(modeRetry)
+            if (attempt < 20) ui.postAtTime({ matchRefreshRate(attempt + 1) }, modeRetry, SystemClock.uptimeMillis() + 500)
+            return
+        }
         modeSwitched = true
         val fps = track.frameRateNum.toFloat() / track.frameRateDen
         @Suppress("DEPRECATION")

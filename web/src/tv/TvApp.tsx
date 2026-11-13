@@ -17,6 +17,9 @@ import SearchPage from "./pages/Search";
 import SettingsPage from "./pages/Settings";
 import { Screensaver } from "./Screensaver";
 import WrappedPage from "./pages/Wrapped";
+import WatchlistPage from "./pages/Watchlist";
+import CollectionsPage from "./pages/Collections";
+import CollectionPage from "./pages/Collection";
 import { MenuProvider, useLibraryMenu, useLongPress } from "./menu";
 import { TvWhoIsWatching } from "./profiles";
 import { colorOf, forgetPicked, goHome, initialOf, loadProfiles, shouldPick } from "../profiles";
@@ -41,7 +44,9 @@ function TabBar({ hidden }: { hidden: boolean }) {
   const tabs: { key: string; to: string; label?: string; icon?: JSX.Element; lib?: Library }[] = [
     { key: "search", to: "/search", icon: <SearchIcon size={24} /> },
     { key: "home", to: "/", label: "Home" },
+    { key: "watchlist", to: "/watchlist", label: "Watchlist" },
     ...(libs || []).filter((l) => !l.hidden).map((l) => ({ key: `lib${l.id}`, to: `/library/${l.id}`, label: l.name, lib: l })),
+    { key: "collections", to: "/collection", label: "Collections" },
   ];
   const active = (to: string) => (to === "/" ? loc.pathname === "/" : loc.pathname.startsWith(to));
   const anyActive = tabs.some((t) => active(t.to)) || loc.pathname.startsWith("/settings");
@@ -225,6 +230,9 @@ function Shell() {
               <Route path="/library/:id" element={<LibraryPage />} />
               <Route path="/item/:id" element={<Item />} />
               <Route path="/search" element={<SearchPage />} />
+              <Route path="/watchlist" element={<WatchlistPage />} />
+              <Route path="/collection" element={<CollectionsPage />} />
+              <Route path="/collection/:id" element={<CollectionPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/wrapped" element={<WrappedPage />} />
               <Route path="/play/:id" element={<PlayRoute />} />

@@ -73,6 +73,18 @@ export interface Detail extends Card {
   show?: Card;
   onDeck?: Card;
   siblings?: Card[];
+  collection?: Collection;
+  collectionItems?: Card[];
+}
+
+/** A film collection (franchise) from TMDB, e.g. "The Matrix Collection". */
+export interface Collection {
+  id: number;
+  name: string;
+  poster?: string;
+  backdrop?: string;
+  count: number;
+  watched: number;
 }
 
 export interface Library {

@@ -87,6 +87,7 @@ test("hold OK on a library tab: hide it from the menu", async ({ page, openTv })
   await openTv("/");
   await waitForFocus(page, "hero-play");
   await press(page, "up");
+  expect((await press(page, "right")).fk).toBe("nav-watchlist");
   await press(page, "right");
   expect((await press(page, "right")).fk).toBe("nav-lib2");
   await hold(page);

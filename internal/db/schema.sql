@@ -237,3 +237,14 @@ CREATE TABLE IF NOT EXISTS av_offsets (
     updated_by INTEGER,
     updated_at INTEGER NOT NULL
 );
+
+-- Film collections (franchises) from TMDB: "The Lord of the Rings Collection".
+-- items.collection_id points here; 0 means TMDB says the film is in none.
+CREATE TABLE IF NOT EXISTS collections (
+    id         INTEGER PRIMARY KEY,      -- TMDB collection id
+    name       TEXT NOT NULL,
+    sort_name  TEXT NOT NULL,
+    poster     TEXT,
+    backdrop   TEXT,
+    updated_at INTEGER NOT NULL
+);

@@ -347,6 +347,9 @@ html.tv [data-hscroll]::-webkit-scrollbar, html.tv [data-vscroll]::-webkit-scrol
   padding: 1.2rem var(--tv-safe) 8rem var(--pad);
 }
 .tv-grid > div { padding-top: 0.9rem; }
+/* A collection page: a shorter hero so the first row of films peeks in. */
+.tv-collection-hero { min-height: 62vh; }
+.tv-collection-tile .tv-card-label { color: var(--tv-cyan); }
 .tv-grid .tv-card.poster { width: 100%; }
 .tv-grid .tv-card.poster .tv-card-frame { height: 17.2rem; }
 
