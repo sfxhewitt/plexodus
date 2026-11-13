@@ -19,7 +19,7 @@ test("home that fails to load offers Try again, and the library tabs come back b
 
   await openTv("/");
   await expect(page.getByText("Home didn't load")).toBeVisible();
-  await expect(page.getByText("database is busy")).toBeVisible();
+  await expect(page.getByText("The server is busy right now. Try again in a moment.")).toBeVisible();
   expect((await focused(page)).text).toContain("Try again");
   await expect(page.locator(".tv-tab-btn")).toHaveCount(4); // search, Home, Watchlist, Collections only, for now
 

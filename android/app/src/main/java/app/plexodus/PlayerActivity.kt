@@ -401,6 +401,7 @@ class PlayerActivity : Activity() {
                     if (a >= 0) player.setAudioTrack(a)
                     player.setSpuTrack(sp)
                 } ?: applyShowTracks()
+                showAudioBadge()
                 applyAudioDelay()
                 if (calibrating) return
                 playPause.setImageResource(R.drawable.ic_pause)
@@ -616,6 +617,34 @@ class PlayerActivity : Activity() {
         setTextColor(fg)
         setOnFocusChangeListener { v, has -> (v as TextView).setTextColor(if (has) dark else fg) }
         setOnClickListener { onPick() }
+    }
+
+    // ---- Dolby / DTS badge ----
+
+    private var badgeFor = -1L
+
+    /** Names the surround format once per title, and whether it's going to the TV or receiver untouched. */
+    private fun showAudioBadge() {
+        if (badgeFor == itemId || calibrating) return
+        badgeFor = itemId
+        val name = player.audioTracks?.firstOrNull { it.id == player.audioTrack }?.name ?: return
+        val n = name.uppercase(Locale.US)
+        val format = when {
+            "ATMOS" in n -> "Dolby Atmos"
+            "TRUEHD" in n -> "Dolby TrueHD"
+            "E-AC3" in n || "EAC3" in n || "DD+" in n -> "Dolby Digital Plus"
+            "AC3" in n || "AC-3" in n -> "Dolby Digital"
+            "DTS:X" in n || "DTS-X" in n -> "DTS:X"
+            "DTS-HD" in n || "DTS HD" in n -> "DTS-HD"
+            "DTS" in n -> "DTS"
+            else -> return
+        }
+        val badge = findViewById<TextView>(R.id.audioBadge)
+        badge.text = if (passthrough) "$format · Passthrough" else format
+        badge.animate().cancel()
+        badge.animate().alpha(1f).setStartDelay(0).setDuration(250).withEndAction {
+            badge.animate().alpha(0f).setStartDelay(2500).setDuration(400).start()
+        }.start()
     }
 
     // ---- per-show memory ----
@@ -1206,7 +1235,9 @@ class PlayerActivity : Activity() {
                     skipMarker()
                 } else {
                     setControls(true)
-                    playPause.requestFocus()
+                    // Down is the quick menu: straight to Audio, Subtitles and Sync.
+                    val quick = listOf(subsButton, audioButton, syncButton).firstOrNull { it.visibility == View.VISIBLE }
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && quick != null) quick.requestFocus() else playPause.requestFocus()
                 }
             }
             KeyEvent.KEYCODE_BACK -> if (controlsVisible && playing) setControls(false) else finishPlayback(false)
