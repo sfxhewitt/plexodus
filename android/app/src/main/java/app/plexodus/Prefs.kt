@@ -40,6 +40,25 @@ object Prefs {
 
     const val MAX_DELAY = 5000
 
+    private const val KEY_SUB_SIZE = "subtitleSize"
+    private const val KEY_SUB_BOX = "subtitleBox"
+
+    /** Subtitle size on this device: 0 small, 1 medium (default), 2 large. */
+    fun subtitleSize(ctx: Context): Int =
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getInt(KEY_SUB_SIZE, 1).coerceIn(0, 2)
+
+    fun setSubtitleSize(ctx: Context, size: Int) {
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putInt(KEY_SUB_SIZE, size.coerceIn(0, 2)).apply()
+    }
+
+    /** Subtitles on a dark box instead of an outline. */
+    fun subtitleBox(ctx: Context): Boolean =
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean(KEY_SUB_BOX, false)
+
+    fun setSubtitleBox(ctx: Context, on: Boolean) {
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putBoolean(KEY_SUB_BOX, on).apply()
+    }
+
     /** Turns whatever the user typed into http(s)://host[:port] without a trailing slash. */
     fun normalize(input: String): String {
         var s = input.trim().trimEnd('/')
