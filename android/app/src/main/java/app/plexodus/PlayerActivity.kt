@@ -87,6 +87,9 @@ class PlayerActivity : Activity() {
     private lateinit var overviewText: TextView
     private val modeRetry = Any()
 
+    /** Tints a Govee light to the picture while playing, when turned on. */
+    private var roomLight: RoomLight? = null
+
     private val ui = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
 
@@ -347,6 +350,7 @@ class PlayerActivity : Activity() {
         player = MediaPlayer(libVlc)
         player.attachViews(videoLayout, null, true, false)
         player.setEventListener { onEvent(it) }
+        if (roomLight == null && !calibrating && Prefs.roomLight(this)) roomLight = RoomLight(this, videoLayout)
     }
 
     /**
@@ -433,6 +437,7 @@ class PlayerActivity : Activity() {
                 showAudioBadge()
                 applyAudioDelay()
                 if (calibrating) return
+                roomLight?.resume()
                 playPause.setImageResource(R.drawable.ic_pause)
                 scheduleHide()
                 lookUpNext()
@@ -440,6 +445,7 @@ class PlayerActivity : Activity() {
             }
             MediaPlayer.Event.Paused -> {
                 playing = false
+                roomLight?.pause()
                 // Apple TV style: pausing brings up what you're watching.
                 if (!calibrating && overviewText.text.isNotEmpty()) overviewText.visibility = View.VISIBLE
                 playPause.setImageResource(R.drawable.ic_play)
@@ -652,6 +658,15 @@ class PlayerActivity : Activity() {
             list.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
             if (on || focus == null) focus = row
         }
+        if (audio) {
+            list.addView(View(this).apply { setBackgroundColor(getColor(R.color.muted)); alpha = 0.3f },
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply { setMargins(0, (8 * dp).toInt(), 0, (8 * dp).toInt()) })
+            val lightOn = Prefs.roomLight(this)
+            list.addView(trackRow(getString(if (lightOn) R.string.room_light_on else R.string.room_light_off), dp) {
+                dialog.dismiss()
+                setRoomLight(!lightOn)
+            })
+        }
         if (!audio) {
             list.addView(View(this).apply { setBackgroundColor(getColor(R.color.muted)); alpha = 0.3f },
                 LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply { setMargins(0, (8 * dp).toInt(), 0, (8 * dp).toInt()) })
@@ -680,6 +695,43 @@ class PlayerActivity : Activity() {
         dialog.setOnDismissListener { scheduleHide() }
         dialog.show()
         focus?.requestFocus()
+    }
+
+    /**
+     * Turns Room light on or off. The first time on, it scans the LAN for the
+     * Govee light and says what it found.
+     */
+    private fun setRoomLight(on: Boolean) {
+        Prefs.setRoomLight(this, on)
+        if (!on) {
+            roomLight?.release()
+            roomLight = null
+            return
+        }
+        if (Prefs.roomLightIp(this) != null) {
+            startRoomLight()
+            return
+        }
+        Toast.makeText(this, R.string.room_light_searching, Toast.LENGTH_SHORT).show()
+        Thread {
+            val ip = RoomLight.discover(this)
+            ui.post {
+                if (isFinishing || isDestroyed) return@post
+                if (ip == null) {
+                    Prefs.setRoomLight(this, false)
+                    Toast.makeText(this, R.string.room_light_none, Toast.LENGTH_LONG).show()
+                } else {
+                    Prefs.setRoomLightIp(this, ip)
+                    Toast.makeText(this, getString(R.string.room_light_found, ip), Toast.LENGTH_SHORT).show()
+                    startRoomLight()
+                }
+            }
+        }.start()
+    }
+
+    private fun startRoomLight() {
+        if (roomLight == null) roomLight = RoomLight(this, videoLayout)
+        if (playing) roomLight?.resume()
     }
 
     private fun trackRow(label: String, dp: Float, onPick: () -> Unit) = TextView(this).apply {
@@ -1482,6 +1534,8 @@ class PlayerActivity : Activity() {
 
     override fun onDestroy() {
         ui.removeCallbacksAndMessages(null)
+        roomLight?.release()
+        roomLight = null
         if (hdmiSurround) (getSystemService(Context.AUDIO_SERVICE) as AudioManager).unregisterAudioDeviceCallback(deviceWatch)
         if (::player.isInitialized) {
             player.setEventListener(null)

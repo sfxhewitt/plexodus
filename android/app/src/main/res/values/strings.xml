@@ -42,6 +42,11 @@
     <string name="sub_large">Large</string>
     <string name="sub_box_off">Background: Off</string>
     <string name="sub_box_on">Background: On</string>
+    <string name="room_light_off">Room light: Off</string>
+    <string name="room_light_on">Room light: On</string>
+    <string name="room_light_searching">Looking for a Govee light…</string>
+    <string name="room_light_found">Room light: %1$s</string>
+    <string name="room_light_none">No Govee light found. Turn on LAN Control for it in the Govee Home app.</string>
     <string name="aspect">Aspect ratio</string>
     <string name="back">Back</string>
     <string name="play_pause">Play or pause</string>

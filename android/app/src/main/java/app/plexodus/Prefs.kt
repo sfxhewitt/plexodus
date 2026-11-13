@@ -69,6 +69,25 @@ object Prefs {
 
     private fun showTrackKey(show: String, audio: Boolean) = (if (audio) "showAudio:" else "showSubs:") + show.lowercase()
 
+    private const val KEY_ROOM_LIGHT = "roomLight"
+    private const val KEY_ROOM_LIGHT_IP = "roomLightIp"
+
+    /** Room light: tint a Govee light to match the picture while playing. Off until turned on. */
+    fun roomLight(ctx: Context): Boolean =
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean(KEY_ROOM_LIGHT, false)
+
+    fun setRoomLight(ctx: Context, on: Boolean) {
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putBoolean(KEY_ROOM_LIGHT, on).apply()
+    }
+
+    /** The Govee light's IP, found by a LAN scan the first time Room light is turned on. */
+    fun roomLightIp(ctx: Context): String? =
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString(KEY_ROOM_LIGHT_IP, null)
+
+    fun setRoomLightIp(ctx: Context, ip: String?) {
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString(KEY_ROOM_LIGHT_IP, ip).apply()
+    }
+
     /** Turns whatever the user typed into http(s)://host[:port] without a trailing slash. */
     fun normalize(input: String): String {
         var s = input.trim().trimEnd('/')

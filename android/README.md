@@ -44,6 +44,14 @@ need no app update at all.
   episode itself it reports `ended: false` (with the started item's id), so
   the page doesn't offer it again.
 
+- `RoomLight` tints a Govee Wi-Fi light to match the picture (Audio panel >
+  "Room light"). About ten times a second it PixelCopies the libVLC video
+  surface into a 32x18 bitmap, picks the main hue (weighted by saturation,
+  ignoring black bars), smooths it, and sends it to the light over Govee's
+  LAN API (UDP 4003; the light needs "LAN Control" on in the Govee Home app).
+  The light is found by multicast scan the first time and its state is put
+  back when the player closes. Pausing holds the colour.
+
 - `Updater` is the self-update: the release workflow writes
   `android-version.json` (version code, name, size, SHA-256) after uploading
   the APK; the app downloads into its cache, checks the hash and that the APK
