@@ -115,6 +115,19 @@ class PlayerActivity : Activity() {
     private var timeMs = 0L
     private var playing = false
     private var seeking = false
+    /** A finger is dragging the seek bar (touch screens). */
+    private var touchSeeking = false
+    /** Where the remote has moved the seek bar to, before the jump is made; -1 when idle. */
+    private var scrubMs = -1L
+    private val commitScrub = Runnable { commitSeek() }
+    /**
+     * libVLC has started this file. Until then timeMs is only the resume
+     * point we asked for, so nothing is reported: backing out of a film that
+     * is still loading must not wipe out where you were.
+     */
+    private var started = false
+    /** Resume point to check once the first time arrives, in case the start-time option was ignored. */
+    private var pendingStartMs = 0L
     private var finished = false
     private var lastReport = 0L
     private var controlsVisible = true
@@ -231,22 +244,29 @@ class PlayerActivity : Activity() {
 
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
-                if (fromUser) {
-                    timeText.text = fmt(progress * 1000L)
-                    showScrubPreview(progress * 1000L)
+                if (!fromUser) return
+                timeText.text = fmt(progress * 1000L)
+                showScrubPreview(progress * 1000L)
+                if (!touchSeeking) {
+                    // Moved by a key the player didn't catch itself: jump once it settles.
+                    seeking = true
+                    scrubMs = progress * 1000L
+                    ui.removeCallbacks(hideControls)
+                    ui.removeCallbacks(commitScrub)
+                    ui.postDelayed(commitScrub, SCRUB_SETTLE_MS)
                 }
             }
 
             override fun onStartTrackingTouch(bar: SeekBar) {
+                touchSeeking = true
                 seeking = true
                 ui.removeCallbacks(hideControls)
             }
 
             override fun onStopTrackingTouch(bar: SeekBar) {
-                seeking = false
-                player.setTime(bar.progress * 1000L)
-                timeMs = bar.progress * 1000L
-                scheduleHide()
+                touchSeeking = false
+                scrubMs = bar.progress * 1000L
+                commitSeek()
             }
         })
 
@@ -300,6 +320,7 @@ class PlayerActivity : Activity() {
         if (hdmiSurround) (getSystemService(Context.AUDIO_SERVICE) as AudioManager).registerAudioDeviceCallback(deviceWatch, ui)
 
         requestAudioFocus()
+        timeMs = if (startMs > 5_000) startMs else 0L
         load(url, startMs)
         loadThumbs()
         if (calibrating) {
@@ -357,6 +378,9 @@ class PlayerActivity : Activity() {
         media.setHWDecoderEnabled(true, false)
         media.addOption(":network-caching=4000")
         if (startMs > 5_000) media.addOption(":start-time=${startMs / 1000}")
+        started = false
+        pendingStartMs = if (startMs > 5_000 && !calibrating) startMs else 0L
+        lastReport = 0L
         if (calibrating) media.addOption(":input-repeat=65535")
         player.setMedia(media)
         media.release()
@@ -398,6 +422,7 @@ class PlayerActivity : Activity() {
         when (e.type) {
             MediaPlayer.Event.Playing -> {
                 playing = true
+                started = true
                 overviewText.visibility = View.GONE
                 spinner.visibility = View.GONE
                 restoreTracks?.let { (a, sp) ->
@@ -423,6 +448,18 @@ class PlayerActivity : Activity() {
             }
             MediaPlayer.Event.Buffering -> spinner.visibility = if (e.buffering < 100f) View.VISIBLE else View.GONE
             MediaPlayer.Event.TimeChanged -> {
+                if (pendingStartMs > 0) {
+                    val want = pendingStartMs
+                    pendingStartMs = 0L
+                    if (e.timeChanged < want - 10_000) {
+                        // The resume point didn't take (some streams ignore
+                        // start-time): jump there now, and don't report the start.
+                        player.setTime(want)
+                        timeMs = want
+                        updateTime()
+                        return
+                    }
+                }
                 timeMs = e.timeChanged
                 if (calibrating) return
                 updateTime()
@@ -450,6 +487,44 @@ class PlayerActivity : Activity() {
 
     private fun togglePlay() {
         if (player.isPlaying) player.pause() else player.play()
+    }
+
+    /**
+     * The remote moves the seek bar: each press 10 s, holding it speeds up.
+     * The player jumps once the presses stop (or on OK), like Plex and Netflix.
+     */
+    private fun scrubBy(dir: Int, repeat: Int) {
+        if (lengthMs <= 0) return
+        if (scrubMs < 0) scrubMs = timeMs
+        val step = when {
+            repeat < 4 -> 10_000L
+            repeat < 20 -> 30_000L
+            else -> maxOf(60_000L, lengthMs / 60)
+        }
+        scrubMs = (scrubMs + dir * step).coerceIn(0, lengthMs)
+        seeking = true
+        ui.removeCallbacks(hideControls)
+        seek.max = (lengthMs / 1000).toInt().coerceAtLeast(1)
+        seek.progress = (scrubMs / 1000).toInt()
+        timeText.text = fmt(scrubMs)
+        showScrubPreview(scrubMs)
+        ui.removeCallbacks(commitScrub)
+        ui.postDelayed(commitScrub, SCRUB_SETTLE_MS)
+    }
+
+    /** Makes the jump the seek bar has been moved to. */
+    private fun commitSeek() {
+        ui.removeCallbacks(commitScrub)
+        val target = scrubMs
+        scrubMs = -1L
+        seeking = false
+        if (target >= 0) {
+            player.setTime(target)
+            timeMs = target
+            report(force = true)
+        }
+        updateTime()
+        scheduleHide()
     }
 
     private fun seekBy(deltaMs: Long) {
@@ -1313,9 +1388,21 @@ class PlayerActivity : Activity() {
             KeyEvent.KEYCODE_MEDIA_PAUSE -> player.pause()
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> seekBy(30_000)
             KeyEvent.KEYCODE_MEDIA_REWIND -> seekBy(-30_000)
-            KeyEvent.KEYCODE_DPAD_RIGHT -> if (controlsVisible) return super.onKeyDown(keyCode, event) else seekBy(10_000)
-            KeyEvent.KEYCODE_DPAD_LEFT -> if (controlsVisible) return super.onKeyDown(keyCode, event) else seekBy(-10_000)
+            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_LEFT -> {
+                val dir = if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) 1 else -1
+                when {
+                    !controlsVisible -> seekBy(dir * 10_000L)
+                    // The seek bar has the focus: move it, jump when the presses stop.
+                    currentFocus == seek -> scrubBy(dir, event.repeatCount)
+                    else -> return super.onKeyDown(keyCode, event)
+                }
+            }
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                if (controlsVisible && scrubMs >= 0 && (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER)) {
+                    commitSeek()
+                    return true
+                }
+                if (scrubMs >= 0) commitSeek()
                 if (controlsVisible) return super.onKeyDown(keyCode, event)
                 val ok = keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER
                 if (ok && skipButton.visibility == View.VISIBLE) {
@@ -1328,7 +1415,18 @@ class PlayerActivity : Activity() {
                     if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && quick != null) quick.requestFocus() else playPause.requestFocus()
                 }
             }
-            KeyEvent.KEYCODE_BACK -> if (controlsVisible && playing) setControls(false) else finishPlayback(false)
+            KeyEvent.KEYCODE_BACK -> when {
+                scrubMs >= 0 -> {
+                    // Back while moving the seek bar: stay where the film is.
+                    ui.removeCallbacks(commitScrub)
+                    scrubMs = -1L
+                    seeking = false
+                    updateTime()
+                    scheduleHide()
+                }
+                controlsVisible && playing -> setControls(false)
+                else -> finishPlayback(false)
+            }
             else -> return super.onKeyDown(keyCode, event)
         }
         return true
@@ -1337,7 +1435,7 @@ class PlayerActivity : Activity() {
     // ---- progress reporting, same contract as the web player ----
 
     private fun report(force: Boolean = false, positionMs: Long = timeMs, stopped: Boolean = false) {
-        if (calibrating || lengthMs <= 0 || itemId == 0L) return
+        if (calibrating || lengthMs <= 0 || itemId == 0L || !started) return
         val now = System.currentTimeMillis()
         if (!force && now - lastReport < 10_000) return
         lastReport = now
@@ -1482,6 +1580,8 @@ class PlayerActivity : Activity() {
         private const val EXTRA_ITEM_ID = "itemId"
         private const val EXTRA_KIND = "kind"
         private const val EXTRA_START_MS = "startMs"
+        /** How long after the last press on the seek bar the player jumps. */
+        private const val SCRUB_SETTLE_MS = 700L
         private const val EXTRA_DURATION_MS = "durationMs"
         private const val EXTRA_MARKERS = "markers"
 
