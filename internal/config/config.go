@@ -28,6 +28,11 @@ type Config struct {
 	PlexPathMap  string
 	AnthropicKey string
 	AskModel     string
+	// AutoUpdate is PLEXODUS_AUTO_UPDATE: "off" stops the updater
+	// (deploy/update.sh) installing new releases, whatever Settings says.
+	AutoUpdate string
+	// Version is the build's version, set by main.
+	Version string
 }
 
 func env(key, def string) string {
@@ -69,6 +74,7 @@ func Load() *Config {
 	flag.StringVar(&c.PlexPathMap, "plex-path-map", env("PLEX_PATH_MAP", ""), "rewrite Plex file paths: plexPrefix=localPrefix[,...]")
 	flag.StringVar(&c.AnthropicKey, "anthropic-key", env("ANTHROPIC_API_KEY", ""), "Anthropic API key for plain-English search; can also be set in the UI")
 	flag.StringVar(&c.AskModel, "ask-model", env("PLEXODUS_ASK_MODEL", ""), "Claude model for plain-English search (default claude-opus-5-5)")
+	c.AutoUpdate = env("PLEXODUS_AUTO_UPDATE", "")
 	flag.Parse()
 
 	c.DBPath = filepath.Join(c.DataDir, "plexodus.db")

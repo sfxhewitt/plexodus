@@ -38,8 +38,19 @@ Useful commands:
 ```sh
 sudo nano /etc/plexodus.env && sudo systemctl restart plexodus   # change settings
 journalctl -u plexodus -f                                         # logs
-curl -fsSL https://github.com/sfxhewitt/plexodus/releases/download/latest/install.sh | sudo bash   # update
+curl -fsSL https://github.com/sfxhewitt/plexodus/releases/download/latest/install.sh | sudo bash   # update by hand
 ```
+
+### Updates
+
+The install script also sets up automatic updates. Every 15 minutes a systemd timer (`plexodus-update.timer`) checks the `latest` release, and if it has a new build it installs it and restarts Plexodus, but only when nobody is watching: while any stream is open (playing or paused) it waits for the next check. **Settings > Updates** shows what it last did, turns it off, and has an **Update now** button that installs straight away.
+
+```sh
+journalctl -u plexodus-update            # what the updater did
+sudo plexodus-update --now               # update now, even with streams open
+```
+
+To turn automatic updates off on the server, put `PLEXODUS_AUTO_UPDATE=off` in `/etc/plexodus.env` (this overrides Settings). The no-sudo install from `setup.sh` gets the same updater through cron.
 
 Install `ffmpeg` (`sudo apt install ffmpeg`) so Plexodus can check a file's codecs before playing it. It's optional, and files imported from Plex already have codec info.
 

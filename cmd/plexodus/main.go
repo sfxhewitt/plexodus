@@ -33,6 +33,7 @@ func main() {
 		}
 	}
 	cfg := config.Load()
+	cfg.Version = version
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -57,6 +58,7 @@ func main() {
 	go srv.RunPlexSync(ctx)
 	go srv.RunPlexFriends(ctx)
 	go srv.RunDetector(ctx)
+	go srv.RunUpdateStatus(ctx)
 
 	go agent.Run(ctx)
 	go prober.Run(ctx)
