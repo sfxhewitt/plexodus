@@ -41,7 +41,7 @@ jobs:
               -ldflags "-s -w -X main.version=${VERSION}" \
               -o dist/plexodus-linux-$arch ./cmd/plexodus
           done
-          cp deploy/install.sh deploy/setup.sh deploy/store-demo.py deploy/plexodus.service dist/
+          cp deploy/install.sh deploy/setup.sh deploy/update.sh deploy/store-demo.py deploy/plexodus.service deploy/plexodus-update.service deploy/plexodus-update.timer deploy/plexodus-update.path dist/
           ls -la dist
 
       - uses: actions/upload-artifact@v4

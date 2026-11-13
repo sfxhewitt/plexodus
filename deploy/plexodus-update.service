@@ -1,0 +1,10 @@
+[Unit]
+Description=Install the latest Plexodus release when nobody is watching
+Documentation=https://github.com/sfxhewitt/plexodus#updates
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/plexodus-update
+TimeoutStartSec=30min

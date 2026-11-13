@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for a new Plexodus release every 15 minutes
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=15min
+RandomizedDelaySec=1min
+
+[Install]
+WantedBy=timers.target

@@ -173,11 +173,21 @@ nohup "$DIR/plexodus" -data "$DATA" >>"$DIR/plexodus.log" 2>&1 </dev/null &
 EOF
   chmod +x "$DIR/start.sh"
   "$DIR/start.sh"
+  # The automatic updater (deploy/update.sh), run from cron below.
+  if curl -fsSL "$BASE/update.sh" -o "$DIR/update.sh.new"; then
+    chmod +x "$DIR/update.sh.new" && mv -f "$DIR/update.sh.new" "$DIR/update.sh"
+    printf '{"state":"installed","message":"Installed. Plexodus checks for updates every 15 minutes.","checkedAt":%s,"updatedAt":%s,"version":"%s"}\n' \
+      "$(date +%s)" "$(date +%s)" "$("$DIR/plexodus" -version)" >"$DATA/update-result.json"
+  fi
   if command -v crontab >/dev/null; then
     if ! crontab -l 2>/dev/null | grep -qF "$DIR/start.sh"; then
       (crontab -l 2>/dev/null; echo "@reboot $DIR/start.sh") | crontab - 2>/dev/null \
         && ok "Plexodus will start again by itself after a reboot." \
         || warn "Couldn't set Plexodus to start after a reboot. Run $DIR/start.sh after one."
+    fi
+    if [ -x "$DIR/update.sh" ] && ! crontab -l 2>/dev/null | grep -qF "$DIR/update.sh"; then
+      (crontab -l 2>/dev/null; echo "*/15 * * * * $DIR/update.sh --home $DIR >$DIR/update.log 2>&1") | crontab - 2>/dev/null \
+        && ok "Plexodus will update itself when nobody is watching (turn that off in Settings > Updates)."
     fi
   else
     warn "After this computer restarts, start Plexodus again with: $DIR/start.sh"

@@ -380,6 +380,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		"probeWorkers":        s.cfg.ProbeWorkers,
 		"scanInterval":        s.cfg.ScanInterval.String(),
 		"detectMarkers":       s.detector.Enabled(r.Context()),
+		"autoUpdate":          s.autoUpdateSettings(r.Context()),
 	})
 }
 
@@ -389,6 +390,8 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		RegenApiKey  bool    `json:"regenerateApiKey"`
 		AnthropicKey *string `json:"anthropicKey"`
 		Detect       *bool   `json:"detectMarkers"`
+		AutoUpdate   *bool   `json:"autoUpdate"`
+		UpdateNow    bool    `json:"updateNow"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, 400, err.Error())
@@ -414,6 +417,15 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 			v = "off"
 		}
 		s.db.SetSetting(r.Context(), detect.SettingKey, v)
+	}
+	if body.AutoUpdate != nil {
+		s.setAutoUpdate(r.Context(), *body.AutoUpdate)
+	}
+	if body.UpdateNow {
+		if err := s.requestUpdateNow(); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
 	}
 	if body.RegenApiKey {
 		s.db.SetSetting(r.Context(), "api_key", randomHex(16))

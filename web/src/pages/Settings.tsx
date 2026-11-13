@@ -456,7 +456,70 @@ type SettingsT = {
   tmdbKeySet: boolean; tmdbKeyMasked: string; tmdbKeyFromEnv: boolean; apiKey: string;
   anthropicKeySet: boolean; anthropicKeyMasked: string; anthropicKeyFromEnv: boolean; askModel: string;
   detectMarkers: boolean;
+  autoUpdate?: AutoUpdateT;
 };
+
+type AutoUpdateT = {
+  enabled: boolean; fromEnv: boolean; version: string; installed: boolean; pending?: boolean;
+  last?: { state: string; message?: string; checkedAt?: number; updatedAt?: number; version?: string };
+};
+
+function Updates() {
+  const { data, setData, reload } = useApi<SettingsT>("/api/settings");
+  const [busy, setBusy] = useState(false);
+  const u = data?.autoUpdate;
+  // While an "Update now" is pending, check back until the updater has run
+  // (the server restarts in between, so a failed fetch is expected).
+  useEffect(() => {
+    if (!u?.pending && !busy) return;
+    const t = setInterval(reload, 4000);
+    return () => clearInterval(t);
+  }, [u?.pending, busy, reload]);
+  useEffect(() => {
+    if (busy && u && !u.pending) setBusy(false);
+  }, [busy, u]);
+  if (!u) return null;
+  const put = async (body: object) => setData(await api.put<SettingsT>("/api/settings", body));
+  const updateNow = async () => {
+    if (!confirm("Install the latest version now? Plexodus restarts, so anyone watching will see their player pause for a few seconds.")) return;
+    setBusy(true);
+    await put({ updateNow: true });
+  };
+  return (
+    <section className="settings-section">
+      <h2>Updates</h2>
+      <div className="card form">
+        <p className="muted small" style={{ margin: 0 }}>
+          Running version <b>{u.version}</b>.
+          {u.installed
+            ? " Plexodus checks for a new release every 15 minutes and installs it by itself, waiting until nobody is watching so no film gets cut off."
+            : " This server was installed without the automatic updater. Run the install command once more on the server to add it:"}
+        </p>
+        {!u.installed && <pre className="code">curl -fsSL https://github.com/sfxhewitt/plexodus/releases/download/latest/install.sh | sudo bash</pre>}
+        {u.installed && (
+          <>
+            <label className="check">
+              <input type="checkbox" checked={u.enabled} disabled={u.fromEnv}
+                onChange={(e) => put({ autoUpdate: e.target.checked })} />
+              <span><b>Update automatically</b>{u.fromEnv && <span className="muted"> (turned off by PLEXODUS_AUTO_UPDATE in the server's settings file)</span>}</span>
+            </label>
+            {u.last && (
+              <p className="muted small" style={{ margin: 0 }}>
+                {u.last.message} Last checked {ago(u.last.checkedAt)}
+                {u.last.updatedAt ? `, last updated ${ago(u.last.updatedAt)}` : ""}.
+              </p>
+            )}
+            <div className="form-actions">
+              <button className="btn glass" disabled={busy || u.pending} onClick={updateNow}>
+                {busy || u.pending ? "Updating…" : "Update now"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
 
 function AskSettings() {
   const { data, setData } = useApi<SettingsT>("/api/settings");
@@ -786,6 +849,7 @@ export default function Settings() {
       <PlexSync />
       <PlexSignInSettings />
       <Metadata />
+      <Updates />
       <Invites />
       <Users />
     </div>
