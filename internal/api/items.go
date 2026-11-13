@@ -739,8 +739,9 @@ func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 	case "movie":
 		if c := s.itemCollection(r, id); c != nil {
 			d.Collection = c
-			d.CollectionItems, _ = s.cards(r, `WHERE i.collection_id = ?2 AND i.kind = 'movie'
+			films, _ := s.cards(r, `WHERE i.collection_id = ?2 AND i.collection_id > 0 AND i.kind = 'movie'
 				ORDER BY i.release_date IS NULL, i.release_date, i.year, i.sort_title`, c.ID)
+			d.CollectionItems = s.onePerTitle(r, films, id)
 		}
 	case "show":
 		d.Children, _ = s.cards(r, `WHERE i.parent_id = ?2 ORDER BY i.season_number = 0, i.season_number`, id)
