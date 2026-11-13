@@ -304,6 +304,18 @@ export class ApiError extends Error {
   }
 }
 
+/** Turns server and storage errors into something a person on a sofa can act on. */
+export function friendly(status: number, msg: string) {
+  const m = msg.toLowerCase();
+  if (/database is (locked|busy)|sqlite_busy/.test(m)) return "The server is busy right now. Try again in a moment.";
+  if (/input\/output error|transport endpoint|stale file handle|no such device|rclone/.test(m)) {
+    return "The drive holding this file isn't answering. It may be waking up, so try again in a minute.";
+  }
+  if (status === 502 || status === 503 || status === 504) return "The server is restarting or busy. Trying again usually works.";
+  if (status >= 500 && /^(internal server error|bad gateway)?$/.test(m)) return "Something went wrong on the server. Try again in a moment.";
+  return msg;
+}
+
 /**
  * How long a GET may take before it gives up. Without a limit a request the
  * server never answers leaves a page spinning forever; with one the page
@@ -325,14 +337,14 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
     });
   } catch (e) {
     if (ctl?.signal.aborted) throw new ApiError(0, "The server is taking too long to answer.");
-    throw e;
+    throw new ApiError(0, "Can't reach your Plexodus server. Check it's running and this device is online.");
   } finally {
     clearTimeout(timer);
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401 && !url.startsWith("/api/login")) window.dispatchEvent(new Event("plexodus:unauthorized"));
-    throw new ApiError(res.status, (data as { error?: string }).error || res.statusText);
+    throw new ApiError(res.status, friendly(res.status, (data as { error?: string }).error || res.statusText));
   }
   return data as T;
 }
