@@ -85,6 +85,21 @@
                     android:maxLines="1"
                     android:textColor="@color/muted"
                     android:textSize="12sp" />
+
+                <!-- Shown while paused: what this is about. -->
+                <TextView
+                    android:id="@+id/overview"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:ellipsize="end"
+                    android:lineSpacingMultiplier="1.15"
+                    android:maxLines="3"
+                    android:maxWidth="560dp"
+                    android:textColor="@color/text"
+                    android:alpha="0.85"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
             </LinearLayout>
         </LinearLayout>
 

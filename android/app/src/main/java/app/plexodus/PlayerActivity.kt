@@ -84,6 +84,7 @@ class PlayerActivity : Activity() {
     /** The HDMI sink takes Dolby/DTS, so passthrough is on whenever headphones aren't. */
     private var hdmiSurround = false
     private var modeSwitched = false
+    private lateinit var overviewText: TextView
     private val modeRetry = Any()
 
     private val ui = Handler(Looper.getMainLooper())
@@ -209,6 +210,8 @@ class PlayerActivity : Activity() {
         upNextCancel.setOnClickListener { if (askingStillWatching) finishPlayback(false) else dismissUpNext() }
         findViewById<TextView>(R.id.title).text = intent.getStringExtra(EXTRA_TITLE)
         findViewById<TextView>(R.id.subtitle).text = intent.getStringExtra(EXTRA_SUBTITLE)
+        overviewText = findViewById(R.id.overview)
+        overviewText.text = intent.getStringExtra(EXTRA_OVERVIEW) ?: ""
 
         findViewById<View>(R.id.back).setOnClickListener { finishPlayback(false) }
         playPause.setOnClickListener { togglePlay() }
@@ -391,12 +394,13 @@ class PlayerActivity : Activity() {
         when (e.type) {
             MediaPlayer.Event.Playing -> {
                 playing = true
+                overviewText.visibility = View.GONE
                 spinner.visibility = View.GONE
                 restoreTracks?.let { (a, sp) ->
                     restoreTracks = null
                     if (a >= 0) player.setAudioTrack(a)
                     player.setSpuTrack(sp)
-                }
+                } ?: applyShowTracks()
                 applyAudioDelay()
                 if (calibrating) return
                 playPause.setImageResource(R.drawable.ic_pause)
@@ -406,6 +410,8 @@ class PlayerActivity : Activity() {
             }
             MediaPlayer.Event.Paused -> {
                 playing = false
+                // Apple TV style: pausing brings up what you're watching.
+                if (!calibrating && overviewText.text.isNotEmpty()) overviewText.visibility = View.VISIBLE
                 playPause.setImageResource(R.drawable.ic_play)
                 report(force = true)
                 if (!upNextVisible && !calibrating && !syncMode) setControls(true)
@@ -558,6 +564,7 @@ class PlayerActivity : Activity() {
                 setOnFocusChangeListener { v, has -> (v as TextView).setTextColor(if (has) dark else fg) }
                 setOnClickListener {
                     if (audio) player.setAudioTrack(t.id) else player.setSpuTrack(t.id)
+                    rememberTrack(audio, t.name)
                     dialog.dismiss()
                 }
             }
@@ -609,6 +616,32 @@ class PlayerActivity : Activity() {
         setTextColor(fg)
         setOnFocusChangeListener { v, has -> (v as TextView).setTextColor(if (has) dark else fg) }
         setOnClickListener { onPick() }
+    }
+
+    // ---- per-show memory ----
+
+    /** Episodes of a show share their audio and subtitle choice (by track name, as ids differ per file). */
+    private fun showKey(): String? =
+        if (kind == "episode") findViewById<TextView>(R.id.title).text?.toString()?.takeIf { it.isNotBlank() } else null
+
+    private fun rememberTrack(audio: Boolean, name: String?) {
+        val show = showKey() ?: return
+        Prefs.setShowTrack(this, show, audio, name ?: "")
+    }
+
+    private var showTracksFor = -1L
+
+    /** On an episode's first Playing, pick the tracks chosen for earlier episodes of the show. */
+    private fun applyShowTracks() {
+        if (showTracksFor == itemId) return
+        showTracksFor = itemId
+        val show = showKey() ?: return
+        for (audio in listOf(true, false)) {
+            val want = Prefs.showTrack(this, show, audio) ?: continue
+            val tracks = (if (audio) player.audioTracks else player.spuTracks) ?: continue
+            val t = tracks.firstOrNull { it.name == want } ?: continue
+            if (audio) player.setAudioTrack(t.id) else player.setSpuTrack(t.id)
+        }
     }
 
     private fun cycleAspect() {
@@ -993,6 +1026,8 @@ class PlayerActivity : Activity() {
                 timeMs = if (startMs > 5_000) startMs else 0L
                 findViewById<TextView>(R.id.title).text = n.showTitle.ifEmpty { n.title }
                 findViewById<TextView>(R.id.subtitle).text = "${getString(R.string.episode_label, n.season, n.episode)} · ${n.title}"
+                overviewText.text = d.optString("overview")
+                overviewText.visibility = View.GONE
                 skipButton.visibility = View.GONE
                 load(p.optString("externalUrl"), startMs)
                 setControls(true)
@@ -1324,6 +1359,7 @@ class PlayerActivity : Activity() {
         private const val EXTRA_URL = "url"
         private const val EXTRA_TITLE = "title"
         private const val EXTRA_SUBTITLE = "subtitle"
+        private const val EXTRA_OVERVIEW = "overview"
         private const val EXTRA_ITEM_ID = "itemId"
         private const val EXTRA_KIND = "kind"
         private const val EXTRA_START_MS = "startMs"
@@ -1338,6 +1374,7 @@ class PlayerActivity : Activity() {
                 .putExtra(EXTRA_URL, req.optString("url"))
                 .putExtra(EXTRA_TITLE, req.optString("title"))
                 .putExtra(EXTRA_SUBTITLE, req.optString("subtitle"))
+                .putExtra(EXTRA_OVERVIEW, req.optString("overview"))
                 .putExtra(EXTRA_ITEM_ID, req.optLong("itemId"))
                 .putExtra(EXTRA_KIND, req.optString("kind"))
                 .putExtra(EXTRA_START_MS, (req.optDouble("startSeconds", 0.0) * 1000).toLong())

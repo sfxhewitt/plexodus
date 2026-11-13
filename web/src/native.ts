@@ -7,6 +7,8 @@ export interface NativePlayRequest {
   url: string;
   title: string;
   subtitle: string;
+  /** One-line synopsis, shown while paused. */
+  overview?: string;
   startSeconds: number;
   durationSeconds: number;
   markers: { type: string; start: number; end: number }[];

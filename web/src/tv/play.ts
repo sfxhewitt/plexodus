@@ -40,6 +40,7 @@ export async function playItem(id: number, opts: { fromStart?: boolean } = {}) {
       url: p.externalUrl,
       title,
       subtitle,
+      overview: d.overview || "",
       startSeconds: opts.fromStart ? 0 : p.position || 0,
       durationSeconds: p.file.duration || d.files[0].duration || 0,
       markers: m.map((x) => ({ type: x.type, start: x.start, end: x.end })),
