@@ -117,11 +117,14 @@ func migrate(w *sql.DB) error {
 	// Collections: the films in each, with what the access and kids checks
 	// read, so the Collections tab never touches the items table itself.
 	// Replaces items_collection, which had collection_id alone.
-	if _, err := w.Exec(`CREATE INDEX IF NOT EXISTS items_collection_films ON items(collection_id, kind, library_id, age, parent_id) WHERE collection_id > 0`); err != nil {
+	// v2 adds what tells copies of one film apart from different films.
+	if _, err := w.Exec(`CREATE INDEX IF NOT EXISTS items_collection_films_v2 ON items(collection_id, kind, library_id, age, parent_id, tmdb_id, title, year) WHERE collection_id > 0`); err != nil {
 		return err
 	}
-	if _, err := w.Exec(`DROP INDEX IF EXISTS items_collection`); err != nil {
-		return err
+	for _, old := range []string{"items_collection", "items_collection_films"} {
+		if _, err := w.Exec(`DROP INDEX IF EXISTS ` + old); err != nil {
+			return err
+		}
 	}
 	// Films still waiting for their collection to be looked up.
 	if _, err := w.Exec(`CREATE INDEX IF NOT EXISTS items_collection_pending ON items(kind) WHERE collection_id IS NULL AND tmdb_id > 0`); err != nil {

@@ -214,3 +214,37 @@ func shelved(groups []CollectionShelf) []CollectionCard {
 	}
 	return out
 }
+
+// A film in two libraries (Movies and Movies 4K) is one film in its
+// collection: counted once, listed once, watched if either copy is.
+func TestCollectionCopiesOnce(t *testing.T) {
+	s, admin := testServer(t)
+	for _, q := range []string{
+		`INSERT INTO collections(id, name, sort_name, updated_at) VALUES (1, 'The Accountant Collection', 'accountant collection', 0)`,
+		`UPDATE items SET collection_id = 1, tmdb_id = 302946, year = 2016, title = 'The Accountant' WHERE id = 10`,
+		`UPDATE items SET collection_id = 1, tmdb_id = 302946, year = 2016, title = 'The Accountant' WHERE id = 20`,
+		`INSERT INTO items(id, library_id, kind, guid, title, sort_title, year, tmdb_id, collection_id, added_at, updated_at) VALUES
+			(11, 1, 'movie', 'm11', 'The Accountant 2', 'accountant 2', 2025, 870028, 1, 0, 0),
+			(21, 2, 'movie', 'm21', 'The Accountant 2', 'accountant 2', 2025, 870028, 1, 0, 0)`,
+		`INSERT INTO watch_state(user_id, item_id, watched, updated_at) VALUES (1, 21, 1, 0)`,
+	} {
+		if _, err := s.db.W.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var one struct {
+		Collection CollectionCard
+		Items      []Card
+	}
+	call(t, s, admin, s.handleCollection, "GET", "/api/collections/1", "", map[string]string{"id": "1"}, &one)
+	if one.Collection.Count != 2 || one.Collection.Watched != 1 || len(one.Items) != 2 ||
+		one.Items[0].Title != "The Accountant" || one.Items[1].ID != 21 || !one.Items[1].Watched {
+		t.Fatalf("collection = %+v, items = %+v", one.Collection, one.Items)
+	}
+	// On a film's page the row keeps that film's own copy.
+	var d Detail
+	call(t, s, admin, s.handleItem, "GET", "/api/items/11", "", map[string]string{"id": "11"}, &d)
+	if len(d.CollectionItems) != 2 || d.CollectionItems[1].ID != 11 || !d.CollectionItems[1].Watched {
+		t.Fatalf("film row = %+v", d.CollectionItems)
+	}
+}

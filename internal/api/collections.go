@@ -35,7 +35,7 @@ type collectionQuery struct {
 // one (Plex makes those itself) replaces it.
 //
 // It counts from indexes, never the whole items table: the
-// items_collection_films index for franchises (every lookup by collection_id
+// items_collection_films_v2 index for franchises (every lookup by collection_id
 // says collection_id > 0 so SQLite can use that partial index) and
 // collection_items for Plex. Without that the artwork fallback scanned all
 // ~770k items once per collection, and on Daniel's library the Collections
@@ -54,7 +54,11 @@ func (s *Server) collectionRows(r *http.Request, cq collectionQuery) ([]Collecti
 		args = append(args, cq.like)
 		names = " WHERE c.name LIKE ?" + strconv.Itoa(len(args)) + " ESCAPE '\\'"
 	}
-	watched := `SUM(EXISTS (SELECT 1 FROM watch_state w WHERE w.user_id = ?1 AND w.item_id = i.id AND w.watched = 1))`
+	// The same film in two libraries (Movies and Movies 4K) counts once,
+	// and as watched when either copy is.
+	key := titleKey("i")
+	count := `COUNT(DISTINCT ` + key + `)`
+	watched := `COUNT(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM watch_state w WHERE w.user_id = ?1 AND w.item_id = i.id AND w.watched = 1) THEN ` + key + ` END)`
 	rows, err := s.db.R.QueryContext(r.Context(), `SELECT c.id, c.name, c.source, c.kind, COALESCE(c.summary, ''),
 		COALESCE(c.poster, CASE WHEN c.source = 'plex'
 			THEN (SELECT i2.poster FROM collection_items ci2 JOIN items i2 ON i2.id = ci2.item_id WHERE ci2.collection_id = c.id AND i2.poster IS NOT NULL ORDER BY ci2.position LIMIT 1)
@@ -63,12 +67,12 @@ func (s *Server) collectionRows(r *http.Request, cq collectionQuery) ([]Collecti
 			THEN (SELECT i2.backdrop FROM collection_items ci2 JOIN items i2 ON i2.id = ci2.item_id WHERE ci2.collection_id = c.id AND i2.backdrop IS NOT NULL ORDER BY ci2.position LIMIT 1)
 			ELSE (SELECT i2.backdrop FROM items i2 WHERE i2.collection_id = c.id AND i2.collection_id > 0 AND i2.backdrop IS NOT NULL ORDER BY i2.year LIMIT 1) END, ''),
 		f.n, f.watched
-		FROM (SELECT i.collection_id AS cid, COUNT(*) AS n, `+watched+` AS watched
+		FROM (SELECT i.collection_id AS cid, `+count+` AS n, `+watched+` AS watched
 			FROM items i`+aclJoin(u, "i")+`
 			WHERE i.collection_id > 0 AND i.kind = 'movie'`+kidsCond(u, "i")+films+`
-			GROUP BY i.collection_id HAVING COUNT(*) >= ?2
+			GROUP BY i.collection_id HAVING `+count+` >= ?2
 		UNION ALL
-		SELECT ci.collection_id, COUNT(*), `+watched+`
+		SELECT ci.collection_id, `+count+`, `+watched+`
 			FROM collection_items ci JOIN items i ON i.id = ci.item_id`+aclJoin(u, "i")+`
 			WHERE 1`+kidsCond(u, "i")+plexOnly+`
 			GROUP BY ci.collection_id) f
@@ -142,7 +146,7 @@ func (s *Server) handleCollection(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, map[string]any{"collection": c, "items": items})
+	writeJSON(w, map[string]any{"collection": c, "items": s.onePerTitle(r, items, 0)})
 }
 
 // itemCollection is the franchise a film is in, when it has another film
@@ -190,4 +194,69 @@ func (s *Server) searchCollections(r *http.Request, q string) []CollectionCard {
 // likePattern matches names containing q, for LIKE ... ESCAPE '\'.
 func likePattern(q string) string {
 	return "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(q) + "%"
+}
+
+// titleKey identifies a title across libraries: its TMDB id, else its name
+// and year. The same film in Movies and Movies 4K has one key.
+func titleKey(a string) string {
+	return `COALESCE(` + a + `.kind || ':' || NULLIF(` + a + `.tmdb_id, 0), ` + a + `.kind || ':' || lower(` + a + `.title) || '|' || COALESCE(` + a + `.year, 0))`
+}
+
+// onePerTitle keeps one card per title, in the list's order, when a film is
+// in more than one library. It keeps prefer if that is one of the copies,
+// else the copy you're part-way through, else one you've watched, else the
+// first; the kept card counts as watched when any copy is.
+func (s *Server) onePerTitle(r *http.Request, cards []Card, prefer int64) []Card {
+	if len(cards) < 2 {
+		return cards
+	}
+	ids := make([]int64, len(cards))
+	for i, c := range cards {
+		ids[i] = c.ID
+	}
+	rows, err := s.db.R.QueryContext(r.Context(), `SELECT i.id, `+titleKey("i")+` FROM items i WHERE i.id IN (`+idList(ids)+`)`)
+	if err != nil {
+		return cards
+	}
+	keys := map[int64]string{}
+	for rows.Next() {
+		var id int64
+		var k string
+		if rows.Scan(&id, &k) == nil {
+			keys[id] = k
+		}
+	}
+	rows.Close()
+	rank := func(c Card) int {
+		switch {
+		case c.ID == prefer:
+			return 3
+		case c.Position > 0 && !c.Watched:
+			return 2
+		case c.Watched:
+			return 1
+		}
+		return 0
+	}
+	at := map[string]int{} // key -> index in out
+	out := make([]Card, 0, len(cards))
+	for _, c := range cards {
+		k, ok := keys[c.ID]
+		if !ok {
+			out = append(out, c)
+			continue
+		}
+		j, seen := at[k]
+		if !seen {
+			at[k] = len(out)
+			out = append(out, c)
+			continue
+		}
+		watched := out[j].Watched || c.Watched
+		if rank(c) > rank(out[j]) {
+			out[j] = c
+		}
+		out[j].Watched = watched
+	}
+	return out
 }
