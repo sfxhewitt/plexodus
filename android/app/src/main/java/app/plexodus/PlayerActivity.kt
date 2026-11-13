@@ -748,7 +748,7 @@ class PlayerActivity : Activity() {
         startRoomLight()
     }
 
-    private fun pickRoomLight(lights: List<RoomLight.Found>) {
+    private fun pickRoomLight(lights: List<RoomLight.Companion.Found>) {
         ui.removeCallbacks(hideControls)
         val dp = resources.displayMetrics.density
         val dialog = Dialog(this)
