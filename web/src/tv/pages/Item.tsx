@@ -6,7 +6,7 @@ import { useApi } from "../../hooks";
 import { Spinner, TvButton, TvCard, TvRow, useBackdrop } from "../components";
 import { usePageFocus, useRefresh, useToast } from "../hooks";
 import { requestTrailer, stopTrailer } from "../ambient";
-import { playItem } from "../play";
+import { playCard, playItem } from "../play";
 import { CollectionTile } from "../collectionTile";
 
 function MediaChips({ d }: { d: Detail }) {
@@ -36,6 +36,8 @@ export default function Item() {
   const nav = useNavigate();
   const toast = useToast();
   const { data: d, error, reload } = useApi<Detail>(`/api/items/${id}`);
+  const isTitle = d?.kind === "movie" || d?.kind === "show";
+  const { data: extras } = useApi<Extras>(isTitle && String(d?.id) === id ? `/api/items/${id}/extras` : null);
   useRefresh(reload);
   const [focusedEp, setFocusedEp] = useState<Card>();
 
@@ -195,10 +197,38 @@ export default function Item() {
           ))}
         </TvRow>
       )}
+      {isTitle && extras && extras.cast.length > 0 && (
+        <section className="tv-row tv-cast-row">
+          <h2 className="tv-row-title">Cast</h2>
+          <div className="tv-cast">
+            {extras.cast.slice(0, 9).map((p) => (
+              <div key={p.name + p.character} className="tv-person">
+                <div className="tv-person-photo">
+                  {p.profile ? <img src={art(p.profile, "w185")} alt="" loading="lazy" /> : <span>{initials(p.name)}</span>}
+                </div>
+                <div className="tv-person-name">{p.name}</div>
+                {p.character && <div className="tv-person-role">{p.character}</div>}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {isTitle && extras && extras.similar.length > 0 && (
+        <TvRow id={`similar-${d.id}`} title="More like this">
+          {extras.similar.map((c) => (
+            <TvCard key={c.id} c={c} shape="poster" onSelect={() => nav(`/item/${c.id}`)} onPlay={() => playCard(c).catch((e: Error) => toast(e.message))} />
+          ))}
+        </TvRow>
+      )}
       <div className="tv-page-tail" />
     </div>
   );
 }
+
+type Extras = { cast: { name: string; character?: string; profile?: string }[]; similar: Card[] };
+
+const initials = (name: string) => name.split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
 function EpisodeBlurb({ c }: { c?: Card }) {
   if (!c) return null;

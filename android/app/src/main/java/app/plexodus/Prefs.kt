@@ -59,6 +59,16 @@ object Prefs {
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putBoolean(KEY_SUB_BOX, on).apply()
     }
 
+    /** The audio or subtitle track name last picked for a show's episodes, if any. */
+    fun showTrack(ctx: Context, show: String, audio: Boolean): String? =
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString(showTrackKey(show, audio), null)
+
+    fun setShowTrack(ctx: Context, show: String, audio: Boolean, name: String) {
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString(showTrackKey(show, audio), name).apply()
+    }
+
+    private fun showTrackKey(show: String, audio: Boolean) = (if (audio) "showAudio:" else "showSubs:") + show.lowercase()
+
     /** Turns whatever the user typed into http(s)://host[:port] without a trailing slash. */
     fun normalize(input: String): String {
         var s = input.trim().trimEnd('/')

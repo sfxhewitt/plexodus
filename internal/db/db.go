@@ -109,6 +109,10 @@ func migrate(w *sql.DB) error {
 	if _, err := w.Exec(`CREATE INDEX IF NOT EXISTS items_collection ON items(collection_id) WHERE collection_id > 0`); err != nil {
 		return err
 	}
+	// "More like this": TMDB recommendations mapped to local titles.
+	if _, err := w.Exec(`CREATE INDEX IF NOT EXISTS items_tmdb ON items(tmdb_id) WHERE tmdb_id IS NOT NULL`); err != nil {
+		return err
+	}
 	if _, err := w.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS invites_code ON invites(code) WHERE code IS NOT NULL`); err != nil {
 		return err
 	}

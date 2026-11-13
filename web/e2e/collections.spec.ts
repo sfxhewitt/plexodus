@@ -1,6 +1,6 @@
 // Watchlist in the tab bar, Collections pages, and a film's collection row.
 import { expect, test } from "./fixtures";
-import { press, waitForFocus } from "./focus";
+import { press, snap, waitForFocus } from "./focus";
 import { ids } from "./mock";
 
 test.skip(!!process.env.E2E_BASE_URL, "uses the mock library");
@@ -35,4 +35,16 @@ test("collections: grid, a collection, and the row on a film", async ({ page, op
   const row = page.locator('[data-row]', { hasText: "The Atlas Collection" });
   await expect(row.locator(".tv-card:not(.tv-collection-tile)")).toHaveCount(3);
   await expect(row.locator('[data-fk="col900"]')).toHaveCount(1);
+});
+
+test("a film's page: cast, then more like this", async ({ page, openTv }, info) => {
+  await openTv(`/item/${ids.extras}`);
+  await waitForFocus(page, "play");
+  await expect(page.locator(".tv-person")).toHaveCount(2);
+  await expect(page.locator(".tv-person-photo").nth(1)).toHaveText("TO");
+  const row = page.locator(".tv-row", { hasText: "More like this" });
+  await expect(row.locator(".tv-card")).toHaveCount(6);
+  const f = await press(page, "down");
+  expect(f.fk, "Down from the buttons skips the cast into More like this").toMatch(/^c\d+$/);
+  await snap(page, info, "film extras");
 });
