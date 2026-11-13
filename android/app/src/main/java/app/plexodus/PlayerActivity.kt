@@ -10,6 +10,7 @@ import android.media.AudioManager
 import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.net.Uri
@@ -78,6 +79,8 @@ class PlayerActivity : Activity() {
     private var statsVisible = false
     private var lastReadBytes = -1
     private var passthrough = false
+    /** The HDMI sink takes Dolby/DTS, so passthrough is on whenever headphones aren't. */
+    private var hdmiSurround = false
     private var modeSwitched = false
 
     private val ui = Handler(Looper.getMainLooper())
@@ -278,13 +281,18 @@ class PlayerActivity : Activity() {
 
         // Send Dolby/DTS untouched to the TV or receiver when it says it can
         // take them (like Plex's "passthrough"); otherwise decode to PCM.
-        passthrough = hdmiTakesSurround()
+        // Bluetooth or wired headphones can't take a bitstream: it would go out of the
+        // TV's speakers instead, so decode while they're connected.
+        hdmiSurround = hdmiTakesSurround()
+        passthrough = hdmiSurround && !headphonesConnected()
         val opts = arrayListOf("--network-caching=4000", "--http-reconnect", "--audio-time-stretch")
-        if (passthrough) opts += listOf("--aout=audiotrack", "--spdif") else opts += "--no-spdif"
+        if (hdmiSurround) opts += "--aout=audiotrack"
+        opts += if (passthrough) "--spdif" else "--no-spdif"
         libVlc = LibVLC(this, opts)
         player = MediaPlayer(libVlc)
         player.attachViews(videoLayout, null, true, false)
         player.setEventListener { onEvent(it) }
+        if (hdmiSurround) (getSystemService(Context.AUDIO_SERVICE) as AudioManager).registerAudioDeviceCallback(deviceWatch, ui)
 
         requestAudioFocus()
         load(url, startMs)
@@ -513,6 +521,32 @@ class PlayerActivity : Activity() {
     }
 
     // ---- audio passthrough ----
+
+    private val headphoneTypes: Set<Int> by lazy {
+        val t = mutableSetOf(
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_WIRED_HEADSET,
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_USB_HEADSET,
+        )
+        if (Build.VERSION.SDK_INT >= 28) t += AudioDeviceInfo.TYPE_HEARING_AID
+        if (Build.VERSION.SDK_INT >= 31) t += listOf(AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_BLE_SPEAKER)
+        t
+    }
+
+    private fun headphonesConnected(): Boolean =
+        (getSystemService(Context.AUDIO_SERVICE) as AudioManager).getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { it.type in headphoneTypes }
+
+    /** Headphones connected or gone mid-film: switch between passthrough and decoding. */
+    private val deviceWatch = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>) = recheck()
+        override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) = recheck()
+        private fun recheck() {
+            if (finished || !::player.isInitialized) return
+            val want = hdmiSurround && !headphonesConnected()
+            if (want == passthrough) return
+            passthrough = want
+            player.setAudioDigitalOutputEnabled(want)
+        }
+    }
 
     private fun hdmiTakesSurround(): Boolean {
         val wanted = setOf(AudioFormat.ENCODING_AC3, AudioFormat.ENCODING_E_AC3, AudioFormat.ENCODING_DTS)
@@ -1044,6 +1078,7 @@ class PlayerActivity : Activity() {
 
     override fun onDestroy() {
         ui.removeCallbacksAndMessages(null)
+        if (hdmiSurround) (getSystemService(Context.AUDIO_SERVICE) as AudioManager).unregisterAudioDeviceCallback(deviceWatch)
         if (::player.isInitialized) {
             player.setEventListener(null)
             player.stop()
