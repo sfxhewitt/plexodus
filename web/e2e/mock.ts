@@ -99,6 +99,7 @@ for (const c of [...movies, ...shows]) {
 export const ids = {
   movie: movies[0].id,
   collected: movies[10].id, // in "The Atlas Collection"
+  extras: movies[20].id, // has cast and "more like this"
   show: shows[0].id,
   season: seasons.get(shows[0].id)![0].id,
   episode: episodes.get(seasons.get(shows[0].id)![0].id)![2].id,
@@ -362,6 +363,12 @@ addEventListener("message", function (e) {
     if ((mm = p.match(/^\/api\/libraries\/(\d+)\/items$/))) return json(route, libraryItems(Number(mm[1]), u.searchParams));
     if ((mm = p.match(/^\/api\/items\/(\d+)\/markers$/))) return json(route, []);
     // Only the first film has a trailer, so the other screens stay still.
+    // Only one film has cast and "more like this", so other pages keep nothing below the fold.
+    if ((mm = p.match(/^\/api\/items\/(\d+)\/extras$/))) {
+      return json(route, Number(mm[1]) === ids.extras
+        ? { cast: [{ name: "Ada Reyes", character: "Mara", profile: "/p/ada.jpg" }, { name: "Tom Okafor", character: "The Pilot" }], similar: movies.slice(21, 27) }
+        : { cast: [], similar: [] });
+    }
     if ((mm = p.match(/^\/api\/items\/(\d+)\/trailer$/))) return json(route, { youtube: Number(mm[1]) === ids.movie ? "fakeTrailer" : "" });
     if ((mm = p.match(/^\/api\/play\/(\d+)$/))) {
       return json(route, { externalUrl: `http://media.test/stream/${mm[1]}`, position: 0, file: { id: Number(mm[1]), duration: 5400 }, audioOffsetMs: -120 });
