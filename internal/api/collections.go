@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -16,18 +17,39 @@ type CollectionCard struct {
 	Watched  int    `json:"watched"`
 }
 
-// collectionRows lists collections with at least min films the user can see.
-func (s *Server) collectionRows(r *http.Request, extra string, min int, args ...any) ([]CollectionCard, error) {
+// collectionRows lists collections with at least min films the user can see;
+// only collection cid when cid > 0, and only names containing like when it
+// isn't empty.
+//
+// It counts from the items_collection_films index, a few thousand entries,
+// and only then looks up the collections. Every lookup by collection_id says
+// collection_id > 0 so SQLite can use that partial index: without it the
+// artwork fallback for a collection with no poster of its own scanned all
+// ~770k items, once per collection, and on Daniel's library the Collections
+// tab never finished.
+func (s *Server) collectionRows(r *http.Request, cid int64, like string, min int) ([]CollectionCard, error) {
 	u := currentUser(r)
-	all := append([]any{u.ID, min}, args...)
+	args := []any{u.ID, min}
+	films, names := "", ""
+	if cid > 0 {
+		args = append(args, cid)
+		films = " AND i.collection_id = ?" + strconv.Itoa(len(args))
+	}
+	if like != "" {
+		args = append(args, like)
+		names = " WHERE c.name LIKE ?" + strconv.Itoa(len(args)) + " ESCAPE '\\'"
+	}
 	rows, err := s.db.R.QueryContext(r.Context(), `SELECT c.id, c.name,
-		COALESCE(c.poster, (SELECT i2.poster FROM items i2 WHERE i2.collection_id = c.id AND i2.poster IS NOT NULL ORDER BY i2.year LIMIT 1), ''),
-		COALESCE(c.backdrop, (SELECT i2.backdrop FROM items i2 WHERE i2.collection_id = c.id AND i2.backdrop IS NOT NULL ORDER BY i2.year LIMIT 1), ''),
-		COUNT(DISTINCT i.id), COUNT(DISTINCT CASE WHEN w.watched = 1 THEN i.id END)
-		FROM collections c JOIN items i ON i.collection_id = c.id`+aclJoin(u, "i")+`
-		LEFT JOIN watch_state w ON w.item_id = i.id AND w.user_id = ?1
-		WHERE i.kind = 'movie'`+kidsCond(u, "i")+extra+`
-		GROUP BY c.id HAVING COUNT(DISTINCT i.id) >= ?2 ORDER BY c.sort_name`, all...)
+		COALESCE(c.poster, (SELECT i2.poster FROM items i2 WHERE i2.collection_id = c.id AND i2.collection_id > 0 AND i2.poster IS NOT NULL ORDER BY i2.year LIMIT 1), ''),
+		COALESCE(c.backdrop, (SELECT i2.backdrop FROM items i2 WHERE i2.collection_id = c.id AND i2.collection_id > 0 AND i2.backdrop IS NOT NULL ORDER BY i2.year LIMIT 1), ''),
+		f.n, f.watched
+		FROM (SELECT i.collection_id AS cid, COUNT(*) AS n,
+			SUM(EXISTS (SELECT 1 FROM watch_state w WHERE w.user_id = ?1 AND w.item_id = i.id AND w.watched = 1)) AS watched
+			FROM items i`+aclJoin(u, "i")+`
+			WHERE i.collection_id > 0 AND i.kind = 'movie'`+kidsCond(u, "i")+films+`
+			GROUP BY i.collection_id HAVING COUNT(*) >= ?2) f
+		JOIN collections c ON c.id = f.cid`+names+`
+		ORDER BY c.sort_name`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -46,13 +68,11 @@ func (s *Server) collectionRows(r *http.Request, extra string, min int, args ...
 // handleCollections lists collections with two or more films in the
 // libraries the user can see; ?q= filters by name.
 func (s *Server) handleCollections(w http.ResponseWriter, r *http.Request) {
-	extra, args := "", []any{}
+	like := ""
 	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
-		extra = ` AND c.name LIKE ?3 ESCAPE '\'`
-		q = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(q)
-		args = append(args, "%"+q+"%")
+		like = likePattern(q)
 	}
-	cs, err := s.collectionRows(r, extra, 2, args...)
+	cs, err := s.collectionRows(r, 0, like, 2)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -69,7 +89,7 @@ func (s *Server) handleCollection(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad id")
 		return
 	}
-	cs, err := s.collectionRows(r, ` AND c.id = ?3`, 1, id)
+	cs, err := s.collectionRows(r, id, "", 1)
 	if err != nil || len(cs) == 0 {
 		writeErr(w, 404, "not found")
 		return
@@ -90,7 +110,7 @@ func (s *Server) itemCollection(r *http.Request, itemID int64) *CollectionCard {
 	if !cid.Valid || cid.Int64 <= 0 {
 		return nil
 	}
-	cs, err := s.collectionRows(r, ` AND c.id = ?3`, 2, cid.Int64)
+	cs, err := s.collectionRows(r, cid.Int64, "", 2)
 	if err != nil || len(cs) == 0 {
 		return nil
 	}
@@ -114,8 +134,7 @@ func (s *Server) searchCollections(r *http.Request, q string) []CollectionCard {
 	if len([]rune(q)) < 2 {
 		return []CollectionCard{}
 	}
-	q = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(q)
-	cs, err := s.collectionRows(r, ` AND c.name LIKE ?3 ESCAPE '\'`, 2, "%"+q+"%")
+	cs, err := s.collectionRows(r, 0, likePattern(q), 2)
 	if err != nil {
 		return []CollectionCard{}
 	}
@@ -123,4 +142,9 @@ func (s *Server) searchCollections(r *http.Request, q string) []CollectionCard {
 		cs = cs[:20]
 	}
 	return cs
+}
+
+// likePattern matches names containing q, for LIKE ... ESCAPE '\'.
+func likePattern(q string) string {
+	return "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(q) + "%"
 }
