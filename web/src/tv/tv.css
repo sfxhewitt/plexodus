@@ -347,6 +347,19 @@ html.tv [data-hscroll]::-webkit-scrollbar, html.tv [data-vscroll]::-webkit-scrol
   padding: 1.2rem var(--tv-safe) 8rem var(--pad);
 }
 .tv-grid > div { padding-top: 0.9rem; }
+/* A–Z jump bar down the right edge of an A–Z library grid. */
+.tv-az {
+  position: fixed; top: 52%; right: 0.9rem; transform: translateY(-50%); z-index: 3;
+  display: flex; flex-direction: column; align-items: center; padding: 0.6rem 0.2rem;
+  border-radius: 1.4rem; background: rgba(6, 8, 18, 0.55); backdrop-filter: blur(10px);
+}
+.tv-az-letter {
+  display: flex; align-items: center; justify-content: center; padding: 0;
+  width: 2.2rem; height: 1.8rem; border-radius: 0.6rem; font-size: 1.05rem; font-weight: 700;
+  color: var(--tv-muted); transition: background var(--tv-move) var(--tv-ease), color var(--tv-move) var(--tv-ease), transform var(--tv-move) var(--tv-ease);
+}
+.tv-az-letter.on { color: var(--tv-cyan); }
+.tv-az-letter:focus { background: var(--tv-text); color: var(--tv-bg); transform: scale(1.25); }
 /* A collection page: a shorter hero so the first row of films peeks in. */
 .tv-collection-hero { min-height: 62vh; }
 .tv-collection-tile .tv-card-label { color: var(--tv-cyan); }

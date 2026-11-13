@@ -212,12 +212,21 @@ function libraryItems(id: number, q: URLSearchParams) {
   if (q.get("filter") === "unwatched") items = items.filter((c) => !c.watched);
   if (q.get("filter") === "inprogress") items = items.filter((c) => c.position);
   const sort = q.get("sort") || "title";
-  const key = (c: Card) => (sort === "added" ? c.addedAt : sort === "rating" ? c.rating || 0 : sort === "year" || sort === "release" ? c.year || 0 : c.title);
+  const key = (c: Card) => (sort === "added" ? c.addedAt : sort === "rating" ? c.rating || 0 : sort === "year" || sort === "release" ? c.year || 0 : c.title.toLowerCase().replace(/^(the|a|an) /, ""));
   items.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
   if ((q.get("order") || (sort === "title" ? "asc" : "desc")) === "desc") items.reverse();
   const offset = Number(q.get("offset") || 0);
   const limit = Number(q.get("limit") || 120);
-  return { items: items.slice(offset, offset + limit), total: items.length, offset };
+  const out: { items: Card[]; total: number; offset: number; letters?: { l: string; offset: number }[] } = { items: items.slice(offset, offset + limit), total: items.length, offset };
+  if (q.get("letters") === "1") {
+    out.letters = [];
+    items.forEach((c, i) => {
+      const ch = c.title.replace(/^(the|a|an) /i, "")[0].toUpperCase();
+      const l = ch >= "A" && ch <= "Z" ? ch : "#";
+      if (!out.letters!.some((x) => x.l === l)) out.letters!.push({ l, offset: i });
+    });
+  }
+  return out;
 }
 
 function hue(s: string) {
