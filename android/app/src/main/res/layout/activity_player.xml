@@ -17,6 +17,25 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- "Dolby Atmos · Passthrough" for a few seconds at the start, so you know it's working. -->
+    <TextView
+        android:id="@+id/audioBadge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="28dp"
+        android:layout_marginEnd="32dp"
+        android:alpha="0"
+        android:background="@drawable/bg_track_panel"
+        android:fontFamily="sans-serif-medium"
+        android:letterSpacing="0.06"
+        android:paddingStart="14dp"
+        android:paddingTop="7dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="7dp"
+        android:textColor="@color/text"
+        android:textSize="13sp" />
+
     <ProgressBar
         android:id="@+id/spinner"
         android:layout_width="56dp"
