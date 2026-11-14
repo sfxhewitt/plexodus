@@ -315,7 +315,7 @@ class PlayerActivity : Activity() {
         // Bluetooth or wired headphones can't take a bitstream: it would go out of the
         // TV's speakers instead, so decode while they're connected.
         hdmiSurround = hdmiTakesSurround()
-        passthrough = hdmiSurround && !headphonesConnected()
+        passthrough = wantPassthrough()
         createPlayer()
         if (hdmiSurround) (getSystemService(Context.AUDIO_SERVICE) as AudioManager).registerAudioDeviceCallback(deviceWatch, ui)
 
@@ -471,7 +471,10 @@ class PlayerActivity : Activity() {
                 if (e.lengthChanged > 0) lengthMs = e.lengthChanged
                 updateTime()
             }
-            MediaPlayer.Event.ESAdded, MediaPlayer.Event.ESSelected -> updateTrackButtons()
+            MediaPlayer.Event.ESAdded, MediaPlayer.Event.ESSelected -> {
+                updateTrackButtons()
+                checkAudioCodec()
+            }
             MediaPlayer.Event.Vout -> if (e.voutCount > 0) matchRefreshRate()
             MediaPlayer.Event.EndReached -> if (!calibrating) onEnd()
             MediaPlayer.Event.EncounteredError -> {
@@ -651,6 +654,17 @@ class PlayerActivity : Activity() {
             }
             list.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
             if (on || focus == null) focus = row
+        }
+        if (audio && hdmiSurround) {
+            list.addView(View(this).apply { setBackgroundColor(getColor(R.color.muted)); alpha = 0.3f },
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply { setMargins(0, (8 * dp).toInt(), 0, (8 * dp).toInt()) })
+            val pt = Prefs.passthrough(this)
+            list.addView(trackRow(getString(if (pt) R.string.passthrough_auto else R.string.passthrough_off), dp) {
+                Prefs.setPassthrough(this, !pt)
+                dialog.dismiss()
+                passthrough = wantPassthrough()
+                player.setAudioDigitalOutputEnabled(passthrough)
+            })
         }
         if (!audio) {
             list.addView(View(this).apply { setBackgroundColor(getColor(R.color.muted)); alpha = 0.3f },
@@ -900,8 +914,51 @@ class PlayerActivity : Activity() {
         override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) = recheck()
         private fun recheck() {
             if (finished || !::player.isInitialized) return
-            val want = hdmiSurround && !headphonesConnected()
+            val want = wantPassthrough()
             if (want == passthrough) return
+            passthrough = want
+            player.setAudioDigitalOutputEnabled(want)
+        }
+    }
+
+    /** Bitstream formats the TV/receiver says it decodes (AudioFormat.ENCODING_*). */
+    private var sinkEncodings = emptySet<Int>()
+
+    /** The playing track is a bitstream the TV can't decode: decode it here instead. */
+    private var trackNeedsDecode = false
+
+    private fun wantPassthrough() = hdmiSurround && !headphonesConnected() && !trackNeedsDecode && Prefs.passthrough(this)
+
+    /**
+     * Passthrough only works for formats the TV lists. A TrueHD/Atmos or
+     * DTS-HD track sent to a TV that only takes Dolby Digital plays as
+     * silence (libVLC logs "too low audio sample frequency (0)"), so check
+     * the selected track's codec and decode anything the TV doesn't list.
+     */
+    private fun checkAudioCodec() {
+        if (!::player.isInitialized || !hdmiSurround) return
+        val media = player.media ?: return
+        var codec = ""
+        try {
+            val id = player.audioTrack
+            for (i in 0 until media.trackCount) {
+                val t = media.getTrack(i) ?: continue
+                if (t is org.videolan.libvlc.interfaces.IMedia.AudioTrack && t.id == id) { codec = (t.codec ?: "").trim().lowercase(Locale.US); break }
+            }
+        } finally {
+            media.release()
+        }
+        if (codec.isEmpty()) return
+        val needs = when (codec) {
+            "a52", "a52b", "ac3" -> AudioFormat.ENCODING_AC3
+            "eac3", "eac3b" -> AudioFormat.ENCODING_E_AC3
+            "dts", "dtsh" -> AudioFormat.ENCODING_DTS
+            "mlp", "trhd", "truehd" -> if (Build.VERSION.SDK_INT >= 25) AudioFormat.ENCODING_DOLBY_TRUEHD else -1
+            else -> null // AAC, FLAC, Opus...: libVLC decodes these whatever the setting
+        }
+        trackNeedsDecode = needs != null && needs !in sinkEncodings
+        val want = wantPassthrough()
+        if (want != passthrough) {
             passthrough = want
             player.setAudioDigitalOutputEnabled(want)
         }
@@ -914,8 +971,10 @@ class PlayerActivity : Activity() {
         if (Build.VERSION.SDK_INT >= 31) hdmiTypes += AudioDeviceInfo.TYPE_HDMI_EARC
         val fromDevices = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
             .filter { it.type in hdmiTypes }
-            .any { d -> d.encodings.any { it in wanted } }
-        if (fromDevices) return true
+            .flatMap { d -> d.encodings.toList() }
+            .toSet()
+        sinkEncodings = fromDevices
+        if (fromDevices.any { it in wanted }) return true
         // Fire TV reports the HDMI sink's formats in this sticky broadcast.
         val filter = IntentFilter(AudioManager.ACTION_HDMI_AUDIO_PLUG)
         val plug = try {
@@ -924,6 +983,7 @@ class PlayerActivity : Activity() {
             null
         }
         val enc = plug?.getIntArrayExtra(AudioManager.EXTRA_ENCODINGS) ?: return false
+        sinkEncodings = sinkEncodings + enc.toSet()
         return enc.any { it in wanted }
     }
 
@@ -960,7 +1020,7 @@ class PlayerActivity : Activity() {
             .append(String.format(Locale.US, " @ %.3f Hz", mode.refreshRate)).append('\n')
         val audioName = player.audioTracks?.firstOrNull { it.id == player.audioTrack }?.name
         sb.append("AUDIO    ").append(audioName ?: "-").append('\n')
-        sb.append("OUTPUT   ").append(if (passthrough) "Passthrough to HDMI (when the format allows)" else "Decoded to PCM").append('\n')
+        sb.append("OUTPUT   ").append(if (passthrough) "Passthrough to HDMI (when the format allows)" else if (trackNeedsDecode) "Decoded to PCM (the TV can't take this format)" else "Decoded to PCM").append('\n')
         val media = player.media
         try {
             val st = media?.stats

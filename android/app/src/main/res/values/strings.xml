@@ -42,6 +42,8 @@
     <string name="sub_large">Large</string>
     <string name="sub_box_off">Background: Off</string>
     <string name="sub_box_on">Background: On</string>
+    <string name="passthrough_auto">Passthrough: Auto</string>
+    <string name="passthrough_off">Passthrough: Off (decode here)</string>
     <string name="aspect">Aspect ratio</string>
     <string name="back">Back</string>
     <string name="play_pause">Play or pause</string>

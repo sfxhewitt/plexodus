@@ -69,6 +69,19 @@ object Prefs {
 
     private fun showTrackKey(show: String, audio: Boolean) = (if (audio) "showAudio:" else "showSubs:") + show.lowercase()
 
+    private const val KEY_PASSTHROUGH = "passthrough"
+
+    /**
+     * Send Dolby/DTS untouched to the TV when it says it takes them (default),
+     * or always decode here. Off fixes a TV or soundbar that goes silent.
+     */
+    fun passthrough(ctx: Context): Boolean =
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean(KEY_PASSTHROUGH, true)
+
+    fun setPassthrough(ctx: Context, on: Boolean) {
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putBoolean(KEY_PASSTHROUGH, on).apply()
+    }
+
     /** Turns whatever the user typed into http(s)://host[:port] without a trailing slash. */
     fun normalize(input: String): String {
         var s = input.trim().trimEnd('/')
