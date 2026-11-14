@@ -46,8 +46,12 @@
     <string name="room_light_on">Room light: On</string>
     <string name="room_light_searching">Looking for a Govee light…</string>
     <string name="room_light_found">Room light: %1$s</string>
-    <string name="room_light_pick">Which light?</string>
+    <string name="room_light_pick">Which light? · hold OK to rename</string>
     <string name="room_light_which">Light: %1$s (change)</string>
+    <string name="room_light_rename">Room name for this light</string>
+    <string name="room_light_names">Get room names from Govee…</string>
+    <string name="room_light_key">Govee API key</string>
+    <string name="room_light_names_failed">Couldn\'t get names from Govee. Hold OK on a light to name it.</string>
     <string name="room_light_none">No Govee light found. Make sure it\'s powered on and Bluetooth is on, or turn on LAN Control for it in the Govee Home app.</string>
     <string name="aspect">Aspect ratio</string>
     <string name="back">Back</string>

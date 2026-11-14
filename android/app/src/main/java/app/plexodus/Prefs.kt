@@ -88,6 +88,24 @@ object Prefs {
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString(KEY_ROOM_LIGHT_IP, ip).apply()
     }
 
+    /** A Govee light's room name ("Living Room"), keyed by its IP or "ble:" MAC. */
+    fun lightName(ctx: Context, addr: String): String? =
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString("lightName:" + addr.uppercase(), null)
+
+    fun setLightName(ctx: Context, addr: String, name: String?) {
+        val e = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+        if (name.isNullOrBlank()) e.remove("lightName:" + addr.uppercase()) else e.putString("lightName:" + addr.uppercase(), name.trim())
+        e.apply()
+    }
+
+    /** Govee developer API key, used only to read the lights' names from the Govee account. */
+    fun goveeKey(ctx: Context): String? =
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString("goveeKey", null)
+
+    fun setGoveeKey(ctx: Context, key: String?) {
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString("goveeKey", key?.trim()?.takeIf { it.isNotEmpty() }).apply()
+    }
+
     /** Turns whatever the user typed into http(s)://host[:port] without a trailing slash. */
     fun normalize(input: String): String {
         var s = input.trim().trimEnd('/')

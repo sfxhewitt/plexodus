@@ -668,7 +668,7 @@ class PlayerActivity : Activity() {
                 setRoomLight(!lightOn)
             })
             Prefs.roomLightIp(this)?.let { ip ->
-                list.addView(trackRow(getString(R.string.room_light_which, ip), dp) {
+                list.addView(trackRow(getString(R.string.room_light_which, Prefs.lightName(this, ip) ?: ip.removePrefix(RoomLight.BLE_PREFIX)), dp) {
                     dialog.dismiss()
                     findRoomLight()
                 })
@@ -759,7 +759,7 @@ class PlayerActivity : Activity() {
     private fun useRoomLight(ip: String) {
         Prefs.setRoomLightIp(this, ip)
         Prefs.setRoomLight(this, true)
-        Toast.makeText(this, getString(R.string.room_light_found, ip), Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.room_light_found, Prefs.lightName(this, ip) ?: ip.removePrefix(RoomLight.BLE_PREFIX)), Toast.LENGTH_SHORT).show()
         roomLight?.release()
         roomLight = null
         startRoomLight()
@@ -786,12 +786,39 @@ class PlayerActivity : Activity() {
         var first: View? = null
         val current = Prefs.roomLightIp(this)
         for (l in lights) {
-            val row = trackRow((if (l.ip == current) "✓ " else "") + l.label, dp) {
+            val row = trackRow((if (l.ip == current) "✓ " else "") + l.label(this), dp) {
                 dialog.dismiss()
                 useRoomLight(l.ip)
             }
+            // Hold OK to give a light its room name.
+            row.setOnLongClickListener {
+                dialog.dismiss()
+                askText(getString(R.string.room_light_rename), Prefs.lightName(this, l.ip) ?: "") { name ->
+                    Prefs.setLightName(this, l.ip, name)
+                    pickRoomLight(lights)
+                }
+                true
+            }
             panel.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
             if (first == null || l.ip == current) first = row
+        }
+        // Names straight from the Govee account, when any light is still unnamed.
+        if (lights.any { Prefs.lightName(this, it.ip) == null }) {
+            panel.addView(trackRow(getString(R.string.room_light_names), dp) {
+                dialog.dismiss()
+                askText(getString(R.string.room_light_key), Prefs.goveeKey(this) ?: "") { key ->
+                    Prefs.setGoveeKey(this, key)
+                    Thread {
+                        GoveeCloud.nameLights(this, lights)
+                        ui.post {
+                            if (isFinishing || isDestroyed) return@post
+                            if (lights.any { Prefs.lightName(this, it.ip) == null })
+                                Toast.makeText(this, R.string.room_light_names_failed, Toast.LENGTH_LONG).show()
+                            pickRoomLight(lights)
+                        }
+                    }.start()
+                }
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         }
         dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         dialog.setContentView(panel)
@@ -805,6 +832,31 @@ class PlayerActivity : Activity() {
         dialog.setOnDismissListener { scheduleHide() }
         dialog.show()
         first?.requestFocus()
+    }
+
+    /** A one-line text box (the TV's on-screen keyboard), for light names and the Govee key. */
+    private fun askText(title: String, value: String, onDone: (String) -> Unit) {
+        ui.removeCallbacks(hideControls)
+        val field = android.widget.EditText(this).apply {
+            setText(value)
+            setSelection(value.length)
+            isSingleLine = true
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+        }
+        val d = android.app.AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(field)
+            .setPositiveButton(android.R.string.ok) { _, _ -> onDone(field.text.toString()) }
+            .setNegativeButton(android.R.string.cancel, null)
+            .setOnDismissListener { scheduleHide() }
+            .create()
+        field.setOnEditorActionListener { _, action, _ ->
+            if (action == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
+                onDone(field.text.toString()); d.dismiss(); true
+            } else false
+        }
+        d.show()
+        field.requestFocus()
     }
 
     private fun startRoomLight() {

@@ -289,10 +289,16 @@ class RoomLight(private val ctx: Context, private val videoRoot: ViewGroup) {
         /** A Govee light that answered the LAN scan, or was seen over Bluetooth. */
         class Found(val ip: String, val id: String, val sku: String) {
             val bluetooth get() = ip.startsWith(BLE_PREFIX)
-            /** "H6008 · …AB:CD · 192.168.0.50": the id tail matches the MAC in the Govee app. */
-            val label get() = if (bluetooth) "$id  ·  Bluetooth"
+            /**
+             * The room name when known ("Living Room"), else "H6008 · …F8:16 · 192.168.0.50"
+             * or "H6008 · F817 · Bluetooth": the tail matches the MAC in the Govee app.
+             */
+            fun label(ctx: Context): String {
+                Prefs.lightName(ctx, ip)?.let { return it }
+                return if (bluetooth) id.removePrefix("ihoment_").removePrefix("Govee_").replace('_', ' ').let { "$it  ·  Bluetooth" }
                 else listOf(sku, id.takeLast(5).takeIf { it.isNotEmpty() }?.let { "…$it" }, ip)
                     .filter { !it.isNullOrEmpty() }.joinToString("  ·  ")
+            }
         }
 
         /**
@@ -305,7 +311,9 @@ class RoomLight(private val ctx: Context, private val videoRoot: ViewGroup) {
             val btScan = Thread { bt = GoveeBle.scan(ctx, 4000) }.apply { start() }
             val lan = discoverLan(ctx)
             btScan.join()
-            return lan + bt.map { (mac, name) -> Found(BLE_PREFIX + mac, name, "") }
+            val all = lan + bt.map { (mac, name) -> Found(BLE_PREFIX + mac, name, "") }
+            GoveeCloud.nameLights(ctx, all)
+            return all
         }
 
         private fun discoverLan(ctx: Context): List<Found> {
