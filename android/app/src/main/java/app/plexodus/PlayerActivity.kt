@@ -90,6 +90,7 @@ class PlayerActivity : Activity() {
     /** Tints a Govee light to the picture while playing, when turned on. */
     private var roomLight: RoomLight? = null
     private var askedBluetooth = false
+    private var changingLight = false
 
     private val ui = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
@@ -670,6 +671,7 @@ class PlayerActivity : Activity() {
             Prefs.roomLightIp(this)?.let { ip ->
                 list.addView(trackRow(getString(R.string.room_light_which, Prefs.lightName(this, ip) ?: ip.removePrefix(RoomLight.BLE_PREFIX)), dp) {
                     dialog.dismiss()
+                    changingLight = true
                     findRoomLight()
                 })
             }
@@ -740,7 +742,13 @@ class PlayerActivity : Activity() {
 
     private fun scanRoomLights() {
         Toast.makeText(this, R.string.room_light_searching, Toast.LENGTH_SHORT).show()
+        // A Bluetooth light stops advertising while it's connected, so let go of
+        // the current one first or it won't show up in the list.
+        val changing = changingLight
+        changingLight = false
+        if (changing) { roomLight?.release(); roomLight = null }
         Thread {
+            if (changing) Thread.sleep(1500)
             val lights = RoomLight.discover(this)
             ui.post {
                 if (isFinishing || isDestroyed) return@post
@@ -749,7 +757,8 @@ class PlayerActivity : Activity() {
                         if (Prefs.roomLightIp(this) == null) Prefs.setRoomLight(this, false)
                         Toast.makeText(this, R.string.room_light_none, Toast.LENGTH_LONG).show()
                     }
-                    1 -> useRoomLight(lights[0].ip)
+                    // Changing: always show the list, even with one light, so it can be renamed or kept.
+                    1 -> if (changing) pickRoomLight(lights) else useRoomLight(lights[0].ip)
                     else -> pickRoomLight(lights)
                 }
             }

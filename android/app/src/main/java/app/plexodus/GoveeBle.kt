@@ -53,7 +53,8 @@ class GoveeBle(private val ctx: Context, private val mac: String) {
     private var lastWrite = 0L
     private var closing = false
     private var closed = false
-    private var wantOn = true
+    private var writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+    private var writes = 0
     /** Whether the light was on when we first heard from it; null until known. */
     @Volatile var wasOn: Boolean? = null
         private set
@@ -119,10 +120,10 @@ class GoveeBle(private val ctx: Context, private val mac: String) {
         lastWrite = SystemClock.uptimeMillis()
         val ok = try {
             if (Build.VERSION.SDK_INT >= 33) {
-                g.writeCharacteristic(c, p, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) == BluetoothGatt.GATT_SUCCESS
+                g.writeCharacteristic(c, p, writeType) == BluetoothGatt.GATT_SUCCESS
             } else {
                 @Suppress("DEPRECATION")
-                c.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                c.writeType = writeType
                 @Suppress("DEPRECATION")
                 c.value = p
                 @Suppress("DEPRECATION")
@@ -130,12 +131,13 @@ class GoveeBle(private val ctx: Context, private val mac: String) {
             }
         } catch (_: Exception) { false }
         if (!ok) { busy = false; Log.w(TAG, "write refused: ${hex(p)}") }
+        else if (writes++ < 6) Log.w(TAG, "sent ${hex(p)}")
     }
 
     private val callback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, state: Int) {
             bg.post {
-                Log.d(TAG, "connection state $state status $status")
+                Log.w(TAG, "connection state $state status $status")
                 if (closed) return@post
                 if (state == BluetoothProfile.STATE_CONNECTED) g.discoverServices()
                 else if (state == BluetoothProfile.STATE_DISCONNECTED) {
@@ -149,8 +151,16 @@ class GoveeBle(private val ctx: Context, private val mac: String) {
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
             bg.post {
                 val svc = g.getService(SERVICE)
-                ch = svc?.getCharacteristic(CONTROL)
-                Log.d(TAG, "services discovered, control ${if (ch != null) "found" else "MISSING"}")
+                // What the light offers, for debugging new models: uuid and property bits.
+                for (sv in g.services) for (c in sv.characteristics)
+                    Log.w(TAG, "gatt ${sv.uuid} / ${c.uuid} props=0x${Integer.toHexString(c.properties)}")
+                val writable = BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE
+                ch = svc?.getCharacteristic(CONTROL)?.takeIf { it.properties and writable != 0 }
+                    ?: svc?.characteristics?.firstOrNull { it.properties and writable != 0 }
+                // Use the write the characteristic allows (some only take write-without-response).
+                writeType = if (ch != null && ch!!.properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0)
+                    BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT else BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                Log.w(TAG, "control ${ch?.uuid ?: "MISSING"}, write type $writeType")
                 // Replies (power state) come back as notifications.
                 svc?.getCharacteristic(NOTIFY)?.let { n ->
                     g.setCharacteristicNotification(n, true)
@@ -174,7 +184,7 @@ class GoveeBle(private val ctx: Context, private val mac: String) {
 
         override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
             bg.post {
-                if (status != BluetoothGatt.GATT_SUCCESS) Log.w(TAG, "write status $status")
+                if (status != BluetoothGatt.GATT_SUCCESS && writes < 20) Log.w(TAG, "write status $status")
                 busy = false; pump()
             }
         }
@@ -183,9 +193,10 @@ class GoveeBle(private val ctx: Context, private val mac: String) {
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
             @Suppress("DEPRECATION")
             val v = c.value ?: return
+            if (writes < 20) Log.w(TAG, "reply ${hex(v)}")
             if (v.size >= 3 && (v[0].toInt() and 0xFF) == 0xAA && v[1].toInt() == 0x01 && wasOn == null) {
                 wasOn = v[2].toInt() == 1
-                Log.d(TAG, "light was ${if (wasOn == true) "on" else "off"}")
+                Log.w(TAG, "light was ${if (wasOn == true) "on" else "off"}")
             }
         }
     }
