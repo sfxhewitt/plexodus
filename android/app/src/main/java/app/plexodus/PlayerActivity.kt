@@ -87,6 +87,11 @@ class PlayerActivity : Activity() {
     private lateinit var overviewText: TextView
     private val modeRetry = Any()
 
+    /** Tints a Govee light to the picture while playing, when turned on. */
+    private var roomLight: RoomLight? = null
+    private var askedBluetooth = false
+    private var changingLight = false
+
     private val ui = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
 
@@ -347,6 +352,7 @@ class PlayerActivity : Activity() {
         player = MediaPlayer(libVlc)
         player.attachViews(videoLayout, null, true, false)
         player.setEventListener { onEvent(it) }
+        if (roomLight == null && !calibrating && Prefs.roomLight(this)) roomLight = RoomLight(this, videoLayout)
     }
 
     /**
@@ -433,6 +439,7 @@ class PlayerActivity : Activity() {
                 showAudioBadge()
                 applyAudioDelay()
                 if (calibrating) return
+                roomLight?.resume()
                 playPause.setImageResource(R.drawable.ic_pause)
                 scheduleHide()
                 lookUpNext()
@@ -440,6 +447,7 @@ class PlayerActivity : Activity() {
             }
             MediaPlayer.Event.Paused -> {
                 playing = false
+                roomLight?.pause()
                 // Apple TV style: pausing brings up what you're watching.
                 if (!calibrating && overviewText.text.isNotEmpty()) overviewText.visibility = View.VISIBLE
                 playPause.setImageResource(R.drawable.ic_play)
@@ -652,6 +660,22 @@ class PlayerActivity : Activity() {
             list.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
             if (on || focus == null) focus = row
         }
+        if (audio) {
+            list.addView(View(this).apply { setBackgroundColor(getColor(R.color.muted)); alpha = 0.3f },
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply { setMargins(0, (8 * dp).toInt(), 0, (8 * dp).toInt()) })
+            val lightOn = Prefs.roomLight(this)
+            list.addView(trackRow(getString(if (lightOn) R.string.room_light_on else R.string.room_light_off), dp) {
+                dialog.dismiss()
+                setRoomLight(!lightOn)
+            })
+            Prefs.roomLightIp(this)?.let { ip ->
+                list.addView(trackRow(getString(R.string.room_light_which, Prefs.lightName(this, ip) ?: ip.removePrefix(RoomLight.BLE_PREFIX)), dp) {
+                    dialog.dismiss()
+                    changingLight = true
+                    findRoomLight()
+                })
+            }
+        }
         if (!audio) {
             list.addView(View(this).apply { setBackgroundColor(getColor(R.color.muted)); alpha = 0.3f },
                 LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply { setMargins(0, (8 * dp).toInt(), 0, (8 * dp).toInt()) })
@@ -680,6 +704,173 @@ class PlayerActivity : Activity() {
         dialog.setOnDismissListener { scheduleHide() }
         dialog.show()
         focus?.requestFocus()
+    }
+
+    /**
+     * Turns Room light on or off. The first time on, it scans the LAN for the
+     * Govee light and says what it found.
+     */
+    private fun setRoomLight(on: Boolean) {
+        Prefs.setRoomLight(this, on)
+        if (!on) {
+            roomLight?.release()
+            roomLight = null
+            return
+        }
+        if (Prefs.roomLightIp(this) != null) startRoomLight() else findRoomLight()
+    }
+
+    /**
+     * Scans the LAN for Govee lights. One answers: use it. Several: ask
+     * which (the id tail is the end of the MAC shown in the Govee app).
+     */
+    private fun findRoomLight() {
+        // Bluetooth (for lights without LAN Control) needs a runtime permission first.
+        if (GoveeBle.available(this) && !GoveeBle.hasPermission(this) && !askedBluetooth) {
+            askedBluetooth = true
+            requestPermissions(GoveeBle.permissions(), REQUEST_BLUETOOTH)
+            return
+        }
+        scanRoomLights()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        // Scan either way: without Bluetooth it still finds LAN Control lights.
+        if (requestCode == REQUEST_BLUETOOTH && !isFinishing) scanRoomLights()
+    }
+
+    private fun scanRoomLights() {
+        Toast.makeText(this, R.string.room_light_searching, Toast.LENGTH_SHORT).show()
+        // A Bluetooth light stops advertising while it's connected, so let go of
+        // the current one first or it won't show up in the list.
+        val changing = changingLight
+        changingLight = false
+        if (changing) { roomLight?.release(); roomLight = null }
+        Thread {
+            if (changing) Thread.sleep(1500)
+            val lights = RoomLight.discover(this)
+            ui.post {
+                if (isFinishing || isDestroyed) return@post
+                when (lights.size) {
+                    0 -> {
+                        if (Prefs.roomLightIp(this) == null) Prefs.setRoomLight(this, false)
+                        Toast.makeText(this, R.string.room_light_none, Toast.LENGTH_LONG).show()
+                    }
+                    // Changing: always show the list, even with one light, so it can be renamed or kept.
+                    1 -> if (changing) pickRoomLight(lights) else useRoomLight(lights[0].ip)
+                    else -> pickRoomLight(lights)
+                }
+            }
+        }.start()
+    }
+
+    private fun useRoomLight(ip: String) {
+        Prefs.setRoomLightIp(this, ip)
+        Prefs.setRoomLight(this, true)
+        Toast.makeText(this, getString(R.string.room_light_found, Prefs.lightName(this, ip) ?: ip.removePrefix(RoomLight.BLE_PREFIX)), Toast.LENGTH_SHORT).show()
+        roomLight?.release()
+        roomLight = null
+        startRoomLight()
+    }
+
+    private fun pickRoomLight(lights: List<RoomLight.Companion.Found>) {
+        ui.removeCallbacks(hideControls)
+        val dp = resources.displayMetrics.density
+        val dialog = Dialog(this)
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.bg_track_panel)
+            val p = (14 * dp).toInt()
+            setPadding(p, p, p, p)
+            addView(TextView(context).apply {
+                text = getString(R.string.room_light_pick)
+                isAllCaps = true
+                letterSpacing = 0.12f
+                textSize = 11f
+                setTextColor(getColor(R.color.muted))
+                setPadding((10 * dp).toInt(), 0, 0, (8 * dp).toInt())
+            })
+        }
+        var first: View? = null
+        val current = Prefs.roomLightIp(this)
+        for (l in lights) {
+            val row = trackRow((if (l.ip == current) "✓ " else "") + l.label(this), dp) {
+                dialog.dismiss()
+                useRoomLight(l.ip)
+            }
+            // Hold OK to give a light its room name.
+            row.setOnLongClickListener {
+                dialog.dismiss()
+                askText(getString(R.string.room_light_rename), Prefs.lightName(this, l.ip) ?: "") { name ->
+                    Prefs.setLightName(this, l.ip, name)
+                    pickRoomLight(lights)
+                }
+                true
+            }
+            panel.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            if (first == null || l.ip == current) first = row
+        }
+        // Names straight from the Govee account, when any light is still unnamed.
+        if (lights.any { Prefs.lightName(this, it.ip) == null }) {
+            panel.addView(trackRow(getString(R.string.room_light_names), dp) {
+                dialog.dismiss()
+                askText(getString(R.string.room_light_key), Prefs.goveeKey(this) ?: "") { key ->
+                    Prefs.setGoveeKey(this, key)
+                    Thread {
+                        GoveeCloud.nameLights(this, lights)
+                        ui.post {
+                            if (isFinishing || isDestroyed) return@post
+                            if (lights.any { Prefs.lightName(this, it.ip) == null })
+                                Toast.makeText(this, R.string.room_light_names_failed, Toast.LENGTH_LONG).show()
+                            pickRoomLight(lights)
+                        }
+                    }.start()
+                }
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        }
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        dialog.setContentView(panel)
+        dialog.window?.apply {
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+            setGravity(android.view.Gravity.END or android.view.Gravity.BOTTOM)
+            setLayout((360 * dp).toInt(), android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+            attributes = attributes.also { it.x = (28 * dp).toInt(); it.y = (72 * dp).toInt(); it.dimAmount = 0f }
+            clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        }
+        dialog.setOnDismissListener { scheduleHide() }
+        dialog.show()
+        first?.requestFocus()
+    }
+
+    /** A one-line text box (the TV's on-screen keyboard), for light names and the Govee key. */
+    private fun askText(title: String, value: String, onDone: (String) -> Unit) {
+        ui.removeCallbacks(hideControls)
+        val field = android.widget.EditText(this).apply {
+            setText(value)
+            setSelection(value.length)
+            isSingleLine = true
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+        }
+        val d = android.app.AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(field)
+            .setPositiveButton(android.R.string.ok) { _, _ -> onDone(field.text.toString()) }
+            .setNegativeButton(android.R.string.cancel, null)
+            .setOnDismissListener { scheduleHide() }
+            .create()
+        field.setOnEditorActionListener { _, action, _ ->
+            if (action == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
+                onDone(field.text.toString()); d.dismiss(); true
+            } else false
+        }
+        d.show()
+        field.requestFocus()
+    }
+
+    private fun startRoomLight() {
+        if (roomLight == null) roomLight = RoomLight(this, videoLayout)
+        if (playing) roomLight?.resume()
     }
 
     private fun trackRow(label: String, dp: Float, onPick: () -> Unit) = TextView(this).apply {
@@ -1482,6 +1673,8 @@ class PlayerActivity : Activity() {
 
     override fun onDestroy() {
         ui.removeCallbacksAndMessages(null)
+        roomLight?.release()
+        roomLight = null
         if (hdmiSurround) (getSystemService(Context.AUDIO_SERVICE) as AudioManager).unregisterAudioDeviceCallback(deviceWatch)
         if (::player.isInitialized) {
             player.setEventListener(null)
@@ -1549,6 +1742,7 @@ class PlayerActivity : Activity() {
 
     companion object {
         const val EXTRA_RESULT = "result"
+        private const val REQUEST_BLUETOOTH = 41
         /** Subtitle sizes: label and libVLC's --freetype-rel-fontsize (a 1/N of the picture's height). */
         private val SUB_SIZES = listOf(R.string.sub_small to 30, R.string.sub_medium to 25, R.string.sub_large to 20)
         private const val SYNC_STEP_MS = 25

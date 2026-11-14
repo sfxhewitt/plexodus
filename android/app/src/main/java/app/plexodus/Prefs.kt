@@ -69,6 +69,43 @@ object Prefs {
 
     private fun showTrackKey(show: String, audio: Boolean) = (if (audio) "showAudio:" else "showSubs:") + show.lowercase()
 
+    private const val KEY_ROOM_LIGHT = "roomLight"
+    private const val KEY_ROOM_LIGHT_IP = "roomLightIp"
+
+    /** Room light: tint a Govee light to match the picture while playing. Off until turned on. */
+    fun roomLight(ctx: Context): Boolean =
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean(KEY_ROOM_LIGHT, false)
+
+    fun setRoomLight(ctx: Context, on: Boolean) {
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putBoolean(KEY_ROOM_LIGHT, on).apply()
+    }
+
+    /** The Govee light's IP, found by a LAN scan the first time Room light is turned on. */
+    fun roomLightIp(ctx: Context): String? =
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString(KEY_ROOM_LIGHT_IP, null)
+
+    fun setRoomLightIp(ctx: Context, ip: String?) {
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString(KEY_ROOM_LIGHT_IP, ip).apply()
+    }
+
+    /** A Govee light's room name ("Living Room"), keyed by its IP or "ble:" MAC. */
+    fun lightName(ctx: Context, addr: String): String? =
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString("lightName:" + addr.uppercase(), null)
+
+    fun setLightName(ctx: Context, addr: String, name: String?) {
+        val e = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+        if (name.isNullOrBlank()) e.remove("lightName:" + addr.uppercase()) else e.putString("lightName:" + addr.uppercase(), name.trim())
+        e.apply()
+    }
+
+    /** Govee developer API key, used only to read the lights' names from the Govee account. */
+    fun goveeKey(ctx: Context): String? =
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString("goveeKey", null)
+
+    fun setGoveeKey(ctx: Context, key: String?) {
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString("goveeKey", key?.trim()?.takeIf { it.isNotEmpty() }).apply()
+    }
+
     /** Turns whatever the user typed into http(s)://host[:port] without a trailing slash. */
     fun normalize(input: String): String {
         var s = input.trim().trimEnd('/')
