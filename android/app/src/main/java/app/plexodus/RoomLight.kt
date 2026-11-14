@@ -76,7 +76,7 @@ class RoomLight(private val ctx: Context, private val videoRoot: ViewGroup) {
             released = true
             bg.removeCallbacks(tick)
             saved?.let { restore(it) }
-            ble?.let { it.colour(RESTORE_R, RESTORE_G, RESTORE_B); it.close() }
+            ble?.close(RESTORE_R, RESTORE_G, RESTORE_B)
             socket?.close()
             thread.quitSafely()
         }
@@ -85,11 +85,10 @@ class RoomLight(private val ctx: Context, private val videoRoot: ViewGroup) {
     private fun connect(): Boolean {
         val ip = Prefs.roomLightIp(ctx) ?: return false
         if (ip.startsWith(BLE_PREFIX)) {
-            // Bluetooth: no state to read back, so closing sets a warm white.
-            val b = GoveeBle(ctx, ip.removePrefix(BLE_PREFIX), bg)
+            // Bluetooth: switches the light on; closing sets a warm white (and off again if it was off).
+            val b = GoveeBle(ctx, ip.removePrefix(BLE_PREFIX))
             if (!b.connect()) return false
             ble = b
-            b.power(true)
             return true
         }
         return try {
