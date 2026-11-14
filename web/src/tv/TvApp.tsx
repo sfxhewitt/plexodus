@@ -10,6 +10,7 @@ import { Backdrop, BackdropCtx, Spinner, TvButton } from "./components";
 import { focusEl, focusInitial, focusables, installKeys, onBack } from "./focus";
 import { focusPage, setCurrentKey, ToastCtx, useLibraries, useToast } from "./hooks";
 import { lastPlayedItem, onPlayBusy, playItem } from "./play";
+import { parseVoice, playVoice } from "./voice";
 import Home from "./pages/Home";
 import Item from "./pages/Item";
 import LibraryPage from "./pages/Library";
@@ -22,7 +23,7 @@ import CollectionsPage from "./pages/Collections";
 import CollectionPage from "./pages/Collection";
 import { MenuProvider, useLibraryMenu, useLongPress } from "./menu";
 import { TvWhoIsWatching } from "./profiles";
-import { colorOf, forgetPicked, goHome, initialOf, loadProfiles, shouldPick } from "../profiles";
+import { colorOf, forgetPicked, goHome, initialOf, loadProfiles, markPicked, shouldPick } from "../profiles";
 import "./tv.css";
 
 document.documentElement.classList.add("tv");
@@ -134,6 +135,31 @@ function PlayRoute() {
   return null;
 }
 
+// The app opens /voice?q=… for its plexodus://play link (voice assistants such as
+// LUMEN's Alexa skill). Each opening is handled once, even if React runs the effect twice.
+const voiceHandled = new Set<string>();
+
+function VoiceRoute() {
+  const loc = useLocation();
+  const nav = useNavigate();
+  const toast = useToast();
+  useEffect(() => {
+    if (voiceHandled.has(loc.key)) return;
+    voiceHandled.add(loc.key);
+    const p = new URLSearchParams(loc.search);
+    const ask = parseVoice(p.get("q") || "", p.get("from"));
+    // The title's page sits under the player, so Back lands there.
+    playVoice(ask).then(
+      (id) => nav(`/item/${id}`, { replace: true }),
+      (e: Error) => {
+        toast(e.message);
+        nav(ask.title ? `/search?q=${encodeURIComponent(ask.title)}` : "/", { replace: true });
+      },
+    );
+  }, [loc.key]);
+  return <Spinner label="Finding it…" />;
+}
+
 function Shell() {
   const loc = useLocation();
   const nav = useNavigate();
@@ -236,6 +262,7 @@ function Shell() {
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/wrapped" element={<WrappedPage />} />
               <Route path="/play/:id" element={<PlayRoute />} />
+              <Route path="/voice" element={<VoiceRoute />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </main>
@@ -373,6 +400,8 @@ function App() {
     try {
       const status = await api.get<{ setupRequired: boolean; plexSignIn?: boolean }>("/api/status");
       const user = status.setupRequired ? null : await api.get<User>("/api/me").catch(() => null);
+      // Asked for by voice: play it on this device's current profile, without "Who's watching?".
+      if (window.location.pathname === "/voice") markPicked();
       if (user) {
         const info = await loadProfiles().catch(() => null);
         if (info && shouldPick(info)) setPicker("start");
