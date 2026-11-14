@@ -1677,6 +1677,8 @@ class PlayerActivity : Activity() {
     }
 
     override fun onStop() {
+        // Leaving the player (another app, the home screen): the room light is let go straight away.
+        roomLight?.pause()
         if (::player.isInitialized && player.isPlaying) player.pause()
         super.onStop()
     }

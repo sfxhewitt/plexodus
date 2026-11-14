@@ -58,15 +58,23 @@ class RoomLight(private val ctx: Context, private val videoRoot: ViewGroup) {
     fun resume() {
         bg.post {
             if (released || running) return@post
-            if (light == null && !connect()) return@post
+            if (light == null && ble == null && !connect()) return@post
             running = true
             bg.post(tick)
         }
     }
 
-    /** Holds the current colour, e.g. while paused. */
+    /**
+     * Paused, stopped or in the background: hands the light back (as it was
+     * before, off if it was off) and lets go of it, so other apps and the
+     * Govee app are left alone until something plays again.
+     */
     fun pause() {
-        bg.post { running = false; bg.removeCallbacks(tick) }
+        bg.post {
+            running = false
+            bg.removeCallbacks(tick)
+            disconnect()
+        }
     }
 
     /** Stops for good and gives the light back the state it had before. */
@@ -75,11 +83,21 @@ class RoomLight(private val ctx: Context, private val videoRoot: ViewGroup) {
             running = false
             released = true
             bg.removeCallbacks(tick)
-            saved?.let { restore(it) }
-            ble?.close(RESTORE_R, RESTORE_G, RESTORE_B)
-            socket?.close()
+            disconnect()
             thread.quitSafely()
         }
+    }
+
+    private fun disconnect() {
+        saved?.let { restore(it) }
+        saved = null
+        ble?.close(RESTORE_R, RESTORE_G, RESTORE_B)
+        ble = null
+        socket?.close()
+        socket = null
+        light = null
+        haveColour = false
+        sentR = -1; sentG = -1; sentB = -1; sentBri = -1
     }
 
     private fun connect(): Boolean {
