@@ -314,8 +314,9 @@ class PlayerActivity : Activity() {
         // take them (like Plex's "passthrough"); otherwise decode to PCM.
         // Bluetooth or wired headphones can't take a bitstream: it would go out of the
         // TV's speakers instead, so decode while they're connected.
+        // Not before Android 11 (so not on the Fire TV Cube): see PASSTHROUGH_CLOSES_CLEANLY.
         hdmiSurround = hdmiTakesSurround()
-        passthrough = hdmiSurround && !headphonesConnected()
+        passthrough = PASSTHROUGH_CLOSES_CLEANLY && hdmiSurround && !headphonesConnected()
         createPlayer()
         if (hdmiSurround) (getSystemService(Context.AUDIO_SERVICE) as AudioManager).registerAudioDeviceCallback(deviceWatch, ui)
 
@@ -900,7 +901,7 @@ class PlayerActivity : Activity() {
         override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) = recheck()
         private fun recheck() {
             if (finished || !::player.isInitialized) return
-            val want = hdmiSurround && !headphonesConnected()
+            val want = PASSTHROUGH_CLOSES_CLEANLY && hdmiSurround && !headphonesConnected()
             if (want == passthrough) return
             passthrough = want
             player.setAudioDigitalOutputEnabled(want)
@@ -1548,6 +1549,22 @@ class PlayerActivity : Activity() {
     }
 
     companion object {
+        /**
+         * Android 9 (Fire OS 7 on the Fire TV Cube) can't close a passthrough stream.
+         * libVLC ends its IEC61937 AudioTrack (end of an episode, Back, Stop) with play() and
+         * then stop() after the data has run out; the platform has already paused the 192 kHz
+         * direct HDMI output for lack of data, so the stopped track never finishes and the
+         * output stays open in bitstream mode, even after this app is killed. From then on every
+         * app's sound is taken at about a third of real time and not heard, and video follows
+         * that clock: everything plays in slow motion with no sound until HDMI audio is
+         * re-plugged. Seen on the Cube on 6 and 13 Nov 2026 (dumpsys media.audio_flinger: a
+         * DIRECT IEC61937 thread, Standby: no, holding a terminated Plexodus track; Fire OS
+         * logging "AUDIO_CRITICAL: Playback drop samples=15360 expected=~49400" every second).
+         * Decoding to PCM goes through the normal mixer, which closes cleanly. Passthrough stays
+         * on from Android 11 (the SHIELD), which hasn't shown this; Android 10 decodes to be safe.
+         */
+        private val PASSTHROUGH_CLOSES_CLEANLY = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+
         const val EXTRA_RESULT = "result"
         /** Subtitle sizes: label and libVLC's --freetype-rel-fontsize (a 1/N of the picture's height). */
         private val SUB_SIZES = listOf(R.string.sub_small to 30, R.string.sub_medium to 25, R.string.sub_large to 20)
