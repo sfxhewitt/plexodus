@@ -126,6 +126,16 @@ class MainActivity : Activity() {
         Updater.cleanup(this)
     }
 
+    /** Opened again for a page (plexodus://play): load it in place of whatever is showing. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val path = intent.getStringExtra(EXTRA_START_PATH) ?: return
+        if (!::web.isInitialized) return
+        errorView.visibility = View.GONE
+        web.loadUrl(server.trimEnd('/') + path)
+    }
+
     private fun sameServer(u: Uri): Boolean {
         val s = Uri.parse(server)
         return u.host.equals(s.host, ignoreCase = true) && u.port == s.port
