@@ -48,6 +48,12 @@
     <string name="room_light_found">Room light: %1$s</string>
     <string name="room_light_pick">Which light? · hold OK to rename</string>
     <string name="room_light_which">Light: %1$s (change)</string>
+    <string name="room_light_level">Light brightness: %1$s</string>
+    <string-array name="room_light_levels">
+        <item>Subtle</item>
+        <item>Medium</item>
+        <item>Bright</item>
+    </string-array>
     <string name="room_light_rename">Room name for this light</string>
     <string name="room_light_names">Get room names from Govee…</string>
     <string name="room_light_key">Govee API key</string>

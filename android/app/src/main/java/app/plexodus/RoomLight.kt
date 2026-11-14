@@ -143,11 +143,13 @@ class RoomLight(private val ctx: Context, private val videoRoot: ViewGroup) {
     }
 
     private fun push() {
-        val ir = r.toInt(); val ig = g.toInt(); val ib = b.toInt(); val ibri = bri.toInt()
+        // The brightness setting (Subtle / Medium / Bright) caps how strong the light gets.
+        val level = Prefs.roomLightLevelScale(ctx)
+        val ir = r.toInt(); val ig = g.toInt(); val ib = b.toInt(); val ibri = (bri * level).toInt().coerceIn(1, 100)
         val now = SystemClock.uptimeMillis()
         ble?.let { bt ->
             // Brightness goes into the RGB values over Bluetooth.
-            val s = bri / 100f
+            val s = bri * level / 100f
             val br = (r * s).toInt(); val bgc = (g * s).toInt(); val bb = (b * s).toInt()
             val moved = abs(br - sentR) + abs(bgc - sentG) + abs(bb - sentB) >= 6
             if (moved) {

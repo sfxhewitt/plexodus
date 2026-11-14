@@ -668,6 +668,16 @@ class PlayerActivity : Activity() {
                 dialog.dismiss()
                 setRoomLight(!lightOn)
             })
+            if (lightOn) {
+                val levels = resources.getStringArray(R.array.room_light_levels)
+                val lvl = Prefs.roomLightLevel(this)
+                list.addView(trackRow(getString(R.string.room_light_level, levels[lvl]), dp) {
+                    // Takes effect on the next colour sent; no restart needed.
+                    Prefs.setRoomLightLevel(this, (lvl + 1) % levels.size)
+                    dialog.dismiss()
+                    Toast.makeText(this, getString(R.string.room_light_level, levels[(lvl + 1) % levels.size]), Toast.LENGTH_SHORT).show()
+                })
+            }
             Prefs.roomLightIp(this)?.let { ip ->
                 list.addView(trackRow(getString(R.string.room_light_which, Prefs.lightName(this, ip) ?: ip.removePrefix(RoomLight.BLE_PREFIX)), dp) {
                     dialog.dismiss()

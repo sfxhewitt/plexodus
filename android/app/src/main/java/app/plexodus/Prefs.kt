@@ -88,6 +88,17 @@ object Prefs {
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString(KEY_ROOM_LIGHT_IP, ip).apply()
     }
 
+    /** Room light brightness: 0 Subtle, 1 Medium, 2 Bright. Subtle by default. */
+    fun roomLightLevel(ctx: Context): Int =
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getInt("roomLightLevel", 0).coerceIn(0, 2)
+
+    fun setRoomLightLevel(ctx: Context, level: Int) {
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putInt("roomLightLevel", level.coerceIn(0, 2)).apply()
+    }
+
+    /** The share of full brightness for the current level. */
+    fun roomLightLevelScale(ctx: Context): Float = floatArrayOf(0.3f, 0.6f, 1f)[roomLightLevel(ctx)]
+
     /** A Govee light's room name ("Living Room"), keyed by its IP or "ble:" MAC. */
     fun lightName(ctx: Context, addr: String): String? =
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString("lightName:" + addr.uppercase(), null)
