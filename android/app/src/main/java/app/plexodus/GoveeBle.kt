@@ -55,6 +55,10 @@ class GoveeBle(private val ctx: Context, private val mac: String) {
     private var closed = false
     private var writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
     private var writes = 0
+    /** The colour form (0x0D or 0x02) the light accepted, once it has answered; 0 until then. */
+    @Volatile private var colourMode = 0
+    /** Colour forms sent and not yet answered, oldest first (answers come back in order). */
+    private val colourSent = java.util.concurrent.ConcurrentLinkedQueue<Int>()
     /** Whether the light was on when we first heard from it; null until known. */
     @Volatile var wasOn: Boolean? = null
         private set
@@ -72,10 +76,15 @@ class GoveeBle(private val ctx: Context, private val mac: String) {
     /** Sets the colour; r/g/b already scaled for brightness. */
     fun colour(r: Int, g: Int, b: Int) {
         val rr = r.coerceIn(0, 255); val gg = g.coerceIn(0, 255); val bb = b.coerceIn(0, 255)
-        val a = packet(0x05, 0x02, rr, gg, bb); val c = packet(0x05, 0x0D, rr, gg, bb)
+        val a = packet(0x05, 0x0D, rr, gg, bb); val c = packet(0x05, 0x02, rr, gg, bb)
         bg.post {
             if (closing) return@post
-            pending = a; pending2 = c
+            // Once the light has said which colour form it takes, send only that one.
+            when (colourMode) {
+                0x0D -> { pending = a; pending2 = null }
+                0x02 -> { pending = c; pending2 = null }
+                else -> { pending = a; pending2 = c }
+            }
             pump()
         }
     }
@@ -131,7 +140,10 @@ class GoveeBle(private val ctx: Context, private val mac: String) {
             }
         } catch (_: Exception) { false }
         if (!ok) { busy = false; Log.w(TAG, "write refused: ${hex(p)}") }
-        else if (writes++ < 6) Log.w(TAG, "sent ${hex(p)}")
+        else {
+            if (p[0].toInt() == 0x33 && p[1].toInt() == 0x05) colourSent.add(p[2].toInt())
+            if (writes++ < 6) Log.w(TAG, "sent ${hex(p)}")
+        }
     }
 
     private val callback = object : BluetoothGattCallback() {
@@ -139,7 +151,12 @@ class GoveeBle(private val ctx: Context, private val mac: String) {
             bg.post {
                 Log.w(TAG, "connection state $state status $status")
                 if (closed) return@post
-                if (state == BluetoothProfile.STATE_CONNECTED) g.discoverServices()
+                if (state == BluetoothProfile.STATE_CONNECTED) {
+                    // Shorter connection interval: less lag between the picture and the light.
+                    g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+                    colourSent.clear()
+                    g.discoverServices()
+                }
                 else if (state == BluetoothProfile.STATE_DISCONNECTED) {
                     ch = null; busy = false
                     // Dropped (out of range, light power-cycled): keep trying while in use.
@@ -194,6 +211,14 @@ class GoveeBle(private val ctx: Context, private val mac: String) {
             @Suppress("DEPRECATION")
             val v = c.value ?: return
             if (writes < 20) Log.w(TAG, "reply ${hex(v)}")
+            // 33 05 00 = colour accepted, 33 05 01 = that form isn't supported.
+            if (v.size >= 3 && v[0].toInt() == 0x33 && v[1].toInt() == 0x05) {
+                val mode = colourSent.poll()
+                if (mode != null && v[2].toInt() == 0 && colourMode == 0) {
+                    colourMode = mode
+                    Log.w(TAG, "light takes colour form 0x${Integer.toHexString(mode)}")
+                }
+            }
             if (v.size >= 3 && (v[0].toInt() and 0xFF) == 0xAA && v[1].toInt() == 0x01 && wasOn == null) {
                 wasOn = v[2].toInt() == 1
                 Log.w(TAG, "light was ${if (wasOn == true) "on" else "off"}")

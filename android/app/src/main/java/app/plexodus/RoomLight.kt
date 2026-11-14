@@ -135,9 +135,9 @@ class RoomLight(private val ctx: Context, private val videoRoot: ViewGroup) {
         } else {
             // Faster on big changes (a cut), gentler on small drift (no flicker).
             val jump = (abs(tr - r) + abs(tg - g) + abs(tb - b)) / 765f
-            val k = if (jump > 0.25f) 0.6f else 0.25f
+            val k = if (jump > 0.25f) 0.85f else 0.4f
             r += (tr - r) * k; g += (tg - g) * k; b += (tb - b) * k
-            bri += (targetBri - bri) * 0.2f
+            bri += (targetBri - bri) * 0.35f
         }
         push()
     }
