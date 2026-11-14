@@ -30,8 +30,9 @@ import kotlin.math.pow
  * API (UDP, no cloud, ~20 ms). The light's own state is read when it starts
  * and put back when the player closes.
  *
- * The light needs "LAN Control" switched on in the Govee Home app. It's found
- * by multicast on the first run and its address is remembered.
+ * The light is reached over Govee's LAN API when "LAN Control" is on in the
+ * Govee Home app, otherwise over Bluetooth (see [GoveeBle]). It's found on the
+ * first run and its address is remembered.
  *
  * DRM'd video can't be copied; Plexodus plays files directly, so that's fine.
  */
@@ -42,6 +43,7 @@ class RoomLight(private val ctx: Context, private val videoRoot: ViewGroup) {
     private val pixels = IntArray(SAMPLE_W * SAMPLE_H)
     private var socket: DatagramSocket? = null
     private var light: InetAddress? = null
+    private var ble: GoveeBle? = null
     private var running = false
     private var released = false
     private var saved: JSONObject? = null
@@ -74,6 +76,7 @@ class RoomLight(private val ctx: Context, private val videoRoot: ViewGroup) {
             released = true
             bg.removeCallbacks(tick)
             saved?.let { restore(it) }
+            ble?.let { it.colour(RESTORE_R, RESTORE_G, RESTORE_B); it.close() }
             socket?.close()
             thread.quitSafely()
         }
@@ -81,6 +84,14 @@ class RoomLight(private val ctx: Context, private val videoRoot: ViewGroup) {
 
     private fun connect(): Boolean {
         val ip = Prefs.roomLightIp(ctx) ?: return false
+        if (ip.startsWith(BLE_PREFIX)) {
+            // Bluetooth: no state to read back, so closing sets a warm white.
+            val b = GoveeBle(ctx, ip.removePrefix(BLE_PREFIX), bg)
+            if (!b.connect()) return false
+            ble = b
+            b.power(true)
+            return true
+        }
         return try {
             light = InetAddress.getByName(ip)
             socket = DatagramSocket(null).apply {
@@ -135,6 +146,19 @@ class RoomLight(private val ctx: Context, private val videoRoot: ViewGroup) {
     private fun push() {
         val ir = r.toInt(); val ig = g.toInt(); val ib = b.toInt(); val ibri = bri.toInt()
         val now = SystemClock.uptimeMillis()
+        ble?.let { bt ->
+            // Brightness goes into the RGB values over Bluetooth.
+            val s = bri / 100f
+            val br = (r * s).toInt(); val bgc = (g * s).toInt(); val bb = (b * s).toInt()
+            val moved = abs(br - sentR) + abs(bgc - sentG) + abs(bb - sentB) >= 6
+            if (moved) {
+                bt.colour(br, bgc, bb)
+                sentR = br; sentG = bgc; sentB = bb; sentAt = now
+            } else if (now - sentAt > 2000) {
+                bt.keepAlive(); sentAt = now
+            }
+            return
+        }
         val keepAlive = now - sentAt > 2000
         val colourMoved = abs(ir - sentR) + abs(ig - sentG) + abs(ib - sentB) >= 6
         if (colourMoved || keepAlive) {
@@ -193,6 +217,10 @@ class RoomLight(private val ctx: Context, private val videoRoot: ViewGroup) {
         private const val LISTEN_PORT = 4002
         private const val CONTROL_PORT = 4003
         private const val MULTICAST = "239.255.255.250"
+        /** Saved light addresses starting with this are Bluetooth MACs. */
+        const val BLE_PREFIX = "ble:"
+        // Warm white (about 4000 K) for when a Bluetooth light is handed back.
+        private const val RESTORE_R = 255; private const val RESTORE_G = 209; private const val RESTORE_B = 163
 
         /**
          * The picture's main colour as (r, g, b, overall brightness 0..1).
@@ -258,18 +286,29 @@ class RoomLight(private val ctx: Context, private val videoRoot: ViewGroup) {
             return null
         }
 
-        /** A Govee light that answered the LAN scan. */
+        /** A Govee light that answered the LAN scan, or was seen over Bluetooth. */
         class Found(val ip: String, val id: String, val sku: String) {
+            val bluetooth get() = ip.startsWith(BLE_PREFIX)
             /** "H6008 · …AB:CD · 192.168.0.50": the id tail matches the MAC in the Govee app. */
-            val label get() = listOf(sku, id.takeLast(5).takeIf { it.isNotEmpty() }?.let { "…$it" }, ip)
-                .filter { !it.isNullOrEmpty() }.joinToString("  ·  ")
+            val label get() = if (bluetooth) "$id  ·  Bluetooth"
+                else listOf(sku, id.takeLast(5).takeIf { it.isNotEmpty() }?.let { "…$it" }, ip)
+                    .filter { !it.isNullOrEmpty() }.joinToString("  ·  ")
         }
 
         /**
-         * Finds the Govee lights on the network with LAN Control on. Blocks
-         * for about 2 s; call off the main thread.
+         * Finds Govee lights: on the network (LAN Control on) and nearby over
+         * Bluetooth. Blocks for about 4 s; call off the main thread.
          */
         fun discover(ctx: Context): List<Found> {
+            // Lights without LAN Control are found over Bluetooth, scanned alongside.
+            var bt: List<Pair<String, String>> = emptyList()
+            val btScan = Thread { bt = GoveeBle.scan(ctx, 4000) }.apply { start() }
+            val lan = discoverLan(ctx)
+            btScan.join()
+            return lan + bt.map { (mac, name) -> Found(BLE_PREFIX + mac, name, "") }
+        }
+
+        private fun discoverLan(ctx: Context): List<Found> {
             val wifi = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
             val lock = wifi?.createMulticastLock("plexodus-room-light")?.apply { setReferenceCounted(false) }
             val found = LinkedHashMap<String, Found>()

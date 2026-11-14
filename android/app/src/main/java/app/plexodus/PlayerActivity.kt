@@ -89,6 +89,7 @@ class PlayerActivity : Activity() {
 
     /** Tints a Govee light to the picture while playing, when turned on. */
     private var roomLight: RoomLight? = null
+    private var askedBluetooth = false
 
     private val ui = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
@@ -722,6 +723,22 @@ class PlayerActivity : Activity() {
      * which (the id tail is the end of the MAC shown in the Govee app).
      */
     private fun findRoomLight() {
+        // Bluetooth (for lights without LAN Control) needs a runtime permission first.
+        if (GoveeBle.available(this) && !GoveeBle.hasPermission(this) && !askedBluetooth) {
+            askedBluetooth = true
+            requestPermissions(GoveeBle.permissions(), REQUEST_BLUETOOTH)
+            return
+        }
+        scanRoomLights()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        // Scan either way: without Bluetooth it still finds LAN Control lights.
+        if (requestCode == REQUEST_BLUETOOTH && !isFinishing) scanRoomLights()
+    }
+
+    private fun scanRoomLights() {
         Toast.makeText(this, R.string.room_light_searching, Toast.LENGTH_SHORT).show()
         Thread {
             val lights = RoomLight.discover(this)
@@ -1664,6 +1681,7 @@ class PlayerActivity : Activity() {
 
     companion object {
         const val EXTRA_RESULT = "result"
+        private const val REQUEST_BLUETOOTH = 41
         /** Subtitle sizes: label and libVLC's --freetype-rel-fontsize (a 1/N of the picture's height). */
         private val SUB_SIZES = listOf(R.string.sub_small to 30, R.string.sub_medium to 25, R.string.sub_large to 20)
         private const val SYNC_STEP_MS = 25
