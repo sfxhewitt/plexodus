@@ -45,7 +45,11 @@ class ConnectActivity : Activity() {
         super.onCreate(savedInstanceState)
         val saved = Prefs.server(this)
         if (saved != null && !intent.getBooleanExtra(EXTRA_CHANGE, false)) {
-            startActivity(Intent(this, MainActivity::class.java))
+            // Pass a plexodus://play link on to the main screen.
+            val main = Intent(this, MainActivity::class.java).setData(intent.data)
+            // An open app reuses its main screen (closing any film) instead of stacking another.
+            if (intent.data != null) main.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            startActivity(main)
             finish()
             return
         }

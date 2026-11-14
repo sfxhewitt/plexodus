@@ -124,6 +124,38 @@ class MainActivity : Activity() {
         val start = intent.getStringExtra(EXTRA_START_PATH)?.let { server.trimEnd('/') + it } ?: server
         if (savedInstanceState == null) web.loadUrl(start) else web.restoreState(savedInstanceState)
         Updater.cleanup(this)
+        if (savedInstanceState == null) quickPlay(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        quickPlay(intent)
+    }
+
+    /** plexodus://play?q=…&t=… starts a title straight away (see QuickPlay). */
+    private fun quickPlay(i: Intent?) {
+        val req = QuickPlay.parse(i?.data) ?: return
+        i?.data = null
+        Thread {
+            try {
+                val cookie = CookieManager.getInstance().getCookie(server) ?: ""
+                val play = QuickPlay.resolve(server, cookie, req)
+                Log.i("Plexodus", "quick play: ${play.optString("title")} at ${play.optDouble("startSeconds")}s")
+                runOnUiThread {
+                    // A film already playing makes way for the new one.
+                    finishActivity(REQ_PLAY)
+                    web.postDelayed({
+                        startActivityForResult(PlayerActivity.intent(this, server, cookie, play), REQ_PLAY)
+                    }, 400)
+                }
+            } catch (e: Exception) {
+                Log.w("Plexodus", "quick play failed: ${e.message}")
+                runOnUiThread {
+                    android.widget.Toast.makeText(this, e.message ?: "Couldn't play that", android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
     }
 
     private fun sameServer(u: Uri): Boolean {
