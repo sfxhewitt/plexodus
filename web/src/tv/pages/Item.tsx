@@ -5,7 +5,9 @@ import { Check, Eye, Play, Plus, Refresh, Share, Tv, X } from "../../components/
 import { useApi } from "../../hooks";
 import { Spinner, TvButton, TvCard, TvRow, useBackdrop } from "../components";
 import { usePageFocus, useRefresh, useToast } from "../hooks";
-import { requestTrailer, stopTrailer } from "../ambient";
+import { openTrailerFull, requestTrailer, stopTrailer, trailersSupported } from "../ambient";
+import { onUpFromTop } from "../focus";
+import { hasTrailerKey as hasTrailerKeyNow, trailerKey } from "../Trailer";
 import { playCard, playItem } from "../play";
 import { CollectionTile } from "../collectionTile";
 
@@ -53,6 +55,20 @@ export default function Item() {
     if (trailerId === undefined) return;
     requestTrailer(trailerId, 2500);
     return stopTrailer;
+  }, [trailerId]);
+  // Up from the top of the page shows the trailer full screen, with sound
+  // (instead of going to the tab bar; Back still leaves the page).
+  const [hasTrailer, setHasTrailer] = useState(false);
+  useEffect(() => {
+    setHasTrailer(false);
+    if (trailerId === undefined || !trailersSupported()) return;
+    let live = true;
+    trailerKey(trailerId).then((k) => live && setHasTrailer(!!k), () => {});
+    const off = onUpFromTop(() => hasTrailerKeyNow(trailerId) && openTrailerFull(trailerId));
+    return () => {
+      live = false;
+      off();
+    };
   }, [trailerId]);
 
   const play = useCallback((itemId: number, fromStart = false) => {
@@ -112,6 +128,7 @@ export default function Item() {
     <div className={`tv-page tv-detail kind-${d.kind}`} data-vscroll="reveal" data-margin="4rem">
       <section className="tv-detail-hero" data-row data-row-top>
         <div className="tv-detail-info">
+          {hasTrailer && <div className="tv-trailer-hint"><span>▲</span> Trailer full screen</div>}
           {(d.kind === "season" || d.kind === "episode") && showTitle && <div className="tv-eyebrow">{showTitle}</div>}
           {d.logo && (d.kind === "movie" || d.kind === "show") ? (
             <img className="tv-detail-logo" src={art(d.logo, "w500")} alt={d.title} />

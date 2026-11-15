@@ -116,6 +116,21 @@ export function focusEl(el: HTMLElement | null | undefined, instant = false) {
   return true;
 }
 
+type EdgeHandler = () => boolean;
+const upEdge: EdgeHandler[] = [];
+
+/**
+ * Register a handler for Up from the topmost thing on the page, before it
+ * would go to the tab bar. The most recent one that returns true wins.
+ */
+export function onUpFromTop(h: EdgeHandler) {
+  upEdge.push(h);
+  return () => {
+    const i = upEdge.lastIndexOf(h);
+    if (i >= 0) upEdge.splice(i, 1);
+  };
+}
+
 export function move(dir: Dir, instant = false) {
   const all = focusables();
   const cur = document.activeElement as HTMLElement | null;
@@ -134,7 +149,13 @@ export function move(dir: Dir, instant = false) {
   // reaches the tab bar from the topmost thing on the page, even if the page
   // is scrolled and what's above you is off screen.
   const plain = home ? cands : cands.filter((el) => !el.closest("[data-enter]"));
-  const t = pick(inside, dir, plain) || pick(inside, dir, cands);
+  const near = pick(inside, dir, plain);
+  // At the top of the page, a page can claim Up before the tab bar does
+  // (a title's page: Up shows its trailer full screen).
+  if (!near && !home && dir === "up" && !document.querySelector("[data-scope]")) {
+    for (let i = upEdge.length - 1; i >= 0; i--) if (upEdge[i]()) return true;
+  }
+  const t = near || pick(inside, dir, cands);
   if (!t) return false;
   return focusEl(enterGroup(inside, t, all), instant);
 }

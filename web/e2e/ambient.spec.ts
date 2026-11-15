@@ -29,6 +29,68 @@ test("trailer fades in behind a film's page without taking the remote", async ({
   await expect(trailer).toHaveCount(0);
 });
 
+test("Up on a film's page shows its trailer full screen with sound; Back returns", async ({ page, openTv }, info) => {
+  await openTv(`/item/${ids.movie}`);
+  await waitForFocus(page, "play");
+  await expect(page.locator(".tv-trailer-hint"), "the page says Up shows the trailer").toHaveCount(1);
+  // The stand-in player reports the commands it gets.
+  await page.evaluate(() => {
+    const w = window as unknown as { __ytCommands: string[] };
+    w.__ytCommands = [];
+    addEventListener("message", (e) => {
+      try {
+        const m = JSON.parse(e.data);
+        if (m.event === "mockCommand") w.__ytCommands.push(m.func);
+      } catch { /* not ours */ }
+    });
+  });
+  // Straight away, before the trailer has started behind the page.
+  await page.keyboard.press("ArrowUp");
+  const full = page.locator(".tv-backdrop.full .tv-trailer.full");
+  await expect(full).toHaveCount(1);
+  await expect(page.locator(".tv-trailer.full.on")).toHaveCount(1, { timeout: 8000 });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __ytCommands?: string[] }).__ytCommands || []))
+    .toContain("unMute");
+  await page.waitForTimeout(500);
+  await snap(page, info, "01 full-screen trailer");
+
+  // The remote drives the trailer, not the page: OK pauses, focus stays put.
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".tv-trailer-keys")).toHaveText(/Paused/);
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".tv-trailer-keys")).not.toHaveText(/Paused/);
+  await page.keyboard.press("ArrowRight");
+  expect((await focused(page)).fk).toBe("play");
+
+  // Back returns to the page, with the trailer carrying on behind it.
+  await page.keyboard.press("Escape");
+  await expect(full).toHaveCount(0);
+  await expect(page.locator(".tv-backdrop .tv-trailer.on")).toHaveCount(1);
+  expect(page.url()).toContain(`/item/${ids.movie}`);
+  expect((await focused(page)).fk).toBe("play");
+
+  // Down closes it too; Up again reopens it.
+  await page.keyboard.press("ArrowUp");
+  await expect(full).toHaveCount(1);
+  await page.keyboard.press("ArrowDown");
+  await expect(full).toHaveCount(0);
+  expect((await focused(page)).fk).toBe("play");
+
+  // Up, Up still reaches the tab bar.
+  await page.keyboard.press("ArrowUp");
+  await expect(full).toHaveCount(1);
+  await page.keyboard.press("ArrowUp");
+  await expect(full).toHaveCount(0);
+  expect((await focused(page)).fk).toMatch(/^nav-/);
+});
+
+test("Up on a title without a trailer still goes to the tab bar", async ({ page, openTv }) => {
+  await openTv(`/item/${ids.show}`);
+  await waitForFocus(page, "play");
+  await expect(page.locator(".tv-trailer-hint")).toHaveCount(0);
+  expect((await press(page, "up")).fk).toMatch(/^nav-/);
+});
+
 test("home: resting on the featured film plays its trailer in the hero", async ({ page, openTv }, info) => {
   await openTv("/");
   await waitForFocus(page, "hero-play");

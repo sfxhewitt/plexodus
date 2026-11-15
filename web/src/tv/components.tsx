@@ -1,9 +1,10 @@
 import { createContext, memo, ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { art, Card, episodeLabel } from "../api";
 import { Check, Play } from "../components/Icons";
-import { ambientPrefs, onTrailer, stopTrailer } from "./ambient";
+import { ambientPrefs, closeTrailerFull, onTrailer, onTrailerFull, stopTrailer, trailerFull } from "./ambient";
 import { CardMenuOptions, useCardMenu, useLongPress } from "./menu";
 import { onPlayBusy } from "./play";
+import { focusables, focusEl } from "./focus";
 import { TrailerVideo } from "./Trailer";
 
 // ---------- shared backdrop ----------
@@ -18,10 +19,20 @@ export const useBackdrop = (url: string | undefined, delay = 0) => {
   }, [url, set, delay]);
 };
 
+/** Leaves the full-screen trailer; Up goes on to the tab bar, as it would without a trailer. */
+function exitFull(dir?: "up") {
+  closeTrailerFull();
+  if (dir !== "up") return;
+  const tabs = focusables().filter((el) => el.closest(".tv-nav"));
+  focusEl(tabs.find((el) => el.hasAttribute("data-default")) || tabs[0], true);
+}
+
 /** Full-screen backdrop that cross-fades between images, with a trailer over the art when a page asks for one. */
 export function Backdrop({ url }: { url?: string }) {
   const [trailer, setTrailer] = useState<number>();
   useEffect(() => onTrailer(setTrailer), []);
+  const [full, setFull] = useState(trailerFull);
+  useEffect(() => onTrailerFull(setFull), []);
   // Starting playback, or the app going to the background, stops the trailer.
   useEffect(() => onPlayBusy((b) => b && stopTrailer()), []);
   useEffect(() => {
@@ -42,11 +53,12 @@ export function Backdrop({ url }: { url?: string }) {
     img.src = url;
   }, [url]);
   return (
-    <div className="tv-backdrop" aria-hidden="true">
+    <div className={`tv-backdrop ${full && trailer !== undefined ? "full" : ""}`} aria-hidden="true">
       {layers.map((l) => (
         <div key={l.key} className={`tv-backdrop-img ${l.ready ? "on" : ""}`} style={{ backgroundImage: `url(${l.url})` }} />
       ))}
-      {trailer !== undefined && <TrailerVideo key={trailer} id={trailer} sound={ambientPrefs().trailerSound} onEnd={stopTrailer} />}
+      {trailer !== undefined && <TrailerVideo key={trailer} id={trailer} sound={ambientPrefs().trailerSound} onEnd={stopTrailer}
+        full={full} onExitFull={exitFull} />}
       <div className="tv-backdrop-shade" />
       <div className="tv-grain" />
     </div>

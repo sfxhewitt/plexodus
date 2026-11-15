@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, art, Card } from "../api";
 import { Play } from "../components/Icons";
-import { ambientPrefs, onAmbientPrefs, onStartScreensaver, stopTrailer } from "./ambient";
+import { ambientPrefs, onAmbientPrefs, onStartScreensaver, stopTrailer, trailerFull } from "./ambient";
 import { onBack, swallowSelectUntilRelease } from "./focus";
 import { onPlayBusy, playCard } from "./play";
 
@@ -34,6 +34,8 @@ export function Screensaver({ onError }: { onError: (msg: string) => void }) {
       const min = ambientPrefs().screensaver;
       if (!min || playing || activeRef.current) return;
       t = setTimeout(() => {
+        // A full-screen trailer is being watched, not idle: check again later.
+        if (trailerFull()) return arm();
         if (!document.hidden && !playing) setActive(true);
       }, min * 60000);
     };

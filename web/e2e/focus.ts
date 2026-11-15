@@ -189,6 +189,9 @@ export async function auditFocus(page: Page, opts: { limit?: number; skip?: (fk:
       if (!before) continue;
       checked++;
       await page.keyboard.press(KEY[dir]);
+      // Up at the top of a title's page shows its trailer full screen first;
+      // a second Up goes on to the tab bar.
+      if (await page.locator(".tv-backdrop.full").count()) await page.keyboard.press(KEY[dir]);
       const after = await page.evaluate(() => {
         const el = document.activeElement as HTMLElement | null;
         return { idx: el?.dataset.e2e != null ? Number(el.dataset.e2e) : -1, tag: el?.tagName.toLowerCase() || "none", f: !!el?.hasAttribute("data-f") };
