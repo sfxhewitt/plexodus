@@ -8,6 +8,7 @@ import (
 
 // Person is one cast member on a detail page.
 type Person struct {
+	ID        int64  `json:"id,omitempty"` // TMDB person id
 	Name      string `json:"name"`
 	Character string `json:"character,omitempty"`
 	Profile   string `json:"profile,omitempty"` // TMDB image path
@@ -26,6 +27,7 @@ func (t *TMDB) Extras(ctx context.Context, kind string, id int64) (*Extras, erro
 	var m struct {
 		Credits struct {
 			Cast []struct {
+				ID          int64  `json:"id"`
 				Name        string `json:"name"`
 				Character   string `json:"character"`
 				ProfilePath string `json:"profile_path"`
@@ -46,7 +48,7 @@ func (t *TMDB) Extras(ctx context.Context, kind string, id int64) (*Extras, erro
 		if len(e.Cast) == 15 {
 			break
 		}
-		e.Cast = append(e.Cast, Person{c.Name, c.Character, c.ProfilePath})
+		e.Cast = append(e.Cast, Person{c.ID, c.Name, c.Character, c.ProfilePath})
 	}
 	for _, r := range m.Recommendations.Results {
 		e.Recommendations = append(e.Recommendations, r.ID)

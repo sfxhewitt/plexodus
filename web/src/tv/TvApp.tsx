@@ -21,6 +21,7 @@ import WrappedPage from "./pages/Wrapped";
 import WatchlistPage from "./pages/Watchlist";
 import CollectionsPage from "./pages/Collections";
 import CollectionPage from "./pages/Collection";
+import PersonPage from "./pages/Person";
 import { MenuProvider, useLibraryMenu, useLongPress } from "./menu";
 import { TvWhoIsWatching } from "./profiles";
 import { colorOf, forgetPicked, goHome, initialOf, loadProfiles, markPicked, shouldPick } from "../profiles";
@@ -259,6 +260,7 @@ function Shell() {
               <Route path="/watchlist" element={<WatchlistPage />} />
               <Route path="/collection" element={<CollectionsPage />} />
               <Route path="/collection/:id" element={<CollectionPage />} />
+              <Route path="/person/:id" element={<PersonPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/wrapped" element={<WrappedPage />} />
               <Route path="/play/:id" element={<PlayRoute />} />

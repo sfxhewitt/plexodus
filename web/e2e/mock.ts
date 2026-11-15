@@ -394,8 +394,24 @@ addEventListener("message", function (e) {
     // Only one film has cast and "more like this", so other pages keep nothing below the fold.
     if ((mm = p.match(/^\/api\/items\/(\d+)\/extras$/))) {
       return json(route, Number(mm[1]) === ids.extras
-        ? { cast: [{ name: "Ada Reyes", character: "Mara", profile: "/p/ada.jpg" }, { name: "Tom Okafor", character: "The Pilot" }], similar: movies.slice(21, 27) }
+        ? { cast: [{ id: 501, name: "Ada Reyes", character: "Mara", profile: "/p/ada.jpg" }, { id: 502, name: "Tom Okafor", character: "The Pilot" }], similar: movies.slice(21, 27) }
         : { cast: [], similar: [] });
+    }
+    // Ada is in three of your titles and two you don't have; Tom in nothing of yours.
+    if ((mm = p.match(/^\/api\/people\/(\d+)$/))) {
+      const ada = Number(mm[1]) === 501;
+      return json(route, {
+        person: ada
+          ? { id: 501, name: "Ada Reyes", knownFor: "Acting", birthday: "1984-03-02", birthplace: "Lisbon, Portugal", profile: "/p/ada.jpg",
+            biography: "Ada Reyes is an actor known for quiet, precise performances in thrillers and science fiction." }
+          : { id: 502, name: "Tom Okafor", knownFor: "Acting" },
+        inLibrary: ada ? [movies[20], movies[3], shows[1]] : [],
+        roles: ada ? { [movies[20].id]: "Mara", [shows[1].id]: "Detective Lane" } : {},
+        elsewhere: [
+          { tmdbId: 9001, kind: "movie", title: "Glass Harbour", year: 2011, character: ada ? "June" : "Guard", poster: "/p/glass.jpg" },
+          { tmdbId: 9002, kind: "show", title: "Night Desk", year: 2019, character: "Herself" },
+        ],
+      });
     }
     if ((mm = p.match(/^\/api\/items\/(\d+)\/trailer$/))) return json(route, { youtube: Number(mm[1]) === ids.movie ? "fakeTrailer" : "" });
     if ((mm = p.match(/^\/api\/play\/(\d+)$/))) {

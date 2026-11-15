@@ -4,6 +4,7 @@ import { api, art, Card, Detail, episodeLabel, fmtRuntime, fmtSize, fmtTime, res
 import { Img, PosterCard, Row } from "../components/Cards";
 import { Check, Eye, Play, Refresh, Search, Share, Wand, X } from "../components/Icons";
 import { useApi, useDebounced, useUser } from "../hooks";
+import { initials } from "../people";
 
 function MatchModal({ item, onClose, onDone }: { item: Detail; onClose: () => void; onDone: () => void }) {
   const [q, setQ] = useState(item.title);
@@ -113,6 +114,9 @@ export default function Item() {
   const nav = useNavigate();
   const { user } = useUser();
   const { data: d, error, reload } = useApi<Detail>(`/api/items/${id}`);
+  const isTitle = d?.kind === "movie" || d?.kind === "show";
+  const { data: extras } = useApi<{ cast: { id?: number; name: string; character?: string; profile?: string }[]; similar: Card[] }>(
+    isTitle && String(d?.id) === id ? `/api/items/${id}/extras` : null);
   const [matching, setMatching] = useState(false);
   const { data: shareData } = useApi<{ targets: ShareTarget[] }>("/api/share/targets");
   const [shareMsg, setShareMsg] = useState<string>();
@@ -233,6 +237,32 @@ export default function Item() {
             )}
             <EpisodeList eps={d.children} />
           </section>
+        )}
+        {(d.kind === "movie" || d.kind === "show") && extras && extras.cast.length > 0 && (
+          <section className="row row-cast">
+            <div className="row-head"><h2 className="row-title">Cast</h2></div>
+            <div className="row-track">
+              {extras.cast.map((p) => {
+                const body = (
+                  <>
+                    <div className="cast-photo">
+                      {p.profile ? <img src={art(p.profile, "w185")} alt="" loading="lazy" /> : <span>{initials(p.name)}</span>}
+                    </div>
+                    <div className="t">{p.name}</div>
+                    {p.character && <div className="s">{p.character}</div>}
+                  </>
+                );
+                return p.id ? (
+                  <Link key={p.name + p.character} to={`/person/${p.id}`} className="cast-card">{body}</Link>
+                ) : (
+                  <div key={p.name + p.character} className="cast-card">{body}</div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+        {(d.kind === "movie" || d.kind === "show") && extras && extras.similar.length > 0 && (
+          <Row title="More like this" kind="poster" items={extras.similar} />
         )}
         {d.kind === "episode" && d.siblings && d.siblings.length > 1 && (
           <Row title={d.parent?.title || "More episodes"} link={`/item/${d.parentId}`} kind="landscape"
