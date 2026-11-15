@@ -261,14 +261,38 @@ if printf '%s' "$STATUS" | grep -q '"setupRequired":true'; then
   done
 else
   say "Plexodus already has an admin account. Sign in with it to continue."
+  say "${DIM}Forgotten it? Press Enter at the password and setup will help you set a new one.${N}"
   tries=0
   while :; do
     ask USERNAME "Username" "$DEFUSER"
     ask_secret PASS "Password"
+    if [ -n "$PASS" ]; then
+      res="$(api POST /api/login "{\"username\":$(json_str "$USERNAME"),\"password\":$(json_str "$PASS")}")" && break
+      warn "$(api_error "$res")"
+      tries=$((tries + 1))
+      [ $tries -lt 3 ] && continue
+    fi
+    say ""
+    say "Plexodus can give the admin account a new password. Its libraries, settings"
+    say "and watch history stay as they are."
+    confirm "Set a new admin password?" y || die "Couldn't sign in. Your server is installed and running; finish setting it up in a browser."
+    while :; do
+      ask_secret PASS "New password (nothing shows while you type)"
+      [ ${#PASS} -lt 6 ] && { warn "Please use at least 6 characters."; continue; }
+      ask_secret PASS2 "Type the new password again"
+      [ "$PASS" != "$PASS2" ] && { warn "Those didn't match. Let's try again."; continue; }
+      break
+    done
+    if [ "$MODE" = system ]; then
+      out="$(printf '%s\n' "$PASS" | $SUDO /usr/local/bin/plexodus reset-password -data /var/lib/plexodus 2>&1)"
+    else
+      out="$(printf '%s\n' "$PASS" | "$DIR/plexodus" reset-password -data "$DATA" 2>&1)"
+    fi
+    [ $? -eq 0 ] || die "Couldn't set a new password: $out"
+    USERNAME="$(printf '%s' "$out" | sed -n 's/^Password changed for "\(.*\)"\.$/\1/p')"
+    ok "New password set for the admin account '$USERNAME'."
     res="$(api POST /api/login "{\"username\":$(json_str "$USERNAME"),\"password\":$(json_str "$PASS")}")" && break
-    warn "$(api_error "$res")"
-    tries=$((tries + 1))
-    [ $tries -ge 3 ] && die "Couldn't sign in. Your server is installed and running; finish setting it up in a browser."
+    die "Still couldn't sign in: $(api_error "$res")"
   done
   if ! api GET /api/settings >/dev/null; then
     die "That account isn't the admin, so setup can't change settings. Sign in as the admin and run setup again."
