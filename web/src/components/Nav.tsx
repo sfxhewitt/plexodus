@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Activity, api, Library } from "../api";
 import { useApi, useUser } from "../hooks";
+import { deviceLipSync } from "../native";
 import { Film, Grid, Home, Logout, Pulse, Search, Settings, Tv } from "./Icons";
 import { ProfileAvatar } from "./Profiles";
 
@@ -131,7 +132,7 @@ export function Nav() {
           <kbd>/</kbd>
         </label>
         {user?.isAdmin && !user.isProfile && <NowWatchingLink />}
-        {user?.isAdmin && <NavLink to="/settings" className="icon-btn" aria-label="Settings"><Settings /></NavLink>}
+        {(user?.isAdmin || deviceLipSync()) && <NavLink to="/settings" className="icon-btn" aria-label="Settings"><Settings /></NavLink>}
         <div className="nav-profile">
           <button className="nav-avatar-btn" aria-label="Profile menu" title={user?.name || user?.username}
             onClick={(e) => (e.stopPropagation(), setMenu(!menu))}>

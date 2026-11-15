@@ -108,6 +108,16 @@ class PlayerActivity : Activity() {
     private var syncStart = 0
     private lateinit var syncBar: TextView
     private lateinit var calibrationText: TextView
+    /** Phones and tablets: on-screen buttons for Audio sync and calibration. */
+    private lateinit var adjustButtons: LinearLayout
+    /** A touch screen and no remote: Audio sync and calibration get buttons. */
+    private val touchScreen: Boolean by lazy {
+        val ui = getSystemService(UI_MODE_SERVICE) as android.app.UiModeManager
+        val tv = ui.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION ||
+            packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK) ||
+            packageManager.hasSystemFeature("amazon.hardware.fire_tv")
+        !tv && packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TOUCHSCREEN)
+    }
     private var kind = ""
     private var markers = listOf<Marker>()
 
@@ -241,6 +251,14 @@ class PlayerActivity : Activity() {
         if (fileId == 0L) syncButton.visibility = View.GONE
         calibrationText = findViewById(R.id.calibration)
         syncBar = findViewById(R.id.sync_bar)
+        adjustButtons = findViewById(R.id.adjust_buttons)
+        findViewById<View>(R.id.adjust_big_down).setOnClickListener { adjust(-bigStep()) }
+        findViewById<View>(R.id.adjust_down).setOnClickListener { adjust(-step()) }
+        findViewById<View>(R.id.adjust_up).setOnClickListener { adjust(step()) }
+        findViewById<View>(R.id.adjust_big_up).setOnClickListener { adjust(bigStep()) }
+        findViewById<View>(R.id.adjust_reset).setOnClickListener { adjust(if (calibrating) -deviceDelayMs else -fileDelayMs) }
+        findViewById<View>(R.id.adjust_cancel).setOnClickListener { if (calibrating) endCalibration(save = false) else closeSync(keep = false) }
+        findViewById<View>(R.id.adjust_done).setOnClickListener { if (calibrating) endCalibration(save = true) else closeSync(keep = true) }
 
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
@@ -273,6 +291,8 @@ class PlayerActivity : Activity() {
         // Tap to show or hide the controls; double-tap the sides to skip 10s.
         val gestures = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                // Phones and tablets have buttons for these; a stray tap on the film does nothing.
+                if ((syncMode || calibrating) && touchScreen) return true
                 if (syncMode) {
                     // Touch: left or right third nudges the sound, the middle keeps it.
                     val w = videoLayout.width
@@ -1250,8 +1270,46 @@ class PlayerActivity : Activity() {
     }
 
     private fun updateCalibration() {
-        calibrationText.text = getString(R.string.calibration_text, describe(deviceDelayMs))
+        val text = if (touchScreen) R.string.calibration_text_touch else R.string.calibration_text
+        calibrationText.text = getString(text, describe(deviceDelayMs))
         calibrationText.visibility = View.VISIBLE
+        if (touchScreen) showAdjustButtons(calibrationText)
+    }
+
+    private fun endCalibration(save: Boolean) {
+        if (save) Prefs.setAudioDelay(this, deviceDelayMs)
+        finished = true
+        setResult(if (save) RESULT_OK else RESULT_CANCELED)
+        finish()
+    }
+
+    private fun step() = if (calibrating) CALIBRATION_STEP_MS else SYNC_STEP_MS
+    private fun bigStep() = step() * if (calibrating) 5 else 4
+
+    /** A button on a touch screen moved the sound by this much. */
+    private fun adjust(by: Int) {
+        if (by == 0) return
+        if (calibrating) nudgeCalibration(by) else if (syncMode) nudgeSync(by)
+    }
+
+    /** Shows the touch buttons and lifts [above] clear of them. */
+    private fun showAdjustButtons(above: View) {
+        if (adjustButtons.visibility != View.VISIBLE) {
+            findViewById<Button>(R.id.adjust_big_down).text = "« ${bigStep()} ms"
+            findViewById<Button>(R.id.adjust_down).text = "‹ ${step()} ms"
+            findViewById<Button>(R.id.adjust_up).text = "${step()} ms ›"
+            findViewById<Button>(R.id.adjust_big_up).text = "${bigStep()} ms »"
+            adjustButtons.visibility = View.VISIBLE
+        }
+        adjustButtons.post {
+            val lp = above.layoutParams as android.widget.FrameLayout.LayoutParams
+            val want = adjustButtons.height + (adjustButtons.layoutParams as android.widget.FrameLayout.LayoutParams).bottomMargin +
+                (12 * resources.displayMetrics.density).toInt()
+            if (lp.bottomMargin != want) {
+                lp.bottomMargin = want
+                above.layoutParams = lp
+            }
+        }
     }
 
     /**
@@ -1273,14 +1331,17 @@ class PlayerActivity : Activity() {
     }
 
     private fun updateSyncBar() {
-        val device = if (deviceDelayMs != 0) "   ·   " + getString(R.string.audio_sync_device, deviceDelayMs) else ""
-        syncBar.text = getString(R.string.audio_sync_bar, describe(fileDelayMs)) + device
+        val device = if (deviceDelayMs == 0) "" else
+            "   ·   " + getString(if (touchScreen) R.string.audio_sync_device_touch else R.string.audio_sync_device, deviceDelayMs)
+        syncBar.text = getString(if (touchScreen) R.string.audio_sync_bar_touch else R.string.audio_sync_bar, describe(fileDelayMs)) + device
         syncBar.visibility = View.VISIBLE
+        if (touchScreen) showAdjustButtons(syncBar)
     }
 
     private fun closeSync(keep: Boolean) {
         syncMode = false
         syncBar.visibility = View.GONE
+        adjustButtons.visibility = View.GONE
         if (!keep) {
             fileDelayMs = syncStart
             applyAudioDelay()
@@ -1351,17 +1412,8 @@ class PlayerActivity : Activity() {
                 KeyEvent.KEYCODE_DPAD_RIGHT -> nudgeCalibration(CALIBRATION_STEP_MS)
                 KeyEvent.KEYCODE_DPAD_UP -> nudgeCalibration(CALIBRATION_STEP_MS * 5)
                 KeyEvent.KEYCODE_DPAD_DOWN -> nudgeCalibration(-CALIBRATION_STEP_MS * 5)
-                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                    Prefs.setAudioDelay(this, deviceDelayMs)
-                    finished = true
-                    setResult(RESULT_OK)
-                    finish()
-                }
-                KeyEvent.KEYCODE_BACK -> {
-                    finished = true
-                    setResult(RESULT_CANCELED)
-                    finish()
-                }
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> endCalibration(save = true)
+                KeyEvent.KEYCODE_BACK -> endCalibration(save = false)
                 else -> return super.onKeyDown(keyCode, event)
             }
             return true

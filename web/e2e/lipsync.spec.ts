@@ -85,3 +85,37 @@ test("older apps get no update button", async ({ page, openTv }) => {
   await waitForFocus(page);
   await expect(page.locator('[data-fk="app-update"]')).toHaveCount(0);
 });
+
+// Phones and tablets get the web UI, where Settings was admin-only: anyone in
+// the app can now reach this device's lip sync there, by touch.
+test("a tablet sets its own lip sync offset in Settings", async ({ page }) => {
+  await page.addInitScript((f) => {
+    const w = window as unknown as Record<string, unknown> & W;
+    w.__delay = 0;
+    w.PlexodusNative = {
+      isTv: () => false, version: () => "test", platform: () => "android", canEmbed: () => true,
+      changeServer() {}, features: () => f,
+      audioDelay: () => w.__delay,
+      setAudioDelay: (ms: number) => { w.__delay = ms; },
+      calibrateAudio: () => { w.__calibrated = true; },
+      play() {},
+    };
+  }, "recap,avsync");
+  // A friend's account, not the admin: the gear is there only for lip sync.
+  await page.route("**/api/me", (r) => r.fulfill({ json: {
+    id: 2, username: "friend", isAdmin: false, allLibraries: true, libraries: [], accountId: 2, isProfile: false,
+    name: "friend", avatar: "", color: "cyan", kids: false,
+  } }));
+  await page.goto("/settings?tv=0");
+  const section = page.getByTestId("device-lipsync");
+  await expect(section).toContainText("In sync");
+  await section.getByRole("button", { name: "Sound later" }).click();
+  await section.getByRole("button", { name: "Sound later" }).click();
+  await expect(section).toContainText("Sound 40 ms later");
+  expect(await page.evaluate(() => (window as unknown as W).__delay)).toBe(40);
+  await section.getByRole("button", { name: "Reset" }).click();
+  expect(await page.evaluate(() => (window as unknown as W).__delay)).toBe(0);
+  await section.getByRole("button", { name: "Calibrate" }).click();
+  expect(await page.evaluate(() => (window as unknown as W).__calibrated)).toBe(true);
+  await expect(page.locator('a[href="/settings"]')).toBeVisible();
+});

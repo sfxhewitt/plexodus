@@ -55,6 +55,9 @@ const nativeFeatures = (): string[] => {
 
 export const nativeHas = (feature: string) => nativeFeatures().includes(feature);
 
+/** Inside an Android app that can move its sound for lip sync. */
+export const deviceLipSync = () => !!native && nativeHas("avsync");
+
 export const nativePlay = (req: NativePlayRequest) => {
   // Apps from before "Skip recap" would treat a recap like closing credits
   // and jump to the next episode, so only send recaps to apps that know them.

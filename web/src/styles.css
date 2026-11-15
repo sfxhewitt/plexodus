@@ -358,6 +358,8 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
 .settings h1 { margin-bottom: 10px; }
 .settings-section { margin-top: 30px; max-width: 980px; }
 .settings-section h2 { font-size: 22px; margin-bottom: 14px; }
+.lipsync-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lipsync-row .btn { min-height: 40px; }
 .section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .section-head h2 { margin: 0; }
 .card { padding: 20px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); }
