@@ -212,7 +212,19 @@ class PlayerActivity : Activity() {
         overlay = findViewById(R.id.overlay)
         spinner = findViewById(R.id.spinner)
         errorText = findViewById(R.id.error)
-        playPause = findViewById(R.id.play_pause)
+        // TVs get Netflix/Apple TV style controls: no buttons over the picture, play/pause
+        // shown at the start of the bar, the remote on the progress line. Touch screens
+        // keep the big rewind / play / forward in the middle.
+        val barPlay = findViewById<ImageButton>(R.id.play_pause_bar)
+        if (touchScreen) {
+            playPause = findViewById(R.id.play_pause)
+        } else {
+            findViewById<View>(R.id.center_controls).visibility = View.GONE
+            findViewById<View>(R.id.back).visibility = View.GONE
+            barPlay.visibility = View.VISIBLE
+            barPlay.isFocusable = false
+            playPause = barPlay
+        }
         seek = findViewById(R.id.seek)
         timeText = findViewById(R.id.time)
         durationText = findViewById(R.id.duration)
@@ -240,8 +252,13 @@ class PlayerActivity : Activity() {
         playPause.setOnClickListener { togglePlay() }
         findViewById<View>(R.id.rewind).setOnClickListener { seekBy(-10_000) }
         findViewById<View>(R.id.forward).setOnClickListener { seekBy(10_000) }
-        audioButton.setOnClickListener { pickTrack(audio = true) }
-        subsButton.setOnClickListener { pickTrack(audio = false) }
+        audioButton.setOnClickListener { showTrackPanel(subtitles = false) }
+        subsButton.setOnClickListener { showTrackPanel(subtitles = true) }
+        for (b in listOf<View>(subsButton, audioButton, findViewById(R.id.sync), findViewById(R.id.stats_button), findViewById(R.id.aspect), skipButton)) {
+            if (b is TextView) shrinkIcons(b, 14)
+            // A small lift on focus; transform only, so it stays smooth on the Cube.
+            b.setOnFocusChangeListener { v, has -> v.animate().scaleX(if (has) 1.06f else 1f).scaleY(if (has) 1.06f else 1f).setDuration(120).start() }
+        }
         findViewById<View>(R.id.aspect).setOnClickListener { cycleAspect() }
         statsText = findViewById(R.id.stats)
         findViewById<View>(R.id.stats_button).setOnClickListener { toggleStats() }
@@ -355,13 +372,8 @@ class PlayerActivity : Activity() {
 
     private fun createPlayer() {
         val opts = arrayListOf("--network-caching=4000", "--http-reconnect", "--audio-time-stretch")
-        // libVLC's default subtitles are about 6% of the picture's height, far bigger
-        // than Netflix or Apple TV. Medium is a 25th of the height (43 px at 1080p),
-        // which reads well from the sofa without covering the film.
-        opts += "--freetype-rel-fontsize=" + SUB_SIZES[Prefs.subtitleSize(this)].second
-        if (Prefs.subtitleBox(this)) {
-            opts += listOf("--freetype-background-opacity=150", "--freetype-background-color=0", "--freetype-outline-thickness=0")
-        }
+        // Subtitle look (size, font, edge, box, position): see SubtitleStyle.
+        opts += SubtitleStyle.load(this).vlcOptions(resources.displayMetrics.heightPixels)
         if (hdmiSurround) opts += "--aout=audiotrack"
         opts += if (passthrough) "--spdif" else "--no-spdif"
         libVlc = LibVLC(this, opts)
@@ -562,6 +574,7 @@ class PlayerActivity : Activity() {
         overlay.visibility = if (visible) View.VISIBLE else View.GONE
         ui.removeCallbacks(hideControls)
         if (visible) {
+            if (currentFocus?.isShown != true) focusHome()
             scheduleHide()
         } else {
             hideSystemBars()
@@ -618,106 +631,334 @@ class PlayerActivity : Activity() {
     private fun updateTrackButtons() {
         audioButton.visibility = if (player.audioTracksCount > 1) View.VISIBLE else View.GONE
         subsButton.visibility = if (player.spuTracksCount > 0) View.VISIBLE else View.GONE
+        // Down from the progress line lands on the first chip, not wherever the thumb is.
+        seek.nextFocusDownId = listOf(subsButton, audioButton, syncButton).firstOrNull { it.visibility == View.VISIBLE }?.id ?: View.NO_ID
     }
+
+    /** Sets a text button's icons to [sizeDp], so the chips stay small. */
+    private fun shrinkIcons(b: TextView, sizeDp: Int) {
+        val px = (sizeDp * resources.displayMetrics.density).toInt()
+        val d = b.compoundDrawablesRelative
+        d.forEach { it?.setBounds(0, 0, px, px) }
+        b.setCompoundDrawablesRelative(d[0], d[1], d[2], d[3])
+    }
+
+    /** Where the remote starts when the controls come up: the progress line on TVs. */
+    private fun focusHome() {
+        if (touchScreen) playPause.requestFocus() else seek.requestFocus()
+    }
+
+    // ---- Audio & Subtitles panel ----
+
+    private var panel: Dialog? = null
 
     /**
-     * Audio and subtitle choice as a small panel at the side, like the big
-     * streaming apps, instead of a full system dialog over the picture.
+     * One panel for Audio and Subtitles side by side, like Netflix and Apple TV:
+     * one Down while watching opens it, Left/Right moves between the lists, OK picks.
+     * "Subtitle style" inside it opens the look settings in the same panel.
      */
-    private fun pickTrack(audio: Boolean) {
-        val tracks = (if (audio) player.audioTracks else player.spuTracks) ?: return
-        val current = if (audio) player.audioTrack else player.spuTrack
+    private fun showTrackPanel(subtitles: Boolean) {
+        if (panel?.isShowing == true) return
         ui.removeCallbacks(hideControls)
-        val dp = resources.displayMetrics.density
         val dialog = Dialog(this)
-        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundResource(R.drawable.bg_track_panel)
-            val p = (14 * dp).toInt()
-            setPadding(p, p, p, p)
-            addView(TextView(context).apply {
-                text = getString(if (audio) R.string.audio else R.string.subtitles)
-                isAllCaps = true
-                letterSpacing = 0.12f
-                textSize = 11f
-                setTextColor(getColor(R.color.muted))
-                setPadding((10 * dp).toInt(), 0, 0, (8 * dp).toInt())
-            })
-            addView(ScrollView(context).apply { isVerticalScrollBarEnabled = false; addView(list) })
-        }
-        var focus: View? = null
-        for (t in tracks) {
-            val on = t.id == current
-            val row = TextView(this).apply {
-                text = (if (on) "✓  " else "     ") + t.name
-                textSize = 14f
-                maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.END
-                isFocusable = true
-                isClickable = true
-                minHeight = (36 * dp).toInt()
-                gravity = android.view.Gravity.CENTER_VERTICAL
-                setPadding((10 * dp).toInt(), 0, (14 * dp).toInt(), 0)
-                setBackgroundResource(R.drawable.bg_track_row)
-                val fg = getColor(R.color.text)
-                val dark = getColor(R.color.bg)
-                setTextColor(fg)
-                setOnFocusChangeListener { v, has -> (v as TextView).setTextColor(if (has) dark else fg) }
-                setOnClickListener {
-                    if (audio) player.setAudioTrack(t.id) else player.setSpuTrack(t.id)
-                    rememberTrack(audio, t.name)
-                    dialog.dismiss()
-                }
-            }
-            list.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-            if (on || focus == null) focus = row
-        }
-        if (!audio) {
-            list.addView(View(this).apply { setBackgroundColor(getColor(R.color.muted)); alpha = 0.3f },
-                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply { setMargins(0, (8 * dp).toInt(), 0, (8 * dp).toInt()) })
-            val size = Prefs.subtitleSize(this)
-            list.addView(trackRow(getString(R.string.sub_size, getString(SUB_SIZES[size].first)), dp) {
-                Prefs.setSubtitleSize(this, (size + 1) % SUB_SIZES.size)
-                dialog.dismiss()
-                restartPlayer()
-            })
-            val box = Prefs.subtitleBox(this)
-            list.addView(trackRow(getString(if (box) R.string.sub_box_on else R.string.sub_box_off), dp) {
-                Prefs.setSubtitleBox(this, !box)
-                dialog.dismiss()
-                restartPlayer()
-            })
-        }
+        panel = dialog
+        val frame = android.widget.FrameLayout(this)
         dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
-        dialog.setContentView(panel)
+        dialog.setContentView(frame)
         dialog.window?.apply {
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
-            setGravity(android.view.Gravity.END or android.view.Gravity.BOTTOM)
-            setLayout((300 * dp).toInt(), android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
-            attributes = attributes.also { it.x = (28 * dp).toInt(); it.y = (72 * dp).toInt(); it.dimAmount = 0f }
+            setGravity(android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL)
+            setLayout(android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+            attributes = attributes.also { it.x = dp(28); it.dimAmount = 0f }
             clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            setWindowAnimations(android.R.style.Animation_Translucent)
         }
-        dialog.setOnDismissListener { scheduleHide() }
+        dialog.setOnDismissListener {
+            panel = null
+            scheduleHide()
+        }
+        showTracksPage(dialog, frame, subtitles)
         dialog.show()
-        focus?.requestFocus()
     }
 
-    private fun trackRow(label: String, dp: Float, onPick: () -> Unit) = TextView(this).apply {
-        text = "     $label"
-        textSize = 14f
-        maxLines = 1
-        isFocusable = true
-        isClickable = true
-        minHeight = (36 * dp).toInt()
-        gravity = android.view.Gravity.CENTER_VERTICAL
-        setPadding((10 * dp).toInt(), 0, (14 * dp).toInt(), 0)
-        setBackgroundResource(R.drawable.bg_track_row)
-        val fg = getColor(R.color.muted)
-        val dark = getColor(R.color.bg)
-        setTextColor(fg)
-        setOnFocusChangeListener { v, has -> (v as TextView).setTextColor(if (has) dark else fg) }
-        setOnClickListener { onPick() }
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    private fun showTracksPage(dialog: Dialog, frame: android.widget.FrameLayout, focusSubs: Boolean) {
+        frame.removeAllViews()
+        val audioTracks = player.audioTracks ?: emptyArray()
+        val spuTracks = player.spuTracks ?: emptyArray()
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundResource(R.drawable.bg_glass_panel)
+            setPadding(dp(14), dp(18), dp(14), dp(14))
+        }
+        var focus: View? = null
+        fun column(title: String, build: (LinearLayout) -> Unit): View {
+            val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            build(list)
+            return LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(header(title))
+                addView(ScrollView(context).apply {
+                    isVerticalScrollBarEnabled = false
+                    isFillViewport = false
+                    addView(list)
+                }, LinearLayout.LayoutParams(dp(230), LinearLayout.LayoutParams.WRAP_CONTENT))
+            }
+        }
+        if (audioTracks.size > 1 || spuTracks.isEmpty()) {
+            row.addView(column(getString(R.string.audio)) { list ->
+                val current = player.audioTrack
+                for (t in audioTracks) {
+                    if (t.id == -1) continue
+                    val r = choiceRow(t.name, t.id == current) {
+                        player.setAudioTrack(t.id)
+                        rememberTrack(true, t.name)
+                        dialog.dismiss()
+                    }
+                    list.addView(r)
+                    if (!focusSubs && (t.id == current || focus == null)) focus = r
+                }
+                if (syncButton.visibility == View.VISIBLE) {
+                    list.addView(divider())
+                    list.addView(linkRow(getString(R.string.audio_sync), "") {
+                        dialog.dismiss()
+                        showAudioSync()
+                    })
+                }
+            })
+        }
+        if (spuTracks.isNotEmpty()) {
+            if (row.childCount > 0) row.addView(View(this), LinearLayout.LayoutParams(dp(14), 1))
+            row.addView(column(getString(R.string.subtitles)) { list ->
+                val current = player.spuTrack
+                for (t in spuTracks) {
+                    val name = if (t.id == -1) getString(R.string.subs_off) else t.name
+                    val r = choiceRow(name, t.id == current) {
+                        player.setSpuTrack(t.id)
+                        rememberTrack(false, t.name)
+                        dialog.dismiss()
+                    }
+                    list.addView(r)
+                    if ((focusSubs || focus == null) && t.id == current) focus = r
+                }
+                list.addView(divider())
+                val style = SubtitleStyle.load(this)
+                val preset = style.preset()
+                list.addView(linkRow(getString(R.string.sub_style), if (preset >= 0) SubtitleStyle.PRESETS[preset].first else getString(R.string.sub_custom)) {
+                    showStylePage(dialog, frame)
+                })
+            })
+        }
+        frame.addView(row)
+        (focus ?: firstFocusable(row))?.requestFocus()
+    }
+
+    /** Subtitle look: a live preview at the real size, then one row per setting (Left/Right changes it). */
+    private fun showStylePage(dialog: Dialog, frame: android.widget.FrameLayout) {
+        frame.removeAllViews()
+        val before = SubtitleStyle.load(this)
+        var style = before
+        val screenDp = resources.displayMetrics.heightPixels / resources.displayMetrics.density
+        val sample = TextView(this).apply {
+            text = getString(R.string.sub_sample)
+            gravity = android.view.Gravity.CENTER
+            setPadding(dp(8), dp(2), dp(8), dp(3))
+        }
+        val stage = android.widget.FrameLayout(this).apply {
+            background = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                intArrayOf(0xFF3A4A5E.toInt(), 0xFF8A7560.toInt(), 0xFFD9C7A8.toInt()),
+            ).apply { cornerRadius = dp(12).toFloat() }
+            addView(sample, android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.Gravity.CENTER_HORIZONTAL or android.view.Gravity.BOTTOM,
+            ).apply { bottomMargin = dp(12) })
+        }
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val page = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.bg_glass_panel)
+            setPadding(dp(14), dp(18), dp(14), dp(14))
+            addView(header(getString(R.string.sub_style)))
+            addView(stage, LinearLayout.LayoutParams(dp(380), dp(110)).apply { bottomMargin = dp(10) })
+            addView(ScrollView(context).apply { isVerticalScrollBarEnabled = false; addView(list) },
+                LinearLayout.LayoutParams(dp(380), LinearLayout.LayoutParams.WRAP_CONTENT))
+        }
+        val settings = ArrayList<Pair<TextView, () -> String>>()
+        fun refresh() {
+            style.preview(sample, screenDp)
+            settings.forEach { (v, value) -> v.text = value() }
+        }
+        fun setting(label: String, value: () -> String, change: (Int) -> Unit): View {
+            val valueView = TextView(this).apply {
+                textSize = 12f
+                setTextColor(getColorStateList(R.color.control_fg))
+                gravity = android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
+                isDuplicateParentStateEnabled = true
+            }
+            settings += valueView to { "‹  " + value() + "  ›" }
+            val labelView = TextView(this).apply {
+                text = label
+                textSize = 12f
+                setTextColor(getColorStateList(R.color.control_fg))
+                isDuplicateParentStateEnabled = true
+            }
+            return LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                isFocusable = true
+                isClickable = true
+                minimumHeight = dp(32)
+                setPadding(dp(12), 0, dp(12), 0)
+                setBackgroundResource(R.drawable.bg_track_row)
+                addView(labelView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                addView(valueView)
+                setOnClickListener { change(1); refresh() }
+                setOnKeyListener { _, code, ev ->
+                    if (ev.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
+                    when (code) {
+                        KeyEvent.KEYCODE_DPAD_LEFT -> { change(-1); refresh(); true }
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> { change(1); refresh(); true }
+                        else -> false
+                    }
+                }
+                list.addView(this, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            }
+        }
+        fun cycle(i: Int, by: Int, n: Int) = ((i + by) % n + n) % n
+        val first = setting(getString(R.string.sub_preset), {
+            val p = style.preset()
+            if (p >= 0) SubtitleStyle.PRESETS[p].first else getString(R.string.sub_custom)
+        }) { by ->
+            val p = style.preset()
+            val next = if (p < 0) (if (by > 0) 0 else SubtitleStyle.PRESETS.size - 1) else cycle(p, by, SubtitleStyle.PRESETS.size)
+            style = SubtitleStyle.PRESETS[next].second
+        }
+        setting(getString(R.string.sub_size_label), { SubtitleStyle.SIZES[style.size].first }) { by ->
+            style = style.copy(size = (style.size + by).coerceIn(SubtitleStyle.SIZES.indices))
+        }
+        setting(getString(R.string.sub_font), { SubtitleStyle.FONTS[style.font].first }) { by ->
+            style = style.copy(font = cycle(style.font, by, SubtitleStyle.FONTS.size))
+        }
+        setting(getString(R.string.sub_weight), { getString(if (style.bold) R.string.sub_bold else R.string.sub_regular) }) {
+            style = style.copy(bold = !style.bold)
+        }
+        setting(getString(R.string.sub_colour), { SubtitleStyle.COLOURS[style.colour].first }) { by ->
+            style = style.copy(colour = cycle(style.colour, by, SubtitleStyle.COLOURS.size))
+        }
+        setting(getString(R.string.sub_edge), { SubtitleStyle.EDGES[style.edge] }) { by ->
+            style = style.copy(edge = cycle(style.edge, by, SubtitleStyle.EDGES.size))
+        }
+        setting(getString(R.string.sub_background), { SubtitleStyle.BACKGROUNDS[style.background].first }) { by ->
+            style = style.copy(background = cycle(style.background, by, SubtitleStyle.BACKGROUNDS.size))
+        }
+        setting(getString(R.string.sub_position), { SubtitleStyle.POSITIONS[style.position].first }) { by ->
+            style = style.copy(position = (style.position + by).coerceIn(SubtitleStyle.POSITIONS.indices))
+        }
+        list.addView(divider())
+        val done = linkRow(getString(R.string.sub_apply), "") { dialog.dismiss() }
+        list.addView(done)
+        list.addView(linkRow(getString(R.string.sub_reset), "") {
+            style = SubtitleStyle.DEFAULT
+            refresh()
+        })
+        refresh()
+        frame.addView(page)
+        first.requestFocus()
+        // Leaving (Done or Back) keeps the new look; libVLC needs a restart to use it.
+        dialog.setOnDismissListener {
+            panel = null
+            if (style != before) {
+                SubtitleStyle.save(this, style)
+                restartPlayer()
+            }
+            scheduleHide()
+        }
+    }
+
+    private fun header(title: String) = TextView(this).apply {
+        text = title
+        isAllCaps = true
+        letterSpacing = 0.16f
+        textSize = 10f
+        typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+        setTextColor(getColor(R.color.muted))
+        setPadding(dp(12), 0, 0, dp(10))
+    }
+
+    private fun divider() = View(this).apply {
+        setBackgroundColor(0x1AFFFFFF)
+        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply { setMargins(dp(12), dp(8), dp(12), dp(8)) }
+    }
+
+    /** A track to pick: a red dot marks the one playing. */
+    private fun choiceRow(label: String, on: Boolean, onPick: () -> Unit): View {
+        val text = TextView(this).apply {
+            this.text = label
+            textSize = 13f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setTextColor(getColorStateList(R.color.control_fg))
+            isDuplicateParentStateEnabled = true
+            if (on) typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+        }
+        val mark = View(this).apply {
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(getColor(R.color.red))
+            }
+            visibility = if (on) View.VISIBLE else View.INVISIBLE
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            isFocusable = true
+            isClickable = true
+            minimumHeight = dp(34)
+            setPadding(dp(12), 0, dp(12), 0)
+            setBackgroundResource(R.drawable.bg_track_row)
+            addView(mark, LinearLayout.LayoutParams(dp(6), dp(6)).apply { marginEnd = dp(10) })
+            addView(text, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            setOnClickListener { onPick() }
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+    }
+
+    /** A row that leads somewhere (Subtitle style ›, Audio sync ›). */
+    private fun linkRow(label: String, value: String, onPick: () -> Unit): View {
+        val l = TextView(this).apply {
+            text = label
+            textSize = 12f
+            setTextColor(getColorStateList(R.color.control_fg))
+            isDuplicateParentStateEnabled = true
+        }
+        val v = TextView(this).apply {
+            text = if (value.isEmpty()) "›" else "$value  ›"
+            textSize = 12f
+            alpha = 0.7f
+            setTextColor(getColorStateList(R.color.control_fg))
+            isDuplicateParentStateEnabled = true
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            isFocusable = true
+            isClickable = true
+            minimumHeight = dp(32)
+            setPadding(dp(28), 0, dp(12), 0)
+            setBackgroundResource(R.drawable.bg_track_row)
+            addView(l, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(v)
+            setOnClickListener { onPick() }
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+    }
+
+    private fun firstFocusable(v: View): View? {
+        if (v.isFocusable) return v
+        if (v is android.view.ViewGroup) for (i in 0 until v.childCount) firstFocusable(v.getChildAt(i))?.let { return it }
+        return null
     }
 
     // ---- scrub previews ----
@@ -1163,7 +1404,7 @@ class PlayerActivity : Activity() {
         upNextDismissed = true
         hideUpNext()
         setControls(true)
-        playPause.requestFocus()
+        focusHome()
     }
 
     private fun onEnd() {
@@ -1455,17 +1696,33 @@ class PlayerActivity : Activity() {
                     commitSeek()
                     return true
                 }
+                if (controlsVisible && currentFocus == seek && (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER)) {
+                    // OK on the progress line plays or pauses, like Apple TV.
+                    togglePlay()
+                    return true
+                }
                 if (scrubMs >= 0) commitSeek()
                 if (controlsVisible) return super.onKeyDown(keyCode, event)
                 val ok = keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER
                 if (ok && skipButton.visibility == View.VISIBLE) {
                     // "Skip intro" / "Skip recap" is on screen: OK presses it, like Plex.
                     skipMarker()
+                } else if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && (subsButton.visibility == View.VISIBLE || audioButton.visibility == View.VISIBLE)) {
+                    // One Down while watching: the Audio & Subtitles panel, nothing in between.
+                    showTrackPanel(subtitles = subsButton.visibility == View.VISIBLE)
                 } else {
                     setControls(true)
-                    // Down is the quick menu: straight to Audio, Subtitles and Sync.
-                    val quick = listOf(subsButton, audioButton, syncButton).firstOrNull { it.visibility == View.VISIBLE }
-                    if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && quick != null) quick.requestFocus() else playPause.requestFocus()
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) syncButton.takeIf { it.visibility == View.VISIBLE }?.requestFocus() ?: focusHome()
+                    else focusHome()
+                }
+            }
+            // The remote's Menu (≡) or a captions button: the panel, from anywhere.
+            KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_CAPTIONS -> {
+                if (subsButton.visibility == View.VISIBLE || audioButton.visibility == View.VISIBLE) {
+                    showTrackPanel(subtitles = keyCode == KeyEvent.KEYCODE_CAPTIONS || subsButton.visibility == View.VISIBLE)
+                } else {
+                    setControls(true)
+                    focusHome()
                 }
             }
             KeyEvent.KEYCODE_BACK -> when {
@@ -1618,8 +1875,6 @@ class PlayerActivity : Activity() {
         private val PASSTHROUGH_CLOSES_CLEANLY = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
 
         const val EXTRA_RESULT = "result"
-        /** Subtitle sizes: label and libVLC's --freetype-rel-fontsize (a 1/N of the picture's height). */
-        private val SUB_SIZES = listOf(R.string.sub_small to 30, R.string.sub_medium to 25, R.string.sub_large to 20)
         private const val SYNC_STEP_MS = 25
         private const val CALIBRATION_STEP_MS = 10
         private const val EXTRA_FILE_ID = "fileId"
