@@ -56,7 +56,7 @@ data class SubtitleStyle(
         opts += if (box > 0) listOf("--freetype-background-opacity=$box", "--freetype-background-color=0")
         else listOf("--freetype-background-opacity=0")
         val margin = (screenHeightPx * POSITIONS[position.coerceIn(POSITIONS.indices)].second).toInt()
-        if (margin > 0) opts += "--sub-margin=$margin"
+        if (margin != 0) opts += "--sub-margin=$margin"
         return opts
     }
 
@@ -101,8 +101,13 @@ data class SubtitleStyle(
         val EDGES = listOf("None", "Drop shadow", "Outline", "Outline + shadow")
         /** Label and the box's opacity (0–255). */
         val BACKGROUNDS = listOf("None" to 0, "Soft box" to 120, "Solid box" to 215)
-        /** Label and the share of the screen height the subtitles are lifted by. */
-        val POSITIONS = listOf("Bottom" to 0f, "Raised" to 0.05f, "High" to 0.1f)
+        /**
+         * Label and the share of the screen height the subtitles are moved up by
+         * (--sub-margin). libVLC already leaves 4% of the picture below them, so
+         * "Very bottom" pulls them down into that gap: libVLC stops them at the
+         * picture's edge, leaving just the outline's few pixels.
+         */
+        val POSITIONS = listOf("Very bottom" to -0.036f, "Bottom" to 0f, "Raised" to 0.05f, "High" to 0.1f)
 
         val DEFAULT = SubtitleStyle()
 
