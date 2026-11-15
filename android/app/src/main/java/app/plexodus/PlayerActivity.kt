@@ -94,6 +94,8 @@ class PlayerActivity : Activity() {
     private var cookie = ""
     private var itemId = 0L
     private var fileId = 0L
+    /** People whose Plex Watchlist Share can add to (id, name); only for admins. */
+    @Volatile private var shareTargets: List<Pair<String, String>> = emptyList()
 
     // ---- lip sync ----
     /** This device's offset (TV/soundbar delay), from TV Settings. */
@@ -207,6 +209,7 @@ class PlayerActivity : Activity() {
         val startMs = intent.getLongExtra(EXTRA_START_MS, 0)
         lengthMs = intent.getLongExtra(EXTRA_DURATION_MS, 0)
         markers = parseMarkers(intent.getStringExtra(EXTRA_MARKERS))
+        loadShareTargets()
 
         videoLayout = findViewById(R.id.video)
         overlay = findViewById(R.id.overlay)
@@ -750,8 +753,62 @@ class PlayerActivity : Activity() {
                 })
             })
         }
+        if (canShare()) {
+            if (row.childCount > 0) row.addView(View(this), LinearLayout.LayoutParams(dp(14), 1))
+            row.addView(column(getString(R.string.share)) { list ->
+                for ((id, name) in shareTargets) {
+                    list.addView(linkRow(getString(R.string.share_to_watchlist, name), "") {
+                        dialog.dismiss()
+                        shareTo(id, name)
+                    })
+                }
+            })
+        }
         frame.addView(row)
         (focus ?: firstFocusable(row))?.requestFocus()
+    }
+
+    // ---- Share to someone's Plex Watchlist ----
+
+    private fun canShare() = shareTargets.isNotEmpty() && (fileId > 0 || itemId > 0)
+
+    private fun panelHasContent() =
+        subsButton.visibility == View.VISIBLE || audioButton.visibility == View.VISIBLE || canShare()
+
+    /** Who Share can send to; the server only lists people for admins. */
+    private fun loadShareTargets() {
+        if (server.isEmpty() || calibrating) return
+        io.execute {
+            val list = try {
+                getJson("/api/share/targets")?.optJSONArray("targets")?.let { arr ->
+                    (0 until arr.length()).map { arr.getJSONObject(it) }.map { it.optString("id") to it.optString("name") }
+                } ?: emptyList()
+            } catch (_: Exception) {
+                emptyList()
+            }
+            ui.post { shareTargets = list }
+        }
+    }
+
+    /** Puts the film, or the show this episode is from, on their Plex Watchlist. */
+    private fun shareTo(id: String, name: String) {
+        val body = JSONObject().put("target", id)
+        if (fileId > 0) body.put("fileId", fileId) else body.put("itemId", itemId)
+        Toast.makeText(this, getString(R.string.share_sending, name), Toast.LENGTH_SHORT).show()
+        io.execute {
+            val msg = try {
+                val r = Http.request("$server/api/share/watchlist", "POST", body.toString(), mapOf("Cookie" to cookie), timeoutMs = 20_000)
+                val j = try { JSONObject(r.body) } catch (_: Exception) { JSONObject() }
+                when {
+                    r.code != 200 -> j.optString("error").ifEmpty { "HTTP ${r.code}" }
+                    j.optBoolean("already") -> getString(R.string.share_already, j.optString("title"), name)
+                    else -> getString(R.string.share_done, j.optString("title"), name)
+                }
+            } catch (e: Exception) {
+                getString(R.string.share_failed, e.message ?: e.toString())
+            }
+            ui.post { if (!isFinishing) Toast.makeText(this, msg, Toast.LENGTH_LONG).show() }
+        }
     }
 
     /** Subtitle look: a live preview at the real size, then one row per setting (Left/Right changes it). */
@@ -1707,7 +1764,7 @@ class PlayerActivity : Activity() {
                 if (ok && skipButton.visibility == View.VISIBLE) {
                     // "Skip intro" / "Skip recap" is on screen: OK presses it, like Plex.
                     skipMarker()
-                } else if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && (subsButton.visibility == View.VISIBLE || audioButton.visibility == View.VISIBLE)) {
+                } else if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && panelHasContent()) {
                     // One Down while watching: the Audio & Subtitles panel, nothing in between.
                     showTrackPanel(subtitles = subsButton.visibility == View.VISIBLE)
                 } else {
@@ -1718,7 +1775,7 @@ class PlayerActivity : Activity() {
             }
             // The remote's Menu (≡) or a captions button: the panel, from anywhere.
             KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_CAPTIONS -> {
-                if (subsButton.visibility == View.VISIBLE || audioButton.visibility == View.VISIBLE) {
+                if (panelHasContent()) {
                     showTrackPanel(subtitles = keyCode == KeyEvent.KEYCODE_CAPTIONS || subsButton.visibility == View.VISIBLE)
                 } else {
                     setControls(true)

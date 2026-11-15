@@ -36,6 +36,12 @@
     <string name="next_episode">Next episode</string>
     <string name="audio">Audio</string>
     <string name="subtitles">Subtitles</string>
+    <string name="share">Share</string>
+    <string name="share_to_watchlist">Add to %1$s\'s Plex watchlist</string>
+    <string name="share_sending">Sending to %1$s…</string>
+    <string name="share_done">Added %1$s to %2$s\'s Plex watchlist</string>
+    <string name="share_already">%1$s is already on %2$s\'s Plex watchlist</string>
+    <string name="share_failed">Couldn\'t share: %1$s</string>
     <string name="subs_off">Off</string>
     <string name="sub_style">Subtitle style</string>
     <string name="sub_custom">Custom</string>

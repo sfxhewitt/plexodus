@@ -453,6 +453,93 @@ function PlexSignInSettings() {
   );
 }
 
+type ShareTargetT = { id: string; name: string; plexUser: string; addedAt: number };
+
+/** Link someone's Plex account so Share can put titles on their Plex Watchlist. */
+function ShareToPlex() {
+  const { data, setData } = useApi<{ targets: ShareTargetT[] }>("/api/share/targets");
+  const [name, setName] = useState("");
+  const [pin, setPin] = useState<{ id: number; code: string }>();
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    if (!pin) return;
+    let stop = false;
+    const started = Date.now();
+    const poll = async () => {
+      while (!stop && Date.now() - started < 15 * 60 * 1000) {
+        await new Promise((r) => setTimeout(r, 2500));
+        if (stop) return;
+        try {
+          const r = await api.get<{ done: boolean }>(`/api/share/link/${pin.id}`);
+          if (r.done) {
+            setPin(undefined);
+            setName("");
+            setData(await api.get("/api/share/targets"));
+            return;
+          }
+        } catch (e) {
+          setError((e as Error).message);
+          setPin(undefined);
+          return;
+        }
+      }
+      if (!stop) setPin(undefined);
+    };
+    poll();
+    return () => { stop = true; };
+  }, [pin, setData]);
+  if (!data) return null;
+  const link = async () => {
+    setError(undefined);
+    try {
+      setPin(await api.post<{ id: number; code: string }>("/api/share/link", { name: name.trim() }));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  const remove = async (t: ShareTargetT) => {
+    if (!confirm(`Stop sharing to ${t.name}'s Plex watchlist?`)) return;
+    setData(await api.del(`/api/share/targets/${t.id}`));
+  };
+  return (
+    <section className="settings-section">
+      <h2>Share to Plex</h2>
+      <div className="card form">
+        <p className="muted small" style={{ margin: 0 }}>
+          Link someone's Plex account once, and a Share button appears in the player (press Down while watching) and on every film and show.
+          It puts the film, or the whole show, on their Plex Watchlist, which they see in every Plex app. They don't need Plexodus.
+        </p>
+        {data.targets.map((t) => (
+          <div key={t.id} className="row" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ flex: 1 }}><b>{t.name}</b> <span className="muted small">Plex account {t.plexUser}</span></span>
+            <button className="btn glass sm" onClick={() => remove(t)}><Trash size={16} /> Remove</button>
+          </div>
+        ))}
+        {pin ? (
+          <div>
+            <p style={{ margin: "4px 0" }}>
+              On a phone or computer signed in to <b>their</b> Plex account, go to{" "}
+              <a href="https://plex.tv/link" target="_blank" rel="noreferrer">plex.tv/link</a> and enter:
+            </p>
+            <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: 6, margin: "6px 0" }}>{pin.code}</div>
+            <div className="muted small"><span className="spinner sm" /> Waiting for Plex… this page updates by itself.</div>
+          </div>
+        ) : (
+          <>
+            <label>Their name, as the button shows it
+              <input value={name} placeholder="Dad" onChange={(e) => setName(e.target.value)} />
+            </label>
+            <div className="form-actions">
+              <button className="btn glass" onClick={link}><Plus size={16} /> Link a Plex account</button>
+            </div>
+          </>
+        )}
+        {error && <div className="err">{error}</div>}
+      </div>
+    </section>
+  );
+}
+
 type SettingsT = {
   tmdbKeySet: boolean; tmdbKeyMasked: string; tmdbKeyFromEnv: boolean; apiKey: string;
   anthropicKeySet: boolean; anthropicKeyMasked: string; anthropicKeyFromEnv: boolean; askModel: string;
@@ -900,6 +987,7 @@ export default function Settings() {
           <PlexImport />
           <PlexSync />
           <PlexSignInSettings />
+          <ShareToPlex />
           <Metadata />
           <Updates />
           <Invites />

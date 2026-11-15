@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, art, Card, Detail, episodeLabel, fmtRuntime, fmtSize, fmtTime, resolution } from "../api";
+import { api, art, Card, Detail, episodeLabel, fmtRuntime, fmtSize, fmtTime, resolution, ShareTarget, shareToPlex } from "../api";
 import { Img, PosterCard, Row } from "../components/Cards";
-import { Check, Eye, Play, Refresh, Search, Wand, X } from "../components/Icons";
+import { Check, Eye, Play, Refresh, Search, Share, Wand, X } from "../components/Icons";
 import { useApi, useDebounced, useUser } from "../hooks";
 
 function MatchModal({ item, onClose, onDone }: { item: Detail; onClose: () => void; onDone: () => void }) {
@@ -114,9 +114,12 @@ export default function Item() {
   const { user } = useUser();
   const { data: d, error, reload } = useApi<Detail>(`/api/items/${id}`);
   const [matching, setMatching] = useState(false);
+  const { data: shareData } = useApi<{ targets: ShareTarget[] }>("/api/share/targets");
+  const [shareMsg, setShareMsg] = useState<string>();
 
   useEffect(() => {
     window.scrollTo(0, 0);
+    setShareMsg(undefined);
   }, [id]);
 
   if (error) return <div className="page-msg">{error}</div>;
@@ -185,6 +188,12 @@ export default function Item() {
             <button className="btn glass" onClick={toggleWatched}>
               {allWatched ? <><Eye size={18} /> Mark unwatched</> : <><Check size={18} /> Mark watched</>}
             </button>
+            {(shareData?.targets ?? []).map((t) => (
+              <button key={t.id} className="btn glass" title={`Add to ${t.name}'s Plex watchlist`} onClick={async () => {
+                setShareMsg(`Sending to ${t.name}…`);
+                try { setShareMsg(await shareToPlex(t, { itemId: d.id })); } catch (e) { setShareMsg((e as Error).message); }
+              }}><Share size={18} /> Share with {t.name}</button>
+            ))}
             {user?.isAdmin && (d.kind === "movie" || d.kind === "show") && (
               <>
                 <button className="icon-btn glass" title="Fix match" onClick={() => setMatching(true)}><Wand /></button>
@@ -193,6 +202,7 @@ export default function Item() {
             )}
             {d.imdbId && <a className="btn glass sm" href={`https://www.imdb.com/title/${d.imdbId}/`} target="_blank" rel="noreferrer">IMDb</a>}
           </div>
+          {shareMsg && <div className="muted small" role="status" style={{ marginTop: 8 }}>{shareMsg}</div>}
           {d.metaState === "unmatched" && user?.isAdmin && (
             <div className="hint"><Search size={14} /> No metadata match found. Use Fix match to pick the right title.</div>
           )}

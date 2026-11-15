@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, art, Card, Detail, episodeLabel, fmtRuntime, fmtTime, resolution } from "../../api";
-import { Check, Eye, Play, Plus, Refresh, Tv, X } from "../../components/Icons";
+import { api, art, Card, Detail, episodeLabel, fmtRuntime, fmtTime, resolution, ShareTarget, shareToPlex } from "../../api";
+import { Check, Eye, Play, Plus, Refresh, Share, Tv, X } from "../../components/Icons";
 import { useApi } from "../../hooks";
 import { Spinner, TvButton, TvCard, TvRow, useBackdrop } from "../components";
 import { usePageFocus, useRefresh, useToast } from "../hooks";
@@ -36,6 +36,8 @@ export default function Item() {
   const nav = useNavigate();
   const toast = useToast();
   const { data: d, error, reload } = useApi<Detail>(`/api/items/${id}`);
+  const { data: shareData } = useApi<{ targets: ShareTarget[] }>("/api/share/targets");
+  const shareTargets = shareData?.targets ?? [];
   const isTitle = d?.kind === "movie" || d?.kind === "show";
   const { data: extras } = useApi<Extras>(isTitle && String(d?.id) === id ? `/api/items/${id}/extras` : null);
   useRefresh(reload);
@@ -74,6 +76,15 @@ export default function Item() {
       api.invalidate("/api/home");
       api.invalidate("/api/libraries/");
       reload();
+    } catch (e) {
+      toast((e as Error).message);
+    }
+  };
+
+  const share = async (t: ShareTarget) => {
+    toast(`Sending to ${t.name}…`);
+    try {
+      toast(await shareToPlex(t, { itemId: d.id }));
     } catch (e) {
       toast((e as Error).message);
     }
@@ -136,6 +147,11 @@ export default function Item() {
                 {d.watchlisted ? "On your Watchlist" : "Watchlist"}
               </TvButton>
             )}
+            {shareTargets.map((t) => (
+              <TvButton key={t.id} fk={`share-${t.id}`} icon={<Share size={22} />} onClick={() => share(t)}>
+                Share with {t.name}
+              </TvButton>
+            ))}
             {(d.kind === "season" || d.kind === "episode") && showId && (
               <TvButton fk="show" icon={<Tv size={22} />} onClick={() => nav(`/item/${showId}`)}>Go to show</TvButton>
             )}

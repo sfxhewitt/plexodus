@@ -4,14 +4,16 @@ import { waitForFocus } from "./focus";
 
 export const live = !!process.env.E2E_BASE_URL;
 
-export const test = base.extend<{ unhandled: string[]; profiles: boolean; openTv: (path?: string) => Promise<void> }>({
+export const test = base.extend<{ unhandled: string[]; profiles: boolean; share: boolean; openTv: (path?: string) => Promise<void> }>({
   unhandled: async ({}, use) => {
     await use([]);
   },
   // test.use({ profiles: true }) gives the mock account profiles.
   profiles: [false, { option: true }],
-  page: async ({ page, unhandled, profiles }, use) => {
-    if (!live) await mockServer(page, { unhandled, profiles });
+  // test.use({ share: true }) links "Dad"'s Plex account, so Share buttons show.
+  share: [false, { option: true }],
+  page: async ({ page, unhandled, profiles, share }, use) => {
+    if (!live) await mockServer(page, { unhandled, profiles, share });
     await page.addInitScript(() => {
       // Same as a TV box: TV mode on. Scrolls land instantly so every check sees final positions.
       try {
