@@ -475,3 +475,12 @@ export interface AskResult {
 
 /** True when a search reads like a request rather than a title. */
 export const looksLikeQuestion = (q: string) => q.trim().split(/\s+/).length >= 3 || /\b(like|similar|haven'?t|under|from the|[0-9]0'?s)\b/i.test(q);
+
+/** Someone whose Plex Watchlist Share can add to (only admins get any). */
+export type ShareTarget = { id: string; name: string; plexUser: string };
+
+/** Puts a film, or the show an episode/season is from, on their Plex Watchlist; returns what to tell the user. */
+export async function shareToPlex(t: ShareTarget, ids: { itemId?: number; fileId?: number }): Promise<string> {
+  const r = await api.post<{ already: boolean; title: string }>("/api/share/watchlist", { target: t.id, ...ids });
+  return r.already ? `${r.title} is already on ${t.name}'s Plex watchlist` : `Added ${r.title} to ${t.name}'s Plex watchlist`;
+}

@@ -149,6 +149,7 @@ func (s *Server) Handler() http.Handler {
 	user("GET /api/collections", s.handleCollections)
 	user("GET /api/collections/{id}", s.handleCollection)
 	user("GET /api/watchlist", s.handleWatchlistAll)
+	user("GET /api/share/targets", s.handleShareTargets)
 	user("GET /api/ask", s.handleAsk)
 	user("GET /api/scan/status", s.handleScanStatus)
 	user("GET /api/items/{id}/markers", s.handleMarkers)
@@ -188,6 +189,11 @@ func (s *Server) Handler() http.Handler {
 	admin("POST /api/plex/test", s.handlePlexTest)
 	admin("POST /api/plex/import", s.handlePlexImport)
 	admin("POST /api/plex/sync", s.handlePlexSync)
+	admin("POST /api/share/watchlist", s.handleShareWatchlist)
+	admin("POST /api/share/link", s.handleShareLinkStart)
+	admin("GET /api/share/link/{id}", s.handleShareLinkCheck)
+	admin("PUT /api/share/targets/{id}", s.handleShareTargetUpdate)
+	admin("DELETE /api/share/targets/{id}", s.handleShareTargetDelete)
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not found")
