@@ -26,6 +26,13 @@ import (
 var version = "dev"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "reset-password" {
+		if err := resetPassword(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "plexodus reset-password:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	for _, a := range os.Args[1:] {
 		if a == "-version" || a == "--version" {
 			fmt.Println(version)

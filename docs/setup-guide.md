@@ -48,6 +48,8 @@ in the setup) or type your server address and sign in.
   open your Plex container → **Volumes**. Enter each pair as
   `Container=Host` in Plexodus **Settings** → **Import from Plex** → **Path
   mapping**.
+- **Forgot the admin password:** run `sudo plexodus reset-password` and type
+  a new one (or press Enter at the password in the setup and it offers this).
 - **Anything else:** run the setup line again; it restarts Plexodus and
   shows the address.
   Everything can also be changed in the web page under **Settings** (gear
