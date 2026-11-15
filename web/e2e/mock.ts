@@ -303,6 +303,12 @@ export async function mockServer(page: Page, opts: MockOptions = {}) {
       body: `<!doctype html><body style="margin:0;background:#123;color:#fff;font:40px sans-serif">fake trailer<script>
 addEventListener("message", function (e) {
   var m = JSON.parse(e.data);
+  if (m.event === "command") {
+    parent.postMessage(JSON.stringify({ event: "mockCommand", func: m.func }), "*");
+    if (m.func === "pauseVideo") parent.postMessage(JSON.stringify({ event: "onStateChange", info: 2, id: 1 }), "*");
+    if (m.func === "playVideo") parent.postMessage(JSON.stringify({ event: "onStateChange", info: 1, id: 1 }), "*");
+    return;
+  }
   if (m.event !== "listening") return;
   parent.postMessage(JSON.stringify({ event: "onReady", id: 1 }), "*");
   setTimeout(function () { parent.postMessage(JSON.stringify({ event: "onStateChange", info: 1, id: 1 }), "*"); }, 100);

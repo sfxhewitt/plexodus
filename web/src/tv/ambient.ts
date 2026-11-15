@@ -67,10 +67,47 @@ const emit = (id: number | undefined) => {
 export function requestTrailer(id: number | undefined, delay = 2500) {
   clearTimeout(timer);
   if (id !== trailerId) emit(undefined);
+  if (id === undefined) setFull(false);
   if (id === undefined || !prefs.trailers || !trailersSupported()) return;
   timer = setTimeout(() => emit(id), delay);
 }
 export const stopTrailer = () => requestTrailer(undefined);
+
+// ---------- full-screen trailer ----------
+
+// Up on a title's page blows its trailer up to full screen, with sound;
+// Back (or Down) puts it back behind the page.
+let full = false;
+const fullListeners = new Set<(on: boolean) => void>();
+function setFull(on: boolean) {
+  if (on === full) return;
+  full = on;
+  fullListeners.forEach((l) => l(on));
+}
+export const trailerFull = () => full;
+export const onTrailerFull = (l: (on: boolean) => void) => {
+  fullListeners.add(l);
+  return () => void fullListeners.delete(l);
+};
+/**
+ * Shows this title's trailer full screen now, starting it if it isn't
+ * already playing behind the page (or has finished). Works even with
+ * background trailers switched off in Settings: you asked for this one.
+ */
+export function openTrailerFull(id: number) {
+  if (!trailersSupported()) return false;
+  clearTimeout(timer);
+  if (id !== trailerId) emit(undefined);
+  emit(id);
+  setFull(true);
+  return true;
+}
+/** Back to the page; the trailer carries on behind it (if trailers are on). */
+export function closeTrailerFull() {
+  if (!full) return;
+  setFull(false);
+  if (!prefs.trailers) emit(undefined);
+}
 export const onTrailer = (l: (id: number | undefined) => void) => {
   trailerListeners.add(l);
   return () => void trailerListeners.delete(l);

@@ -532,6 +532,23 @@ html.tv [data-hscroll]::-webkit-scrollbar, html.tv [data-vscroll]::-webkit-scrol
   position: absolute; left: 0; top: 50%; width: 100vw; height: 56.25vw; border: 0;
   transform: translateY(-50%) scale(1.2);
 }
+/* Up on a title's page: the trailer full screen, over everything. */
+.tv-backdrop.full { z-index: 44; background: #000; }
+.tv-backdrop.full .tv-backdrop-shade, .tv-backdrop.full .tv-backdrop-img { opacity: 0; }
+.tv-trailer.full { opacity: 1; background: #000; }
+.tv-trailer.full iframe { transform: translateY(-50%); }
+.tv-trailer-keys {
+  position: absolute; left: 4rem; bottom: 3.2rem; padding: 0.7rem 1.3rem; border-radius: 999px;
+  background: rgba(5, 5, 10, 0.6); color: rgba(255, 255, 255, 0.85); font-size: 1.35rem; letter-spacing: 0.02em;
+  animation: tv-trailer-keys 4.5s var(--tv-ease) forwards;
+}
+.tv-trailer-keys.stay { animation: none; opacity: 1; }
+@keyframes tv-trailer-keys { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+.tv-trailer-hint {
+  display: inline-flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;
+  font-size: 1.15rem; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255, 255, 255, 0.55);
+}
+.tv-trailer-hint span { font-size: 0.9rem; }
 .tv-hero-overview { transition: opacity 0.6s var(--tv-ease); }
 .tv-hero.trailing .tv-hero-overview { opacity: 0; }
 
