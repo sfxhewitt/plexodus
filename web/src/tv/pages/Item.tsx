@@ -8,6 +8,7 @@ import { usePageFocus, useRefresh, useToast } from "../hooks";
 import { requestTrailer, stopTrailer } from "../ambient";
 import { playCard, playItem } from "../play";
 import { CollectionTile } from "../collectionTile";
+import { initials } from "../../people";
 
 function MediaChips({ d }: { d: Detail }) {
   const f = d.files[0];
@@ -214,17 +215,18 @@ export default function Item() {
         </TvRow>
       )}
       {isTitle && extras && extras.cast.length > 0 && (
-        <section className="tv-row tv-cast-row">
+        <section className="tv-row tv-cast-row" data-row data-group={`cast-${d.id}`}>
           <h2 className="tv-row-title">Cast</h2>
-          <div className="tv-cast">
-            {extras.cast.slice(0, 9).map((p) => (
-              <div key={p.name + p.character} className="tv-person">
+          <div className="tv-track tv-cast" data-hscroll>
+            {extras.cast.map((p) => (
+              <button key={p.name + p.character} className="tv-person" data-f data-fk={`p${p.id || p.name}`}
+                onClick={() => (p.id ? nav(`/person/${p.id}`) : toast(`No page for ${p.name} yet`))}>
                 <div className="tv-person-photo">
                   {p.profile ? <img src={art(p.profile, "w185")} alt="" loading="lazy" /> : <span>{initials(p.name)}</span>}
                 </div>
                 <div className="tv-person-name">{p.name}</div>
                 {p.character && <div className="tv-person-role">{p.character}</div>}
-              </div>
+              </button>
             ))}
           </div>
         </section>
@@ -242,9 +244,8 @@ export default function Item() {
   );
 }
 
-type Extras = { cast: { name: string; character?: string; profile?: string }[]; similar: Card[] };
+type Extras = { cast: { id?: number; name: string; character?: string; profile?: string }[]; similar: Card[] };
 
-const initials = (name: string) => name.split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
 function EpisodeBlurb({ c }: { c?: Card }) {
   if (!c) return null;

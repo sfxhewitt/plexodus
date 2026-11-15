@@ -64,7 +64,40 @@ test("a film's page: cast, then more like this", async ({ page, openTv }, info) 
   await expect(page.locator(".tv-person-photo").nth(1)).toHaveText("TO");
   const row = page.locator(".tv-row", { hasText: "More like this" });
   await expect(row.locator(".tv-card")).toHaveCount(6);
-  const f = await press(page, "down");
-  expect(f.fk, "Down from the buttons skips the cast into More like this").toMatch(/^c\d+$/);
+  let f = await press(page, "down");
+  expect(f.fk, "Down from the buttons lands on the cast").toBe("p501");
+  f = await press(page, "down");
+  expect(f.fk, "then More like this").toMatch(/^c\d+$/);
   await snap(page, info, "film extras");
+});
+
+test("a cast member's page: what's in your library, then the rest of their work", async ({ page, openTv }, info) => {
+  await openTv(`/item/${ids.extras}`);
+  await waitForFocus(page, "play");
+  await press(page, "down");
+  await waitForFocus(page, "p501");
+  await press(page, "Enter");
+  await expect(page).toHaveURL(/\/person\/501/);
+  await expect(page.locator(".tv-detail-title")).toHaveText("Ada Reyes");
+  await expect(page.locator(".tv-meta")).toContainText("Lisbon, Portugal");
+  await waitForFocus(page, "first");
+  await expect(page.locator('[data-fk="first"]')).toContainText("3 titles in your library");
+  const lib = page.locator(".tv-row", { hasText: "In your library" });
+  await expect(lib.locator(".tv-card")).toHaveCount(3);
+  await expect(lib.locator(".tv-card").first()).toContainText("Mara");
+  const more = page.locator(".tv-row", { hasText: "More from their career" });
+  await expect(more.locator(".tv-card")).toHaveCount(2);
+  await snap(page, info, "person page");
+  let f = await press(page, "down");
+  expect(f.fk).toBe(`c${ids.extras}`);
+  await press(page, "Enter");
+  await expect(page).toHaveURL(new RegExp(`/item/${ids.extras}$`));
+  await page.goBack();
+  await waitForFocus(page);
+  // Nothing of theirs in your libraries: say so, still list their work.
+  await openTv("/person/502");
+  await expect(page.locator(".tv-person-none")).toContainText("Nothing with Tom Okafor");
+  await expect(page.locator(".tv-row", { hasText: "Known for" }).locator(".tv-card")).toHaveCount(2);
+  f = await waitForFocus(page);
+  expect(f.fk).toMatch(/^c-/);
 });

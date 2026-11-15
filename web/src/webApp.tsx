@@ -16,6 +16,7 @@ import Search from "./pages/Search";
 import Settings from "./pages/Settings";
 import Wrapped from "./pages/Wrapped";
 import Activity from "./pages/Activity";
+import Person from "./pages/Person";
 import "./styles.css";
 
 function Shell() {
@@ -33,6 +34,7 @@ function Shell() {
           <Route path="/libraries" element={<Libraries />} />
           <Route path="/library/:id" element={<Library />} />
           <Route path="/item/:id" element={<Item />} />
+          <Route path="/person/:id" element={<Person />} />
           <Route path="/play/:id" element={<Player />} />
           <Route path="/search" element={<Search />} />
           <Route path="/settings" element={<Settings />} />
