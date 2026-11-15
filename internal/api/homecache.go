@@ -6,6 +6,9 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -17,6 +20,11 @@ import (
 // scratch: the TV just spun. Now a build always runs to completion in the
 // background and is kept, and later visits get the last good Home at once
 // while a fresh one is built behind it.
+//
+// Each good Home is also saved under <data>/home-cache, so a restart (the
+// server updates itself) doesn't leave the next visit staring at a spinner
+// while a cold build runs: it gets the saved Home at once and a fresh one is
+// built behind it.
 
 const (
 	homeFresh      = time.Minute     // served as is
@@ -57,6 +65,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	e := c.m[key]
 	if e == nil {
 		e = &homeEntry{}
+		e.body, e.at = s.loadSavedHome(key)
 		c.m[key] = e
 	}
 	stale := e.body == nil || e.dirty || time.Since(e.at) > homeFresh || e.at.YearDay() != time.Now().YearDay()
@@ -108,11 +117,57 @@ func (s *Server) buildHomeFor(key string, e *homeEntry, r *http.Request) {
 	defer c.mu.Unlock()
 	if rec.Code == http.StatusOK {
 		e.body, e.at, e.dirty = rec.Body.Bytes(), start, false
+		go s.saveHome(key, e.body)
 	} else {
 		log.Printf("home: build failed after %s: %d %s", time.Since(start).Round(time.Millisecond), rec.Code, bytes.TrimSpace(rec.Body.Bytes()))
 	}
 	close(e.building)
 	e.building = nil
+}
+
+func (s *Server) homeFile(key string) string {
+	if s.cfg == nil || s.cfg.DataDir == "" {
+		return ""
+	}
+	name := strings.NewReplacer("/", "_", ",", "-").Replace(key)
+	return filepath.Join(s.cfg.DataDir, "home-cache", name+".json")
+}
+
+// loadSavedHome returns the Home saved by an earlier run, if any. Its time is
+// when it was saved, so it is served at once and rebuilt behind the scenes.
+func (s *Server) loadSavedHome(key string) ([]byte, time.Time) {
+	f := s.homeFile(key)
+	if f == "" {
+		return nil, time.Time{}
+	}
+	st, err := os.Stat(f)
+	if err != nil {
+		return nil, time.Time{}
+	}
+	b, err := os.ReadFile(f)
+	if err != nil || len(b) == 0 {
+		return nil, time.Time{}
+	}
+	return b, st.ModTime()
+}
+
+func (s *Server) saveHome(key string, body []byte) {
+	f := s.homeFile(key)
+	if f == "" {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(f), 0o750); err != nil {
+		log.Printf("home: save: %v", err)
+		return
+	}
+	tmp := f + ".tmp"
+	if err := os.WriteFile(tmp, body, 0o640); err != nil {
+		log.Printf("home: save: %v", err)
+		return
+	}
+	if err := os.Rename(tmp, f); err != nil {
+		log.Printf("home: save: %v", err)
+	}
 }
 
 func writeHomeBody(w http.ResponseWriter, body []byte) {
