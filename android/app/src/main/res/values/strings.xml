@@ -59,6 +59,11 @@
     <string name="episode_label">S%1$d · E%2$d</string>
     <string name="audio_sync">Audio sync</string>
     <string name="audio_sync_bar">Audio sync: %1$s   ·   ◀ ▶ or ⏪ ⏩ adjust   ·   OK keep   ·   Back undo</string>
+    <string name="audio_sync_bar_touch">Audio sync: %1$s   ·   left makes the sound earlier, right later</string>
+    <string name="calibration_text_touch">Lip sync calibration for this device\nThe beep should land exactly when the bar hits the line and the screen flashes.\n\n%1$s\n◀ sound earlier · sound later ▶</string>
+    <string name="audio_sync_device_touch">This device also adds %1$+d ms (Settings)</string>
+    <string name="adjust_reset">Reset</string>
+    <string name="adjust_done">Done</string>
     <string name="audio_sync_value_zero">In sync (0 ms)</string>
     <string name="audio_sync_later">Sound %1$d ms later</string>
     <string name="audio_sync_earlier">Sound %1$d ms earlier</string>

@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { AdminUser, api, fmtSize, Invite, Library, PlexStatus, PlexSyncStatus, ScanProgress, User } from "../api";
 import { Copy, Folder, Plus, Refresh, Trash, X } from "../components/Icons";
 import { useApi, useUser } from "../hooks";
+import { deviceLipSync, native } from "../native";
 
 function ago(ts?: number | string) {
   if (!ts) return "never";
@@ -840,18 +841,71 @@ function Users() {
   );
 }
 
+const fmtSync = (ms: number) => (!ms ? "In sync" : `Sound ${Math.abs(ms)} ms ${ms > 0 ? "later" : "earlier"}`);
+
+/**
+ * This phone or tablet's lip sync offset (Bluetooth headphones and speakers
+ * add delay no file knows about). Kept in the app, added to every file's fix.
+ */
+function DeviceLipSync() {
+  const read = () => {
+    try {
+      return native?.audioDelay?.() || 0;
+    } catch {
+      return 0;
+    }
+  };
+  const [ms, setMs] = useState(read);
+  useEffect(() => {
+    const on = () => setMs(read());
+    window.addEventListener("plexodus:audio-delay", on);
+    return () => window.removeEventListener("plexodus:audio-delay", on);
+  }, []);
+  const change = (v: number) => {
+    const next = Math.max(-5000, Math.min(5000, v));
+    native?.setAudioDelay?.(next);
+    setMs(next);
+  };
+  return (
+    <section className="settings-section" data-testid="device-lipsync">
+      <h2>Lip sync on this device</h2>
+      <div className="card form">
+        <p className="muted small">
+          If voices are early or late on everything you play here (Bluetooth headphones and speakers often add delay),
+          set it once for this device. Calibrate plays a beep with a flash: tap the buttons until they land together, then Done.
+          For one bad file, tap Audio sync in the player instead.
+        </p>
+        <div className="lipsync-row">
+          <strong>{fmtSync(ms)}</strong>
+          <span className="spacer" />
+          <button className="btn glass sm" onClick={() => change(ms - 20)}>Sound earlier</button>
+          <button className="btn glass sm" onClick={() => change(ms + 20)}>Sound later</button>
+          <button className="btn glass sm" disabled={!ms} onClick={() => change(0)}>Reset</button>
+          {native?.calibrateAudio && <button className="btn primary sm" onClick={() => native?.calibrateAudio?.()}>Calibrate</button>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function Settings() {
+  const { user } = useUser();
   return (
     <div className="settings page">
       <h1>Settings</h1>
-      <Libraries />
-      <PlexImport />
-      <PlexSync />
-      <PlexSignInSettings />
-      <Metadata />
-      <Updates />
-      <Invites />
-      <Users />
+      {deviceLipSync() && <DeviceLipSync />}
+      {user?.isAdmin && (
+        <>
+          <Libraries />
+          <PlexImport />
+          <PlexSync />
+          <PlexSignInSettings />
+          <Metadata />
+          <Updates />
+          <Invites />
+          <Users />
+        </>
+      )}
     </div>
   );
 }

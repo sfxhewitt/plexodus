@@ -335,6 +335,108 @@
         android:textSize="15sp"
         android:visibility="gone" />
 
+    <!-- Touch screens (phones, tablets): buttons for Audio sync and calibration,
+         since there's no remote. Hidden on TVs, where the D-pad does it. -->
+    <LinearLayout
+        android:id="@+id/adjust_buttons"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="20dp"
+        android:background="@drawable/bg_sync_bar"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:visibility="gone">
+
+        <Button
+            style="@style/PlayerPill"
+            android:id="@+id/adjust_big_down"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:focusable="false"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:textSize="15sp" />
+
+        <Button
+            style="@style/PlayerPill"
+            android:id="@+id/adjust_down"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:focusable="false"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:textSize="15sp" />
+
+        <Button
+            style="@style/PlayerPill"
+            android:id="@+id/adjust_up"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:focusable="false"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:textSize="15sp" />
+
+        <Button
+            style="@style/PlayerPill"
+            android:id="@+id/adjust_big_up"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:focusable="false"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:textSize="15sp" />
+
+        <Button
+            style="@style/PlayerPill"
+            android:id="@+id/adjust_reset"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:focusable="false"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="@string/adjust_reset"
+            android:textSize="15sp" />
+
+        <Button
+            style="@style/PlayerPill"
+            android:id="@+id/adjust_cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:focusable="false"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="@string/cancel"
+            android:textSize="15sp" />
+
+        <Button
+            style="@style/PlayerPill"
+            android:id="@+id/adjust_done"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:focusable="false"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="@string/adjust_done"
+            android:textSize="15sp" />
+    </LinearLayout>
+
     <Button
         android:id="@+id/skip"
         android:layout_width="wrap_content"
