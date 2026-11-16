@@ -25,6 +25,14 @@ export async function findTitle(title: string): Promise<Card | null> {
   return best && best.s >= 40 ? best.c : null;
 }
 
+/** "Open Mobland": the page of what was asked for (an episode's show), without playing it. */
+export async function openVoice(ask: VoiceAsk): Promise<number> {
+  if (!ask.title) throw new Error("Say what you'd like to open.");
+  const hit = await findTitle(ask.title);
+  if (!hit) throw new Error(`Couldn't find “${ask.title}”`);
+  return hit.kind === "episode" ? hit.showId || hit.id : hit.id;
+}
+
 /**
  * Finds and plays what was asked for. Returns the item whose page should sit
  * under the player (the show or film), or throws with what to tell the person.

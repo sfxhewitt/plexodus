@@ -44,6 +44,19 @@ test("a show carries on from where you are", async ({ page, openTv }) => {
   await expect(page).toHaveURL(/\/item\/\d+/);
 });
 
+test("open shows the title's page without playing", async ({ page, openTv }) => {
+  await page.addInitScript(app);
+  await openTv(`/search`);
+  const show = await page.evaluate(async () => {
+    const r = await fetch("/api/search?q=a").then((x) => x.json());
+    return r.shows[1] as { id: number; title: string };
+  });
+  await page.goto(`/voice?q=${encodeURIComponent(show.title.toLowerCase())}&open=1&tv=1`);
+  await expect(page).toHaveURL(new RegExp(`/item/${show.id}$`));
+  await expect(page.locator(".tv-app")).toContainText(show.title);
+  expect(await page.evaluate(() => (window as unknown as W).__played)).toBeUndefined();
+});
+
 test("a film plays, and an unknown title goes to search", async ({ page, openTv }) => {
   await page.addInitScript(app);
   await openTv(`/search`);

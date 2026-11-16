@@ -31,7 +31,8 @@
             </intent-filter>
         </activity>
 
-        <!-- plexodus://play?q=Mobland: voice assistants and other apps play a title by name. -->
+        <!-- plexodus://play?q=Mobland: voice assistants and other apps play a title by name;
+             plexodus://open?q=Mobland shows its page without playing. -->
         <activity
             android:name=".PlayLinkActivity"
             android:exported="true"
@@ -42,6 +43,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="plexodus" android:host="play" />
+                <data android:scheme="plexodus" android:host="open" />
             </intent-filter>
         </activity>
 
