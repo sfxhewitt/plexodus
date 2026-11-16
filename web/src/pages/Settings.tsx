@@ -320,6 +320,9 @@ function PlexImport() {
   );
 }
 
+const secs = (ms: number) =>
+  ms < 1000 ? "under a second" : ms < 60_000 ? `${Math.round(ms / 1000)} s` : `${Math.round(ms / 60_000)} min`;
+
 const setTime = (t?: string) => (t && !t.startsWith("0001") ? t : undefined);
 
 function PlexSync() {
@@ -337,7 +340,7 @@ function PlexSync() {
       if (!busy) return rerender((n) => n + 1);
       api.get<PlexT>("/api/plex").then((d) => {
         setData(d);
-        const finished = !d.sync.running && (!since || (d.sync.lastRun ?? "") !== since.lastRun || Date.now() - since.at > 6 * 60_000);
+        const finished = !d.sync.running && (!since || (d.sync.lastRun ?? "") !== since.lastRun || Date.now() - since.at > 60_000);
         if (finished) {
           setSince(null);
           api.invalidate();
@@ -352,13 +355,18 @@ function PlexSync() {
   const run = async () => {
     setError(undefined);
     try {
-      await api.post("/api/plex/sync");
-      setSince({ lastRun: sync?.lastRun ?? "", at: Date.now() });
+      const r = await api.post<{ sync: PlexT["sync"]; queued?: boolean }>("/api/plex/sync");
+      setData({ ...data, sync: r.sync });
+      // When one is already running, the poll follows it; no need to wait for another.
+      if (r.queued !== false) setSince({ lastRun: sync?.lastRun ?? "", at: Date.now() });
     } catch (e) {
       setError((e as Error).message);
     }
   };
   const toggle = async (on: boolean) => setData(await api.put<PlexT>("/api/plex", { syncEnabled: on }));
+  const every = async (m: number) => setData(await api.put<PlexT>("/api/plex", { syncIntervalMinutes: m }));
+  const ex = sync?.extras;
+  const cols = setTime(ex?.collectionsAt);
   const last = setTime(sync?.lastRun);
   const ok = setTime(sync?.lastOk);
 
@@ -368,21 +376,43 @@ function PlexSync() {
       <div className="card form">
         <p className="muted small" style={{ margin: 0 }}>
           Anything you watch in a Plex app shows up here as watched, with its resume point and on Up Next.
-          Plexodus checks Plex every {sync?.intervalMinutes ?? 5} minutes. It only reads from Plex, and never replaces progress you made more recently in Plexodus.
+          Each check only asks Plex what was played since the last one, so it is quick and light. It only reads from Plex, and never replaces progress you made more recently in Plexodus.
         </p>
         <label className="check">
           <input type="checkbox" checked={!!sync?.enabled} onChange={(e) => toggle(e.target.checked)} />
           <span><b>Keep in sync automatically</b></span>
         </label>
+        {sync?.enabled && (
+          <div className="form-row">
+          <label>Check Plex every
+            <select value={sync.intervalMinutes} onChange={(e) => every(Number(e.target.value))}>
+              {[5, 10, 15, 30, 60].map((m) => (
+                <option key={m} value={m}>{m === 60 ? "hour" : `${m} minutes`}</option>
+              ))}
+            </select>
+          </label>
+          </div>
+        )}
         <div className={busy ? "scan-live" : "muted small"}>
           {busy && <div className="spinner sm" />}
           {busy ? "Syncing from Plex…" : last ? (
             <>
-              Last sync {ago(last)}: {sync!.checked.toLocaleString()} recently played {sync!.checked === 1 ? "item" : "items"} checked,{" "}
+              Last sync {ago(last)}, took {secs(sync!.tookMs)}: {sync!.checked.toLocaleString()} recently played {sync!.checked === 1 ? "item" : "items"} checked,{" "}
               {sync!.updated.toLocaleString()} updated
               {sync!.error && <span className="err-inline"> · failed: {sync!.error}{ok ? ` (last good sync ${ago(ok)})` : ""}</span>}
             </>
           ) : sync?.enabled ? "First sync runs within a minute of the server starting." : "Not synced yet."}
+        </div>
+        <div className="muted small">
+          {ex?.running && ex.phase ? (
+            <>Copying {ex.phase} from Plex in the background…</>
+          ) : (
+            <>
+              Intro and credits markers are copied hourly and collections every 6 hours
+              {cols ? `; collections last copied ${ago(cols)}${ex?.collectionsTookSeconds ? `, took ${secs(ex.collectionsTookSeconds * 1000)}` : ""}` : ""}.
+            </>
+          )}
+          {ex?.error && <span className="err-inline"> · last attempt failed: {ex.error} (retrying within the hour)</span>}
         </div>
         {error && <div className="err">{error}</div>}
         <div className="form-actions">

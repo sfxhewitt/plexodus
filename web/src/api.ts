@@ -446,6 +446,17 @@ export interface PlexSyncStatus {
   updated: number;
   error?: string;
   intervalMinutes: number;
+  /** What the last watch sync cost. */
+  tookMs: number;
+  requests: number;
+  /** Markers and collections copy in the background, apart from the watch sync. */
+  extras: {
+    running: boolean;
+    phase?: string;
+    error?: string;
+    collectionsAt?: string;
+    collectionsTookSeconds?: number;
+  };
 }
 
 export interface PlexStatus {

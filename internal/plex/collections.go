@@ -75,11 +75,16 @@ func (c *Client) CollectionItems(ctx context.Context, key string) ([]Metadata, e
 	return all, nil
 }
 
-// syncCollections runs at most every six hours, from the watch sync.
+func (s *Syncer) collectionsDue(ctx context.Context) bool {
+	last, _ := strconv.ParseInt(s.db.Setting(ctx, "plex_collections_checked"), 10, 64)
+	return time.Now().Unix()-last >= int64(collectionInterval/time.Second)
+}
+
+// syncCollections runs at most every six hours, in the background after a
+// watch sync.
 func (s *Syncer) syncCollections(ctx context.Context, c *Client, pm PathMap, force bool) error {
 	now := time.Now()
-	last, _ := strconv.ParseInt(s.db.Setting(ctx, "plex_collections_checked"), 10, 64)
-	if !force && now.Unix()-last < int64(collectionInterval/time.Second) {
+	if !force && !s.collectionsDue(ctx) {
 		return nil
 	}
 	n, err := s.SyncCollections(ctx, c, pm)

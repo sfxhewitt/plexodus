@@ -66,6 +66,7 @@ func (s *Server) handlePlexPut(w http.ResponseWriter, r *http.Request) {
 		Token   *string `json:"token"`
 		PathMap *string `json:"pathMap"`
 		Sync    *bool   `json:"syncEnabled"`
+		Every   *int    `json:"syncIntervalMinutes"`
 		SignIn  *bool   `json:"signInEnabled"`
 		Publish *bool   `json:"publish"`
 		Public  *string `json:"publicUrl"`
@@ -91,6 +92,12 @@ func (s *Server) handlePlexPut(w http.ResponseWriter, r *http.Request) {
 		s.db.SetSetting(r.Context(), "plex_sync", v)
 		if *body.Sync {
 			s.plexSync.Kick()
+		}
+	}
+	if body.Every != nil {
+		if err := s.plexSync.SetInterval(r.Context(), *body.Every); err != nil {
+			writeErr(w, 400, err.Error())
+			return
 		}
 	}
 	onOff := func(b bool) string {
@@ -134,8 +141,8 @@ func (s *Server) handlePlexSync(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 409, "an import is running; sync will run after it")
 		return
 	}
-	s.plexSync.Kick()
-	writeJSON(w, map[string]any{"sync": s.plexSync.Status(r.Context())})
+	queued := s.plexSync.Kick()
+	writeJSON(w, map[string]any{"sync": s.plexSync.Status(r.Context()), "queued": queued})
 }
 
 // handlePlexTest lists the Plex libraries and whether their folders are
