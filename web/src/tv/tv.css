@@ -726,3 +726,4 @@ html.tv [data-hscroll]::-webkit-scrollbar, html.tv [data-vscroll]::-webkit-scrol
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem;
   background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.85); font-size: 1.2rem; font-weight: 600;
 }
+.tv-history-more { padding: 0.6rem var(--pad) 0; }

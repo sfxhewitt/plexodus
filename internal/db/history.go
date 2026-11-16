@@ -46,3 +46,25 @@ func seedHistory(w *sql.DB) error {
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
 	return err
 }
+
+// seedPlayedAt fills watch_state.played_at once for plays from before the
+// column existed: anything with a resume point or a known length was played
+// (hand-marked rows have neither), and completed plays in watch_history
+// give a time too.
+func seedPlayedAt(w *sql.DB) error {
+	var done string
+	w.QueryRow(`SELECT value FROM settings WHERE key = 'played_at_seeded'`).Scan(&done)
+	if done != "" {
+		return nil
+	}
+	if _, err := w.Exec(`UPDATE watch_state SET played_at = MAX(
+			CASE WHEN position > 0 OR duration > 0 THEN updated_at ELSE 0 END,
+			COALESCE((SELECT MAX(h.watched_at) FROM watch_history h
+				WHERE h.user_id = watch_state.user_id AND h.item_id = watch_state.item_id), 0))
+		WHERE played_at = 0`); err != nil {
+		return err
+	}
+	_, err := w.Exec(`INSERT INTO settings(key, value) VALUES('played_at_seeded', '1')
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+	return err
+}

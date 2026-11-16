@@ -16,6 +16,7 @@ import Search from "./pages/Search";
 import Settings from "./pages/Settings";
 import Wrapped from "./pages/Wrapped";
 import Activity from "./pages/Activity";
+import History from "./pages/History";
 import Person from "./pages/Person";
 import "./styles.css";
 
@@ -39,6 +40,7 @@ function Shell() {
           <Route path="/search" element={<Search />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/activity" element={<Activity />} />
+          <Route path="/history" element={<History />} />
           <Route path="/wrapped" element={<Wrapped />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

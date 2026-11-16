@@ -341,12 +341,12 @@ func (im *Importer) addWatch(tx *sql.Tx, userID, itemID int64, m *Metadata) (boo
 		ts = db.Now()
 	}
 	watched := m.ViewCount > 0 && m.ViewOffset == 0
-	_, err := tx.Exec(`INSERT INTO watch_state(user_id, item_id, position, duration, watched, play_count, updated_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?)
+	_, err := tx.Exec(`INSERT INTO watch_state(user_id, item_id, position, duration, watched, play_count, updated_at, played_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id, item_id) DO UPDATE SET position = excluded.position, duration = excluded.duration,
 			watched = MAX(watch_state.watched, excluded.watched), play_count = MAX(watch_state.play_count, excluded.play_count),
-			updated_at = MAX(watch_state.updated_at, excluded.updated_at)`,
-		userID, itemID, float64(m.ViewOffset)/1000, float64(m.Duration)/1000, watched || m.ViewCount > 0, m.ViewCount, ts)
+			updated_at = MAX(watch_state.updated_at, excluded.updated_at), played_at = MAX(watch_state.played_at, excluded.played_at)`,
+		userID, itemID, float64(m.ViewOffset)/1000, float64(m.Duration)/1000, watched || m.ViewCount > 0, m.ViewCount, ts, m.LastViewedAt)
 	return true, err
 }
 

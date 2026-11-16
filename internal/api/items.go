@@ -866,13 +866,14 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 	if watched {
 		pos = 0
 	}
-	_, err := s.db.W.ExecContext(r.Context(), `INSERT INTO watch_state(user_id, item_id, position, duration, watched, play_count, updated_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?)
+	now := db.Now()
+	_, err := s.db.W.ExecContext(r.Context(), `INSERT INTO watch_state(user_id, item_id, position, duration, watched, play_count, updated_at, played_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id, item_id) DO UPDATE SET position = excluded.position, duration = excluded.duration,
 			play_count = watch_state.play_count + (excluded.watched AND NOT watch_state.watched),
 			watched = MAX(watch_state.watched, excluded.watched),
-			updated_at = excluded.updated_at`,
-		currentUser(r).ID, id, pos, body.Duration, watched, boolInt(watched), db.Now())
+			updated_at = excluded.updated_at, played_at = excluded.played_at`,
+		currentUser(r).ID, id, pos, body.Duration, watched, boolInt(watched), now, now)
 	if err == nil && watched {
 		err = db.RecordPlay(r.Context(), s.db.W, currentUser(r).ID, id, db.Now(), body.Duration, "plexodus")
 		s.forgetHome(currentUser(r).ID)

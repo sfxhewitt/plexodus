@@ -19,6 +19,7 @@ import SettingsPage from "./pages/Settings";
 import { Screensaver } from "./Screensaver";
 import WrappedPage from "./pages/Wrapped";
 import WatchlistPage from "./pages/Watchlist";
+import HistoryPage from "./pages/History";
 import CollectionsPage from "./pages/Collections";
 import CollectionPage from "./pages/Collection";
 import PersonPage from "./pages/Person";
@@ -47,6 +48,7 @@ function TabBar({ hidden }: { hidden: boolean }) {
     { key: "search", to: "/search", icon: <SearchIcon size={24} /> },
     { key: "home", to: "/", label: "Home" },
     { key: "watchlist", to: "/watchlist", label: "Watchlist" },
+    { key: "history", to: "/history", label: "History" },
     ...(libs || []).filter((l) => !l.hidden).map((l) => ({ key: `lib${l.id}`, to: `/library/${l.id}`, label: l.name, lib: l })),
     { key: "collections", to: "/collection", label: "Collections" },
   ];
@@ -258,6 +260,7 @@ function Shell() {
               <Route path="/item/:id" element={<Item />} />
               <Route path="/search" element={<SearchPage />} />
               <Route path="/watchlist" element={<WatchlistPage />} />
+              <Route path="/history" element={<HistoryPage />} />
               <Route path="/collection" element={<CollectionsPage />} />
               <Route path="/collection/:id" element={<CollectionPage />} />
               <Route path="/person/:id" element={<PersonPage />} />

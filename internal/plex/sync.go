@@ -666,10 +666,17 @@ func ApplyState(tx *sql.Tx, uid, itemID int64, st State) (bool, error) {
 	plays := max(cur.plays, st.PlayCount)
 	// A rewatch in progress shows as in progress (as on Plex's On Deck);
 	// play_count still records that it was watched before.
-	_, err = tx.Exec(`INSERT INTO watch_state(user_id, item_id, position, duration, watched, play_count, updated_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?)
+	// Plex's own time is when it was played there; with none, it only
+	// counts as played (for History) if there is a resume point.
+	played := st.At
+	if played == 0 && st.Position > 0 {
+		played = at
+	}
+	_, err = tx.Exec(`INSERT INTO watch_state(user_id, item_id, position, duration, watched, play_count, updated_at, played_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id, item_id) DO UPDATE SET position = excluded.position, duration = excluded.duration,
-			watched = excluded.watched, play_count = excluded.play_count, updated_at = excluded.updated_at`,
-		uid, itemID, st.Position, dur, st.Watched, plays, at)
+			watched = excluded.watched, play_count = excluded.play_count, updated_at = excluded.updated_at,
+			played_at = MAX(watch_state.played_at, excluded.played_at)`,
+		uid, itemID, st.Position, dur, st.Watched, plays, at, played)
 	return err == nil, err
 }

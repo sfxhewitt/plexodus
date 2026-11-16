@@ -21,11 +21,11 @@ test("home that fails to load offers Try again, and the library tabs come back b
   await expect(page.getByText("Home didn't load")).toBeVisible();
   await expect(page.getByText("The server is busy right now. Try again in a moment.")).toBeVisible();
   expect((await focused(page)).text).toContain("Try again");
-  await expect(page.locator(".tv-tab-btn")).toHaveCount(4); // search, Home, Watchlist, Collections only, for now
+  await expect(page.locator(".tv-tab-btn")).toHaveCount(5); // search, Home, Watchlist, History, Collections only, for now
 
   failing = false;
   await page.keyboard.press("Enter");
   await waitForFocus(page, "hero-play");
   // The tab bar retries the library list on its own.
-  await expect(page.locator(".tv-tab-btn")).not.toHaveCount(4, { timeout: 15_000 });
+  await expect(page.locator(".tv-tab-btn")).not.toHaveCount(5, { timeout: 15_000 });
 });
