@@ -151,3 +151,17 @@ func TestUpNextMinimumWatched(t *testing.T) {
 	}
 	same(upNext(), []int64{20, 30, 40, 50})
 }
+
+// Finish a Season leaves out shows already in Up Next, and goes when empty.
+func TestFinishSeasonSkipsUpNextShows(t *testing.T) {
+	season := Row{Title: "Finish a Season This Weekend", Smart: "season", Items: []Card{{ID: 11, ShowID: 1}, {ID: 22, ShowID: 2}}}
+	because := Row{Title: "Because You Watched X", Smart: "because", Items: []Card{{ID: 5}}}
+	got := withoutUpNextShows([]Row{season, because}, []Card{{ID: 101, Kind: "episode", ShowID: 1}})
+	if len(got) != 2 || len(got[0].Items) != 1 || got[0].Items[0].ShowID != 2 {
+		t.Fatalf("got %+v", got)
+	}
+	got = withoutUpNextShows([]Row{season, because}, []Card{{ID: 101, ShowID: 1}, {ID: 2, Kind: "show"}})
+	if len(got) != 1 || got[0].Smart != "because" {
+		t.Fatalf("empty row kept: %+v", got)
+	}
+}

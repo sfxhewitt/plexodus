@@ -35,9 +35,13 @@ const (
 )
 
 type homeEntry struct {
-	body     []byte
-	at       time.Time
-	dirty    bool
+	body  []byte
+	at    time.Time
+	dirty bool
+	// gen counts changes; a build only clears dirty if nothing changed
+	// while it ran, so a change that lands mid-build (the player's last
+	// progress report racing the Home refetch) isn't lost.
+	gen      int
 	building chan struct{} // closed when the current build finishes
 }
 
@@ -71,7 +75,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	stale := e.body == nil || e.dirty || time.Since(e.at) > homeFresh || e.at.YearDay() != time.Now().YearDay()
 	if stale && e.building == nil {
 		e.building = make(chan struct{})
-		go s.buildHomeFor(key, e, r)
+		go s.buildHomeFor(key, e, r, e.gen)
 	}
 	body, building, dirty := e.body, e.building, e.dirty
 	c.mu.Unlock()
@@ -88,25 +92,41 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	if body != nil {
 		wait = time.After(homeDirtyWait)
 	}
-	select {
-	case <-building:
-		c.mu.Lock()
-		body = e.body
-		c.mu.Unlock()
-		if body == nil {
-			writeErr(w, http.StatusInternalServerError, "home could not be loaded, see the server log")
+	for {
+		select {
+		case <-building:
+			c.mu.Lock()
+			body = e.body
+			// The build began before the latest change (it was already
+			// running when Remove from Up Next or the player's last report
+			// landed): its Home is out of date too, so build again and wait
+			// for that one, still within the same time limit.
+			if wait != nil && e.dirty && e.body != nil {
+				if e.building == nil {
+					e.building = make(chan struct{})
+					go s.buildHomeFor(key, e, r, e.gen)
+				}
+				building = e.building
+				c.mu.Unlock()
+				continue
+			}
+			c.mu.Unlock()
+			if body == nil {
+				writeErr(w, http.StatusInternalServerError, "home could not be loaded, see the server log")
+				return
+			}
+		case <-wait:
+		case <-r.Context().Done():
 			return
 		}
-	case <-wait:
-	case <-r.Context().Done():
-		return
+		break
 	}
 	writeHomeBody(w, body)
 }
 
 // buildHomeFor builds Home on a context of its own, so it finishes (and is
 // kept) even when the client that asked has stopped waiting.
-func (s *Server) buildHomeFor(key string, e *homeEntry, r *http.Request) {
+func (s *Server) buildHomeFor(key string, e *homeEntry, r *http.Request, gen int) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), homeBuildLimit)
 	defer cancel()
 	start := time.Now()
@@ -116,7 +136,8 @@ func (s *Server) buildHomeFor(key string, e *homeEntry, r *http.Request) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if rec.Code == http.StatusOK {
-		e.body, e.at, e.dirty = rec.Body.Bytes(), start, false
+		e.body, e.at = rec.Body.Bytes(), start
+		e.dirty = e.gen != gen
 		go s.saveHome(key, e.body)
 	} else {
 		log.Printf("home: build failed after %s: %d %s", time.Since(start).Round(time.Millisecond), rec.Code, bytes.TrimSpace(rec.Body.Bytes()))
@@ -192,6 +213,7 @@ func (s *Server) homeChanged(uid int64) {
 	for k, e := range c.m {
 		if k == prefix || len(k) > len(prefix) && k[:len(prefix)+1] == prefix+"/" {
 			e.dirty = true
+			e.gen++
 		}
 	}
 }
@@ -204,5 +226,6 @@ func (s *Server) allHomesChanged() {
 	defer c.mu.Unlock()
 	for _, e := range c.m {
 		e.dirty = true
+		e.gen++
 	}
 }

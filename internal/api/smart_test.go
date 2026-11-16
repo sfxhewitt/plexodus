@@ -60,6 +60,11 @@ func TestSmartRows(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// "Time" is taken off Up Next, so Finish a Season may offer it (shows
+	// in Up Next are left out of it: TestFinishSeasonSkipsUpNextShows).
+	if _, err := s.db.W.Exec(`INSERT INTO continue_hidden(user_id, item_id, hidden_at) VALUES (?, 300, ?)`, u.ID, now); err != nil {
+		t.Fatal(err)
+	}
 	var h struct {
 		Rows []Row `json:"rows"`
 	}

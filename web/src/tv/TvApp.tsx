@@ -222,11 +222,17 @@ function Shell() {
   );
 
   // The app's player closed: refresh what's on screen and offer the next episode.
+  const refreshAgain = useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => {
     const onEnded = async (e: Event) => {
       const d = (e as CustomEvent<NativeEnded>).detail;
       // Pages refetch in place (keeping what's on screen and the focus).
+      // The player's last progress report is still on its way when this
+      // fires, so look again once it has landed: otherwise a film just
+      // finished stays in Up Next with its old progress.
       window.dispatchEvent(new Event("tv:refresh"));
+      clearTimeout(refreshAgain.current);
+      refreshAgain.current = setTimeout(() => window.dispatchEvent(new Event("tv:refresh")), 2500);
       const it = lastPlayedItem();
       if (!d?.ended || !it || it.id !== d.itemId || it.kind !== "episode" || !it.showId) return;
       await new Promise((r) => setTimeout(r, 400));
