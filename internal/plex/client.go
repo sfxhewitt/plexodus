@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,6 +19,7 @@ type Client struct {
 	base  string
 	token string
 	http  *http.Client
+	reqs  atomic.Int64 // requests made, so the watch sync can report its cost
 }
 
 func NewClient(baseURL, token string) *Client {
@@ -29,6 +31,9 @@ func NewClient(baseURL, token string) *Client {
 }
 
 func (c *Client) Configured() bool { return c != nil && c.base != "" && c.token != "" }
+
+// Requests is how many API requests this client has made to Plex.
+func (c *Client) Requests() int64 { return c.reqs.Load() }
 
 func (c *Client) get(ctx context.Context, path string, q url.Values, out any) error {
 	if q == nil {
@@ -48,6 +53,7 @@ func (c *Client) getRaw(ctx context.Context, path, rawQuery string, out any) err
 	req.Header.Set("X-Plex-Token", c.token)
 	req.Header.Set("X-Plex-Client-Identifier", "plexodus")
 	req.Header.Set("X-Plex-Product", "Plexodus")
+	c.reqs.Add(1)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err

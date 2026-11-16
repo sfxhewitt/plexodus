@@ -21,7 +21,7 @@ import (
 
 const (
 	markerWindow   = 14 * 24 * time.Hour // how far back additions are re-checked
-	markerInterval = time.Hour           // how often (the watch sync runs every 5 min)
+	markerInterval = time.Hour           // how often (checked after each watch sync)
 )
 
 // AddedSince pages through one type of item in a section, newest first,
@@ -64,11 +64,15 @@ func (c *Client) AddedSince(ctx context.Context, section string, typ int, since 
 	}
 }
 
-// syncMarkers runs at most once an hour, from the watch sync.
+func (s *Syncer) markersDue(ctx context.Context) bool {
+	last, _ := strconv.ParseInt(s.db.Setting(ctx, "plex_markers_checked"), 10, 64)
+	return time.Now().Unix()-last >= int64(markerInterval/time.Second)
+}
+
+// syncMarkers runs at most once an hour, in the background after a watch sync.
 func (s *Syncer) syncMarkers(ctx context.Context, c *Client, pm PathMap) error {
 	now := time.Now()
-	last, _ := strconv.ParseInt(s.db.Setting(ctx, "plex_markers_checked"), 10, 64)
-	if now.Unix()-last < int64(markerInterval/time.Second) {
+	if !s.markersDue(ctx) {
 		return nil
 	}
 	n, err := s.SyncMarkers(ctx, c, pm, now.Add(-markerWindow).Unix())

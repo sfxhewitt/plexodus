@@ -102,33 +102,101 @@ type SyncStatus struct {
 	Updated  int       `json:"updated"`
 	Error    string    `json:"error,omitempty"`
 	Interval int       `json:"intervalMinutes"`
+	// What the last watch sync cost: how long it took and how many
+	// requests it made to Plex.
+	TookMs   int64 `json:"tookMs"`
+	Requests int64 `json:"requests"`
+	// The slower copies that ride along (markers hourly, collections every
+	// six hours) run on their own, so they never hold up the watch sync or
+	// make it look busy.
+	Extras ExtrasStatus `json:"extras"`
 }
+
+// ExtrasStatus is the state of the background copies of markers,
+// collections and content ratings.
+type ExtrasStatus struct {
+	Running         bool      `json:"running"`
+	Phase           string    `json:"phase,omitempty"`
+	Error           string    `json:"error,omitempty"`
+	CollectionsAt   time.Time `json:"collectionsAt,omitempty"`
+	CollectionsTook int64     `json:"collectionsTookSeconds,omitempty"`
+}
+
+// SyncIntervals are the choices offered for how often to check Plex.
+var SyncIntervals = []int{5, 10, 15, 30, 60}
+
+const defaultSyncInterval = 5
+
+// extrasRetry is how long a failed marker or collection copy waits before
+// trying again, so a copy that keeps failing doesn't rerun every few minutes.
+const extrasRetry = time.Hour
 
 // Syncer runs the watch sync on a timer and on demand.
 type Syncer struct {
-	db       *db.DB
-	client   func(context.Context) (*Client, PathMap)
-	busy     func() bool // true while an import runs
-	interval time.Duration
-	kick     chan struct{}
+	db         *db.DB
+	client     func(context.Context) (*Client, PathMap)
+	busy       func() bool // true while an import runs
+	kick       chan struct{}
+	reschedule chan struct{}
 
-	mu     sync.Mutex
-	status SyncStatus
+	mu          sync.Mutex
+	status      SyncStatus
+	extras      ExtrasStatus
+	extrasAfter time.Time // no extras before this (set after a failure)
 }
 
 func NewSyncer(d *db.DB, client func(context.Context) (*Client, PathMap), busy func() bool) *Syncer {
-	return &Syncer{db: d, client: client, busy: busy, interval: 5 * time.Minute, kick: make(chan struct{}, 1)}
+	return &Syncer{db: d, client: client, busy: busy, kick: make(chan struct{}, 1), reschedule: make(chan struct{}, 1)}
 }
 
 // Enabled reports whether sync is switched on (the default).
 func (s *Syncer) Enabled(ctx context.Context) bool { return s.db.Setting(ctx, "plex_sync") != "off" }
 
+// Interval is how often the watch sync checks Plex (setting
+// plex_sync_interval, in minutes; 5 by default).
+func (s *Syncer) Interval(ctx context.Context) time.Duration {
+	m, _ := strconv.Atoi(s.db.Setting(ctx, "plex_sync_interval"))
+	if !ValidSyncInterval(m) {
+		m = defaultSyncInterval
+	}
+	return time.Duration(m) * time.Minute
+}
+
+// ValidSyncInterval reports whether m minutes is one of SyncIntervals.
+func ValidSyncInterval(m int) bool {
+	for _, v := range SyncIntervals {
+		if v == m {
+			return true
+		}
+	}
+	return false
+}
+
+// SetInterval saves a new interval and restarts the timer with it.
+func (s *Syncer) SetInterval(ctx context.Context, minutes int) error {
+	if !ValidSyncInterval(minutes) {
+		return fmt.Errorf("interval must be one of %v minutes", SyncIntervals)
+	}
+	if err := s.db.SetSetting(ctx, "plex_sync_interval", strconv.Itoa(minutes)); err != nil {
+		return err
+	}
+	select {
+	case s.reschedule <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
 func (s *Syncer) Status(ctx context.Context) SyncStatus {
 	s.mu.Lock()
 	st := s.status
+	st.Extras = s.extras
 	s.mu.Unlock()
 	st.Enabled = s.Enabled(ctx)
-	st.Interval = int(s.interval / time.Minute)
+	st.Interval = int(s.Interval(ctx) / time.Minute)
+	if t, _ := strconv.ParseInt(s.db.Setting(ctx, "plex_collections_checked"), 10, 64); t > 0 {
+		st.Extras.CollectionsAt = time.Unix(t, 0)
+	}
 	return st
 }
 
@@ -151,65 +219,65 @@ func (s *Syncer) Kick() bool {
 func (s *Syncer) Run(ctx context.Context) {
 	t := time.NewTimer(30 * time.Second)
 	defer t.Stop()
+	stop := func() {
+		if !t.Stop() {
+			select {
+			case <-t.C:
+			default:
+			}
+		}
+	}
 	for {
 		manual := false
 		select {
 		case <-ctx.Done():
 			return
+		case <-s.reschedule:
+			stop()
+			t.Reset(s.Interval(ctx))
+			continue
 		case <-t.C:
 		case <-s.kick:
 			manual = true
-			if !t.Stop() {
-				select {
-				case <-t.C:
-				default:
-				}
-			}
+			stop()
 		}
 		if manual || s.Enabled(ctx) {
-			s.once(ctx)
+			if s.once(ctx) {
+				s.startExtras(ctx)
+			}
 		}
-		t.Reset(s.interval)
+		t.Reset(s.Interval(ctx))
 	}
 }
 
-func (s *Syncer) once(ctx context.Context) {
+// once runs one watch sync and reports whether it succeeded. It is small:
+// Plex's history since the last run, its On Deck list, and a re-read of
+// whatever changed.
+func (s *Syncer) once(ctx context.Context) bool {
 	c, pm := s.client(ctx)
 	if !c.Configured() {
-		return
+		return false
 	}
 	if s.busy != nil && s.busy() {
-		return
+		return false
 	}
+	began := time.Now()
+	reqs := c.Requests()
 	s.mu.Lock()
 	s.status.Running = true
-	s.status.LastRun = time.Now()
+	s.status.LastRun = began
 	s.mu.Unlock()
 
 	sctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
 	checked, updated, err := s.sync(sctx, c, pm)
 	cancel()
-	if err == nil {
-		mctx, mcancel := context.WithTimeout(ctx, 5*time.Minute)
-		if merr := s.syncMarkers(mctx, c, pm); merr != nil {
-			log.Printf("plex: %v", merr)
-		}
-		mcancel()
-		cctx, ccancel := context.WithTimeout(ctx, 20*time.Minute)
-		if cerr := s.syncCollections(cctx, c, pm, false); cerr != nil {
-			log.Printf("plex: %v", cerr)
-		}
-		ccancel()
-	}
-	rctx, rcancel := context.WithTimeout(ctx, 10*time.Minute)
-	if rerr := s.BackfillRatings(rctx, c); rerr != nil {
-		log.Printf("plex: content ratings: %v", rerr)
-	}
-	rcancel()
 
+	took := time.Since(began)
 	s.mu.Lock()
 	s.status.Running = false
 	s.status.Checked, s.status.Updated = checked, updated
+	s.status.TookMs = took.Milliseconds()
+	s.status.Requests = c.Requests() - reqs
 	s.status.Error = ""
 	if err != nil {
 		s.status.Error = err.Error()
@@ -219,8 +287,80 @@ func (s *Syncer) once(ctx context.Context) {
 	s.mu.Unlock()
 	if err != nil {
 		log.Printf("plex watch sync: %v", err)
-	} else if updated > 0 {
-		log.Printf("plex watch sync: %d of %d items updated", updated, checked)
+	} else if updated > 0 || took > 10*time.Second {
+		log.Printf("plex watch sync: %d of %d items updated in %s (%d requests to Plex)",
+			updated, checked, took.Round(time.Millisecond), c.Requests()-reqs)
+	}
+	return err == nil
+}
+
+// startExtras starts the background copies unless they are already running
+// or waiting after a failure. Each copy decides for itself whether it is due.
+func (s *Syncer) startExtras(ctx context.Context) {
+	s.mu.Lock()
+	if s.extras.Running || time.Now().Before(s.extrasAfter) {
+		s.mu.Unlock()
+		return
+	}
+	s.extras.Running = true
+	s.mu.Unlock()
+	go s.runExtras(ctx)
+}
+
+func (s *Syncer) setPhase(p string) {
+	s.mu.Lock()
+	s.extras.Phase = p
+	s.mu.Unlock()
+}
+
+func (s *Syncer) runExtras(ctx context.Context) {
+	var failed []string
+	defer func() {
+		s.mu.Lock()
+		s.extras.Running, s.extras.Phase = false, ""
+		s.extras.Error = strings.Join(failed, "; ")
+		if len(failed) > 0 {
+			s.extrasAfter = time.Now().Add(extrasRetry)
+		}
+		s.mu.Unlock()
+	}()
+	c, pm := s.client(ctx)
+	if !c.Configured() || (s.busy != nil && s.busy()) {
+		return
+	}
+	fail := func(err error) {
+		log.Printf("plex: %v", err)
+		failed = append(failed, err.Error())
+	}
+
+	if s.markersDue(ctx) {
+		s.setPhase("intro and credits markers")
+		mctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+		if err := s.syncMarkers(mctx, c, pm); err != nil {
+			fail(err)
+		}
+		cancel()
+	}
+	if s.collectionsDue(ctx) {
+		s.setPhase("collections")
+		began := time.Now()
+		cctx, cancel := context.WithTimeout(ctx, time.Hour)
+		if err := s.syncCollections(cctx, c, pm, false); err != nil {
+			fail(err)
+		} else {
+			s.mu.Lock()
+			s.extras.CollectionsTook = int64(time.Since(began).Seconds())
+			s.mu.Unlock()
+		}
+		cancel()
+	}
+	if s.db.Setting(ctx, ratingsDoneKey) != "1" {
+		s.setPhase("content ratings")
+		rctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		if err := s.BackfillRatings(rctx, c); err != nil {
+			fail(fmt.Errorf("content ratings: %w", err))
+		}
+		cancel()
 	}
 }
 
@@ -292,7 +432,9 @@ func (s *Syncer) sync(ctx context.Context, c *Client, pm PathMap) (checked, upda
 		return 0, 0, fmt.Errorf("on deck: %w", err)
 	}
 	for _, m := range deck {
-		if m.ViewOffset > 0 {
+		// Items on deck that haven't been played since the last run were
+		// already applied then; only re-read the ones that moved.
+		if m.ViewOffset > 0 && (m.LastViewedAt == 0 || m.LastViewedAt >= since) {
 			add(m.RatingKey, m.LastViewedAt)
 		}
 	}
