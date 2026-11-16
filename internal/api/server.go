@@ -63,6 +63,7 @@ type Server struct {
 	files      fileStats
 	homes      homeCache
 	thumbs     *thumbs.Manager
+	phone      phoneSessions
 }
 
 func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner, agent *metadata.Agent,
@@ -112,6 +113,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/stream/{id}/{name}", s.handleStream)
 	mux.HandleFunc("HEAD /api/stream/{id}/{name}", s.handleStream)
 	mux.HandleFunc("GET /api/lipsync-calibration.mkv", s.handleCalibrationClip)
+	// Lip sync with a phone: the page and its upload need only the TV's code.
+	mux.HandleFunc("GET /sync", s.handleLipsyncPage)
+	mux.HandleFunc("GET /sync/{code}", s.handleLipsyncPage)
+	mux.HandleFunc("GET /api/lipsync/phone/{code}", s.handleLipsyncPhoneState)
+	mux.HandleFunc("POST /api/lipsync/phone/{code}/video", s.handleLipsyncUpload)
 	// Admin session or API key (for Sonarr/Radarr/autoscan hooks).
 	mux.HandleFunc("POST /api/scan", s.handleScanPath)
 
@@ -142,6 +148,10 @@ func (s *Server) Handler() http.Handler {
 	user("POST /api/hls", s.handleHLSStart)
 	user("GET /api/files/{fileId}/audio-offset", s.handleGetAudioOffset)
 	user("PUT /api/files/{fileId}/audio-offset", s.handleSetAudioOffset)
+	user("POST /api/lipsync/sessions", s.handleLipsyncStart)
+	user("GET /api/lipsync/sessions/{code}", s.handleLipsyncPoll)
+	user("POST /api/lipsync/sessions/{code}/applied", s.handleLipsyncApplied)
+	user("GET /api/lipsync/sessions/{code}/qr.png", s.handleLipsyncQR)
 	user("POST /api/hls/{sid}/ping", s.handleHLSPing)
 	user("POST /api/hls/{sid}/stop", s.handleHLSStop)
 	user("GET /api/hls/{sid}/{name}", s.handleHLSFile)

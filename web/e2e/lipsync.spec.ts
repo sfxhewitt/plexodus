@@ -10,7 +10,7 @@ test.afterEach(({ unhandled }) => {
   expect(unhandled, "API calls the mock doesn't answer (add them to e2e/mock.ts)").toEqual([]);
 });
 
-type W = { __delay: number; __calibrated?: boolean; __played?: { fileId: number; audioOffsetMs: number } };
+type W = { __delay: number; __calibrated?: boolean; __phone?: boolean; __played?: { fileId: number; audioOffsetMs: number } };
 
 // Runs in the page: addInitScript passes `features` as its argument.
 const app = (features: string) => {
@@ -23,6 +23,7 @@ const app = (features: string) => {
     audioDelay: () => w.__delay,
     setAudioDelay: (ms: number) => { w.__delay = ms; },
     calibrateAudio: () => { w.__calibrated = true; },
+    calibrateWithPhone: () => { w.__phone = true; },
     play(json: string) { w.__played = JSON.parse(json); },
   };
 };
@@ -47,6 +48,24 @@ test("Settings sets this TV's lip sync offset and opens calibration", async ({ p
     window.dispatchEvent(new CustomEvent("plexodus:audio-delay", { detail: -60 }));
   });
   await expect(page.locator(".tv-lib-prefs").filter({ hasText: "Lip sync" })).toContainText("Sound 60 ms earlier");
+});
+
+test("Fix with my phone opens the phone calibration on apps that have it", async ({ page, openTv }) => {
+  await page.addInitScript(app, "recap,avsync,avsync-phone");
+  await openTv("/settings");
+  await waitForFocus(page);
+  await expect(page.locator('[data-fk="lipsync-calibrate"]')).toHaveText("Calibrate by eye");
+  await page.locator('[data-fk="lipsync-phone"]').focus();
+  await page.keyboard.press("Enter");
+  expect(await page.evaluate(() => (window as unknown as W).__phone)).toBe(true);
+});
+
+test("apps without phone calibration don't offer it", async ({ page, openTv }) => {
+  await page.addInitScript(app, "recap,avsync");
+  await openTv("/settings");
+  await waitForFocus(page);
+  await expect(page.locator('[data-fk="lipsync-calibrate"]')).toHaveText("Calibrate");
+  await expect(page.locator('[data-fk="lipsync-phone"]')).toHaveCount(0);
 });
 
 test("an older app is asked to update instead", async ({ page, openTv }) => {
@@ -98,6 +117,7 @@ test("a tablet sets its own lip sync offset in Settings", async ({ page }) => {
       audioDelay: () => w.__delay,
       setAudioDelay: (ms: number) => { w.__delay = ms; },
       calibrateAudio: () => { w.__calibrated = true; },
+    calibrateWithPhone: () => { w.__phone = true; },
       play() {},
     };
   }, "recap,avsync");
