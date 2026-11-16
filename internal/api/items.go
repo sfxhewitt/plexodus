@@ -407,6 +407,38 @@ type Row struct {
 	Smart string `json:"smart,omitempty"`
 }
 
+// withoutUpNextShows drops shows already in Up Next from Finish a Season
+// (they're right above it), and the row itself if nothing is left. The smart
+// rows are cached; this runs on every Home build, so it follows Up Next.
+func withoutUpNextShows(rows []Row, upNext []Card) []Row {
+	inUpNext := map[int64]bool{}
+	for _, c := range upNext {
+		if c.ShowID != 0 {
+			inUpNext[c.ShowID] = true
+		}
+		if c.Kind == "show" {
+			inUpNext[c.ID] = true
+		}
+	}
+	out := make([]Row, 0, len(rows))
+	for _, row := range rows {
+		if row.Smart == "season" {
+			kept := make([]Card, 0, len(row.Items))
+			for _, c := range row.Items {
+				if !inUpNext[c.ShowID] {
+					kept = append(kept, c)
+				}
+			}
+			if len(kept) == 0 {
+				continue
+			}
+			row.Items = kept
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
 func (s *Server) buildHome(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var rows []Row
@@ -439,7 +471,7 @@ func (s *Server) buildHome(w http.ResponseWriter, r *http.Request) {
 	// after the libraries' rows.
 	tSmart0 := time.Now()
 	early, later := s.smartRows(r, hiddenHome)
-	rows = append(rows, early...)
+	rows = append(rows, withoutUpNextShows(early, cont)...)
 	tSmart := time.Since(tSmart0)
 	libs, err := s.db.R.QueryContext(ctx, `SELECT l.id, l.name, l.kind FROM libraries l`+libACL(currentUser(r))+` ORDER BY l.name`)
 	if err != nil {

@@ -297,6 +297,8 @@ export function handleBack(): "handled" | "exit" {
 let fallback: { fks: string[]; until: number } | null = null;
 export function setFocusFallback(fks: string[]) {
   fallback = fks.length ? { fks, until: performance.now() + 5000 } : null;
+  // Straight after the card goes, not on the first tick, so focus doesn't blink.
+  requestAnimationFrame(() => requestAnimationFrame(recoverFocus));
   // A removed element doesn't always fire focusout: keep an eye out meanwhile.
   const t = setInterval(() => {
     recoverFocus();

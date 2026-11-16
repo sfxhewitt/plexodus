@@ -93,3 +93,44 @@ func TestHomeSurvivesRestart(t *testing.T) {
 		t.Fatalf("restarted home = %d, want the saved one", rec.Code)
 	}
 }
+
+// A change that lands while Home is being built (the TV player's last
+// progress report racing the Home refetch when it closes) must leave Home
+// out of date, so the next visit rebuilds it: a finished film used to stay
+// in Up Next with its old progress.
+func TestHomeChangeDuringBuildIsKept(t *testing.T) {
+	s, u := testServer(t)
+	r := httptest.NewRequest("GET", "/api/home", nil).WithContext(auth.WithUser(context.Background(), u))
+	key := homeKey(r)
+	e := &homeEntry{building: make(chan struct{})}
+	s.homes.mu.Lock()
+	s.homes.m = map[string]*homeEntry{key: e}
+	gen := e.gen
+	s.homes.mu.Unlock()
+
+	s.homeChanged(u.ID) // arrives after the build has read the database
+	s.buildHomeFor(key, e, r, gen)
+
+	s.homes.mu.Lock()
+	dirty, built := e.dirty, e.body != nil
+	s.homes.mu.Unlock()
+	if !built {
+		t.Fatal("home wasn't built")
+	}
+	if !dirty {
+		t.Fatal("a change made during the build was forgotten; Home would stay stale")
+	}
+
+	// A build with nothing changing meanwhile leaves it fresh.
+	s.homes.mu.Lock()
+	e.building = make(chan struct{})
+	gen = e.gen
+	s.homes.mu.Unlock()
+	s.buildHomeFor(key, e, r, gen)
+	s.homes.mu.Lock()
+	dirty = e.dirty
+	s.homes.mu.Unlock()
+	if dirty {
+		t.Fatal("home still out of date after a clean rebuild")
+	}
+}

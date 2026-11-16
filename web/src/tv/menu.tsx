@@ -8,6 +8,7 @@ import { useApi } from "../hooks";
 import { focusables, focusEl, focusInitial, onBack, setFocusFallback, swallowSelectUntilRelease } from "./focus";
 import { useToast } from "./hooks";
 import { playCard, playItem } from "./play";
+import { hideFromUpNext } from "./upNextHidden";
 
 export interface MenuAction {
   key: string;
@@ -18,6 +19,10 @@ export interface MenuAction {
   removes?: boolean;
   /** Toast once it's done; also refreshes what's on screen. */
   done?: string;
+  /** Runs straight away, before the server answers (takes the card off screen). */
+  local?: () => void;
+  /** Don't refetch the page afterwards: `local` already showed the result. */
+  quiet?: boolean;
 }
 
 interface MenuSpec {
@@ -147,14 +152,17 @@ export function MenuProvider({ children }: { children: ReactNode }) {
     close(async () => {
       try {
         if (a.removes) setFocusFallback(neighbours(from));
+        a.local?.();
         await a.run();
         if (a.done) {
           toast(a.done);
           // Pages refetch in place, keeping what's on screen until the answer arrives.
-          window.dispatchEvent(new Event("tv:refresh"));
+          if (!a.quiet) window.dispatchEvent(new Event("tv:refresh"));
         }
       } catch (e) {
         toast((e as Error).message);
+        // Put back whatever `local` took away.
+        if (a.local) window.dispatchEvent(new Event("tv:refresh"));
       }
     });
   }, [close, toast]);
@@ -203,7 +211,8 @@ export function useCardMenu() {
     if (opts.continueRow) {
       acts.push({
         key: "hide-continue", label: "Remove from Up Next", icon: <X size={22} />, removes: true,
-        done: "Removed from Up Next", run: () => api.post(`/api/items/${c.id}/continue/hide`),
+        done: "Removed from Up Next", quiet: true, local: () => hideFromUpNext(c.id),
+        run: () => api.post(`/api/items/${c.id}/continue/hide`),
       });
     }
     if (opts.history) {

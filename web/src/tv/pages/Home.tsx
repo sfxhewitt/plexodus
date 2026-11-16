@@ -9,6 +9,7 @@ import { ambientPrefs, trailersSupported } from "../ambient";
 import { onPlayBusy, playCard, playItem } from "../play";
 import { TrailerVideo } from "../Trailer";
 import { focusInitial } from "../focus";
+import { hiddenFromUpNext } from "../upNextHidden";
 
 /**
  * Full-screen featured carousel, like the top of the Apple TV app. Left on
@@ -167,6 +168,13 @@ function WrappedBanner({ year }: { year: number }) {
 export default function Home() {
   const { data, error, reload } = useApi<HomeData>("/api/home");
   useRefresh(reload);
+  // Remove from Up Next: re-render without the card (filtered below), no refetch.
+  const [, setHiddenTick] = useState(0);
+  useEffect(() => {
+    const on = () => setHiddenTick((t) => t + 1);
+    window.addEventListener("tv:upnext-hidden", on);
+    return () => window.removeEventListener("tv:upnext-hidden", on);
+  }, []);
   const nav = useNavigate();
   const toast = useToast();
   useBackdrop(undefined);
@@ -192,7 +200,11 @@ export default function Home() {
   }
   if (!data) return <Spinner />;
 
-  const rows = data.rows.filter((r) => r.items.length);
+  // The Watchlist has its own tab in the top bar, so Home leaves it out.
+  const rows = data.rows
+    .filter((r) => r.title !== "Watchlist")
+    .map((r) => (r.kind === "landscape" ? { ...r, items: r.items.filter((c) => !hiddenFromUpNext(c.id)) } : r))
+    .filter((r) => r.items.length);
   if (!rows.length && !data.hero.length) {
     return (
       <div className="tv-center">

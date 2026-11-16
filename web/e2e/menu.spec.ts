@@ -42,22 +42,29 @@ test("hold OK on Up Next: menu, Back, then remove", async ({ page, openTv }, inf
   // Focus goes back to the card on the next frame after the menu closes.
   await expect.poll(async () => (await focused(page)).fk, { message: "Back returns focus to the card" }).toBe(cwFirst);
 
-  // Remove it: it leaves the row and focus moves to its neighbour, not the top of the page.
+  // Remove it: it leaves the row at once (no refetch of Home), the next card
+  // slides into its place and takes the focus.
+  const cwRow = page.locator(".tv-row", { has: page.locator(".tv-row-title", { hasText: "Up Next" }) });
+  const second = await cwRow.locator("[data-fk^='c']").nth(1).getAttribute("data-fk");
+  let homeFetches = 0;
+  page.on("request", (r) => {
+    if (r.url().includes("/api/home")) homeFetches++;
+  });
   await hold(page);
   await page.locator('[data-fk="menu-hide-continue"]').waitFor();
   await press(page, "down");
   expect((await press(page, "down")).fk).toBe("menu-hide-continue");
   await press(page, "Enter");
-  await expect(page.locator(".tv-toast")).toHaveText("Removed from Up Next");
-  const cwRow = page.locator(".tv-row", { has: page.locator(".tv-row-title", { hasText: "Up Next" }) });
   await expect(cwRow.locator(`[data-fk="${cwFirst}"]`)).toHaveCount(0);
-  await expect.poll(async () => (await focused(page)).fk).toMatch(/^c\d+$/);
+  await expect.poll(async () => (await focused(page)).fk, { message: "focus moves to the next card" }).toBe(second);
+  await expect(page.locator(".tv-toast")).toHaveText("Removed from Up Next");
+  expect(homeFetches, "removing doesn't reload Home").toBe(0);
   const f = await focused(page);
   expect(f.ok && !f.inNav, "focus stays in the rows").toBe(true);
   await snap(page, info, "02 removed");
 });
 
-test("Menu key: add to watchlist, and a Watchlist row appears", async ({ page, openTv }) => {
+test("Menu key: add to watchlist (Home has no Watchlist row: it's a tab)", async ({ page, openTv }) => {
   await openTv("/");
   await waitForFocus(page, "hero-play");
   await press(page, "down");
@@ -69,7 +76,7 @@ test("Menu key: add to watchlist, and a Watchlist row appears", async ({ page, o
   await page.locator('[data-fk="menu-watchlist"]').focus();
   await press(page, "Enter");
   await expect(page.locator(".tv-toast")).toHaveText("Added to your Watchlist");
-  await expect(page.locator(".tv-row-title", { hasText: "Watchlist" })).toHaveCount(1);
+  await expect(page.locator(".tv-row-title", { hasText: "Watchlist" })).toHaveCount(0);
   expect((await focused(page)).fk, "focus stays on the card").toBe(f.fk);
 });
 
