@@ -170,6 +170,21 @@ function detail(c: Card): Detail {
 interface UserState {
   hiddenContinue: Set<number>;
   watchlist: number[];
+  /** Removed from History. */
+  historyHidden?: Set<number>;
+}
+
+/** History: what was played, newest first, relative to the real clock so the day groups are stable. */
+function history(st: UserState) {
+  const now = Math.floor(Date.now() / 1000);
+  const ep = allEpisodes[0];
+  const list = [
+    { ...movies[3], playedAt: now - 600 },
+    { ...ep, position: 40, duration: 2700, watched: false, playedAt: now - 1200 },
+    { ...movies[0], position: undefined, duration: 6000, watched: true, playedAt: now - 86400 - 60 },
+    { ...movies[7], position: 300, duration: 6500, watched: false, playedAt: now - 3 * 86400 },
+  ];
+  return { items: list.filter((c) => !st.historyHidden?.has(c.id)), more: false, before: 0 };
 }
 
 /**
@@ -436,6 +451,11 @@ addEventListener("message", function (e) {
     if (p === "/api/share/watchlist" && m === "POST") {
       const c = byId.get(route.request().postDataJSON()?.itemId);
       return c ? json(route, { ok: true, already: false, title: c.title, kind: c.kind, name: "Dad" }) : json(route, { error: "nothing to share" }, 404);
+    }
+    if (p === "/api/history" && m === "GET") return json(route, history(st));
+    if ((mm = p.match(/^\/api\/history\/(\d+)$/)) && m === "DELETE") {
+      (st.historyHidden ||= new Set()).add(Number(mm[1]));
+      return json(route, { ok: true });
     }
     if (p === "/api/watchlist") return json(route, { items: st.watchlist.map((id) => ({ ...byId.get(id)!, watchlisted: true })) });
     if (p === "/api/collections") return json(route, collectionsList());

@@ -171,6 +171,8 @@ export function MenuProvider({ children }: { children: ReactNode }) {
 export interface CardMenuOptions {
   /** The card is on Up Next, so it can be removed from there. */
   continueRow?: boolean;
+  /** The card is on History, so it can be removed from there. */
+  history?: boolean;
 }
 
 function watchedNow(c: Card) {
@@ -197,6 +199,12 @@ export function useCardMenu() {
       acts.push({
         key: "hide-continue", label: "Remove from Up Next", icon: <X size={22} />, removes: true,
         done: "Removed from Up Next", run: () => api.post(`/api/items/${c.id}/continue/hide`),
+      });
+    }
+    if (opts.history) {
+      acts.push({
+        key: "hide-history", label: "Remove from History", icon: <X size={22} />, removes: true,
+        done: "Removed from History", run: () => api.del(`/api/history/${c.id}`),
       });
     }
     if (c.kind === "movie" || c.kind === "show") {

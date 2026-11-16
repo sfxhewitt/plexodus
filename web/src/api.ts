@@ -431,6 +431,46 @@ export function episodeLabel(c: Card) {
   return `S${c.seasonNumber} · E${c.episodeNumber}`;
 }
 
+/** A film or episode on History, with when it was last played (unix seconds). */
+export interface HistoryCard extends Card {
+  playedAt: number;
+}
+
+export interface HistoryPage {
+  items: HistoryCard[];
+  more: boolean;
+  /** Pass as ?before= for the next (older) page. */
+  before: number;
+}
+
+/** History split into days, newest first: "Today", "Yesterday", "Monday", "Mon 3 Nov". */
+export function historyDays(items: HistoryCard[], now = new Date()) {
+  const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const today = startOf(now);
+  const days: { label: string; items: HistoryCard[] }[] = [];
+  for (const c of items) {
+    const d = new Date(c.playedAt * 1000);
+    const ago = Math.round((today - startOf(d)) / 86400000);
+    const label = ago <= 0 ? "Today" : ago === 1 ? "Yesterday"
+      : ago < 7 ? d.toLocaleDateString(undefined, { weekday: "long" })
+      : d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
+    const last = days[days.length - 1];
+    if (last && last.label === label) last.items.push(c);
+    else days.push({ label, items: [c] });
+  }
+  return days;
+}
+
+/** "14:02 · 12m of 1h 52m" / "14:02 · Watched": when and how far, for a History entry. */
+export function historyNote(c: HistoryCard) {
+  const at = new Date(c.playedAt * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  let where = "";
+  if (c.watched && !c.position) where = "Watched";
+  else if (c.position && c.duration) where = `${fmtRuntime(Math.max(1, Math.round(c.position / 60)))} of ${fmtRuntime(Math.round(c.duration / 60))}`;
+  else if (c.position) where = `${fmtRuntime(Math.max(1, Math.round(c.position / 60)))} in`;
+  return [at, where].filter(Boolean).join(" · ");
+}
+
 export interface Marker {
   type: "intro" | "credits" | "recap";
   start: number;

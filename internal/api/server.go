@@ -159,6 +159,8 @@ func (s *Server) Handler() http.Handler {
 	user("GET /api/collections", s.handleCollections)
 	user("GET /api/collections/{id}", s.handleCollection)
 	user("GET /api/watchlist", s.handleWatchlistAll)
+	user("GET /api/history", s.handleHistory)
+	user("DELETE /api/history/{id}", s.handleHistoryRemove)
 	user("GET /api/share/targets", s.handleShareTargets)
 	user("GET /api/ask", s.handleAsk)
 	user("GET /api/scan/status", s.handleScanStatus)

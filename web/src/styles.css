@@ -637,3 +637,24 @@ a.cast-card:hover .cast-photo, a.cast-card:focus-visible .cast-photo { transform
 /* Phone-style view on a TV: the way back, easy to spot from the sofa. */
 .tv-back-btn { white-space: nowrap; }
 .tv-back-btn:focus, .tv-back-btn:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+
+/* History: everything played, newest first, grouped by day. */
+.history-intro { margin-top: 6px; }
+.history-day { margin-top: 28px; max-width: 980px; }
+.history-day h2 { font-size: 18px; margin-bottom: 10px; color: var(--muted); font-weight: 600; }
+.history-list { display: flex; flex-direction: column; gap: 6px; }
+.history-row { display: flex; align-items: center; gap: 14px; padding: 8px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); }
+.history-thumb { position: relative; flex: 0 0 160px; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; }
+.history-thumb .img { position: absolute; inset: 0; }
+.history-thumb .progress { left: 6px; right: 6px; bottom: 6px; height: 3px; }
+.history-text { flex: 1; min-width: 0; color: var(--text); display: flex; flex-direction: column; gap: 2px; }
+.history-text .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.history-text .s { font-size: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.history-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.history-more { margin-top: 24px; display: flex; justify-content: center; max-width: 980px; }
+@media (max-width: 640px) {
+  .history-row { gap: 10px; padding: 6px; }
+  .history-thumb { flex-basis: 108px; }
+  .history-actions .btn span { display: none; }
+  .history-actions .btn { padding: 0 10px; }
+}

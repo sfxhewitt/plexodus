@@ -4,7 +4,7 @@ import { Activity, api, Library } from "../api";
 import { useApi, useUser } from "../hooks";
 import { deviceLipSync } from "../native";
 import { backToTv, canReturnToTv } from "../tv/detect";
-import { Film, Grid, Home, Logout, Pulse, Search, Settings, Tv } from "./Icons";
+import { Clock, Film, Grid, Home, Logout, Pulse, Search, Settings, Tv } from "./Icons";
 import { ProfileAvatar } from "./Profiles";
 
 export function Logo() {
@@ -131,6 +131,7 @@ export function Nav() {
       <nav className="nav-links">
         <NavLink to="/" end><Home size={18} /><span>Home</span></NavLink>
         <NavLink to="/libraries" end><Grid size={18} /><span>Libraries</span></NavLink>
+        <NavLink to="/history" end aria-label="History" title="History"><Clock size={18} /><span>History</span></NavLink>
         {libs?.filter((l) => !l.hidden).map((l) => (
           <NavLink key={l.id} to={`/library/${l.id}`} className="lib-link">
             {l.kind === "movies" ? <Film size={18} /> : <Tv size={18} />}

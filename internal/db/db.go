@@ -96,6 +96,10 @@ func migrate(w *sql.DB) error {
 		{"collections", "smart", "INTEGER NOT NULL DEFAULT 0"},
 		// When TMDB was last asked for artwork this collection lacks.
 		{"collections", "art_checked_at", "INTEGER"},
+		// When the item was last actually played (here or in Plex), however
+		// briefly, for History. Marking watched by hand leaves it alone; 0 =
+		// never played or removed from History.
+		{"watch_state", "played_at", "INTEGER NOT NULL DEFAULT 0"},
 	}
 	for _, c := range columns {
 		var n int
@@ -141,7 +145,13 @@ func migrate(w *sql.DB) error {
 	if _, err := w.Exec(`UPDATE invites SET uses = 1 WHERE used_by IS NOT NULL AND uses = 0`); err != nil {
 		return err
 	}
-	return seedHistory(w)
+	if _, err := w.Exec(`CREATE INDEX IF NOT EXISTS watch_state_played ON watch_state(user_id, played_at DESC) WHERE played_at > 0`); err != nil {
+		return err
+	}
+	if err := seedHistory(w); err != nil {
+		return err
+	}
+	return seedPlayedAt(w)
 }
 
 func (d *DB) Close() error {
