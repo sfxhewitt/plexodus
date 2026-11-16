@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http/httptest"
 	"testing"
@@ -311,5 +312,26 @@ func TestSuggestionsSkipSeen(t *testing.T) {
 	}
 	if len(h.Hero) == 0 {
 		t.Error("hero is empty")
+	}
+}
+
+// A show with two nearly finished seasons shows once, with the season
+// watched most recently.
+func TestFinishSeasonOneCardPerShow(t *testing.T) {
+	s, u := testServer(t)
+	smartLibrary(t, s)
+	now := db.Now()
+	for id, at := range map[int]int64{321: now - 7200, 322: now - 7200, 331: now - 600} {
+		if _, err := s.db.W.Exec(`INSERT INTO watch_state(user_id, item_id, position, duration, watched, play_count, updated_at) VALUES (?, ?, 0, 3000, 1, 1, ?)`, u.ID, id, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := httptest.NewRequest("GET", "/api/home", nil).WithContext(auth.WithUser(context.Background(), u))
+	cards, err := s.finishSeason(r, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cards) != 1 || cards[0].ID != 302 {
+		t.Fatalf("finish a season = %+v, want only season 2 (302)", cards)
 	}
 }

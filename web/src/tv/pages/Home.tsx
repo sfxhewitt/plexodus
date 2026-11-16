@@ -9,7 +9,7 @@ import { ambientPrefs, trailersSupported } from "../ambient";
 import { onPlayBusy, playCard, playItem } from "../play";
 import { TrailerVideo } from "../Trailer";
 import { focusInitial } from "../focus";
-import { hiddenFromUpNext } from "../upNextHidden";
+import { hiddenOnHome } from "../homeHidden";
 
 /**
  * Full-screen featured carousel, like the top of the Apple TV app. Left on
@@ -138,6 +138,7 @@ function Hero({ items, onPlay }: { items: Card[]; onPlay: (c: Card) => void }) {
 }
 
 const CONTINUE = { continueRow: true };
+const HOME = { home: true };
 
 /** "S2 · E4 · 12m left" on a Continue watching card: where you are and how long is left. */
 function continueSub(c: Card) {
@@ -168,12 +169,12 @@ function WrappedBanner({ year }: { year: number }) {
 export default function Home() {
   const { data, error, reload } = useApi<HomeData>("/api/home");
   useRefresh(reload);
-  // Remove from Up Next: re-render without the card (filtered below), no refetch.
+  // Remove from Up Next / Mark as watched: re-render without the card (filtered below) at once.
   const [, setHiddenTick] = useState(0);
   useEffect(() => {
     const on = () => setHiddenTick((t) => t + 1);
-    window.addEventListener("tv:upnext-hidden", on);
-    return () => window.removeEventListener("tv:upnext-hidden", on);
+    window.addEventListener("tv:home-hidden", on);
+    return () => window.removeEventListener("tv:home-hidden", on);
   }, []);
   const nav = useNavigate();
   const toast = useToast();
@@ -203,7 +204,7 @@ export default function Home() {
   // The Watchlist has its own tab in the top bar, so Home leaves it out.
   const rows = data.rows
     .filter((r) => r.title !== "Watchlist")
-    .map((r) => (r.kind === "landscape" ? { ...r, items: r.items.filter((c) => !hiddenFromUpNext(c.id)) } : r))
+    .map((r) => ({ ...r, items: r.items.filter((c) => !hiddenOnHome(c.id)) }))
     .filter((r) => r.items.length);
   if (!rows.length && !data.hero.length) {
     return (
@@ -234,7 +235,7 @@ export default function Home() {
                 <TvCard key={c.id} c={c} shape="land" autoFocus={!hasHero && ri === 0 && i === 0}
                   title={c.kind === "episode" ? c.showTitle || c.title : c.title}
                   sub={continuing ? continueSub(c) : undefined}
-                  onSelect={(x) => select(x, continuing)} onPlay={play} menu={continuing ? CONTINUE : undefined} />
+                  onSelect={(x) => select(x, continuing)} onPlay={play} menu={continuing ? CONTINUE : HOME} />
               ))}
               {r.link && (
                 <button className="tv-card more land" data-f data-fk={`more-${r.title}`} onClick={() => nav(r.link!)}>

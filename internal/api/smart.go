@@ -310,7 +310,18 @@ func (s *Server) finishSeason(r *http.Request, hidden map[int64]bool) ([]Card, e
 		}
 		c.Note = note
 	}
-	return cards, nil
+	// One card per show: the season watched most recently (they come newest
+	// first), so a show with two nearly finished seasons doesn't appear twice.
+	seen := map[int64]bool{}
+	out := cards[:0]
+	for _, c := range cards {
+		if c.ShowID != 0 && seen[c.ShowID] {
+			continue
+		}
+		seen[c.ShowID] = true
+		out = append(out, c)
+	}
+	return out, nil
 }
 
 func fmtMinutes(m int) string {
