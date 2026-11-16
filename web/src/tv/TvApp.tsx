@@ -10,7 +10,7 @@ import { Backdrop, BackdropCtx, Spinner, TvButton } from "./components";
 import { focusEl, focusInitial, focusables, installKeys, onBack } from "./focus";
 import { focusPage, setCurrentKey, ToastCtx, useLibraries, useToast } from "./hooks";
 import { lastPlayedItem, onPlayBusy, playItem } from "./play";
-import { parseVoice, playVoice } from "./voice";
+import { openVoice, parseVoice, playVoice } from "./voice";
 import Home from "./pages/Home";
 import Item from "./pages/Item";
 import GuideSeason from "./pages/GuideSeason";
@@ -140,7 +140,8 @@ function PlayRoute() {
 }
 
 // The app opens /voice?q=… for its plexodus://play link (voice assistants such as
-// LUMEN's Alexa skill). Each opening is handled once, even if React runs the effect twice.
+// LUMEN's Alexa skill), with &open=1 for plexodus://open, which shows the title's page
+// without playing. Each opening is handled once, even if React runs the effect twice.
 const voiceHandled = new Set<string>();
 
 function VoiceRoute() {
@@ -153,7 +154,7 @@ function VoiceRoute() {
     const p = new URLSearchParams(loc.search);
     const ask = parseVoice(p.get("q") || "", p.get("from"));
     // The title's page sits under the player, so Back lands there.
-    playVoice(ask).then(
+    (p.get("open") ? openVoice(ask) : playVoice(ask)).then(
       (id) => nav(`/item/${id}`, { replace: true }),
       (e: Error) => {
         toast(e.message);

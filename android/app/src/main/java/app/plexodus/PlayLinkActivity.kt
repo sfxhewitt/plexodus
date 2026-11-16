@@ -10,6 +10,7 @@ import android.os.Bundle
  * (LUMEN's Alexa skill) start a show or film by name. The web UI finds it and
  * plays it like pressing Play: a show carries on from where you left off.
  * Says "season 2 episode 3" or "from the start" in q are understood too.
+ * plexodus://open?q=<title> shows the title's page without playing it.
  */
 class PlayLinkActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -21,6 +22,7 @@ class PlayLinkActivity : Activity() {
         } else {
             val path = Uri.Builder().path("/voice").appendQueryParameter("q", said).apply {
                 if (link?.getQueryParameter("from") == "start") appendQueryParameter("from", "start")
+                if (link?.host == "open") appendQueryParameter("open", "1")
             }.build().toString()
             // The app's own screen, reused if it's open (anything playing closes for the new title).
             startActivity(
