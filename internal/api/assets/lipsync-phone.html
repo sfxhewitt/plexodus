@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#050505">
+<title>Fix lip sync · Plexodus</title>
+<style>
+  :root { --bg:#050505; --card:#141418; --line:#26262c; --text:#f4f4f6; --dim:#a0a0aa; --accent:#e5a00d; --good:#3ecf8e; --bad:#ff6b6b; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; background:var(--bg); color:var(--text); font:16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:460px; margin:0 auto; padding:28px 16px calc(32px + env(safe-area-inset-bottom)); }
+  h1 { font-size:26px; margin:0 0 6px; letter-spacing:-0.01em; }
+  .lead { color:var(--dim); margin:0 0 22px; }
+  ol { margin:0 0 24px; padding:0; list-style:none; counter-reset:s; }
+  ol li { counter-increment:s; position:relative; padding:0 0 14px 40px; }
+  ol li::before { content:counter(s); position:absolute; left:0; top:0; width:26px; height:26px; border-radius:50%; background:var(--card); border:1px solid var(--line); display:grid; place-items:center; font-size:14px; font-weight:600; color:var(--accent); }
+  .btn { display:flex; align-items:center; justify-content:center; gap:10px; width:100%; min-height:56px; border:0; border-radius:14px; background:var(--accent); color:#111; font:600 18px/1 inherit; cursor:pointer; position:relative; overflow:hidden; }
+  .btn input { position:absolute; inset:0; opacity:0; cursor:pointer; }
+  .btn.ghost { background:transparent; color:var(--dim); font-weight:500; font-size:15px; min-height:44px; margin-top:8px; border:1px solid var(--line); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:18px; margin:0 0 18px; }
+  .big { font-size:40px; font-weight:700; letter-spacing:-0.02em; margin:4px 0; }
+  .ok { color:var(--good); } .err { color:var(--bad); }
+  .bar { height:8px; border-radius:4px; background:var(--line); overflow:hidden; margin:12px 0 4px; }
+  .bar i { display:block; height:100%; width:0; background:var(--accent); transition:width .2s; }
+  .dim { color:var(--dim); font-size:14px; }
+  .spin { width:22px; height:22px; border:3px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:r 0.8s linear infinite; display:inline-block; vertical-align:middle; margin-right:8px; }
+  @keyframes r { to { transform:rotate(360deg) } }
+  form { display:flex; gap:8px; }
+  form input { flex:1; min-width:0; min-height:52px; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--text); font-size:22px; letter-spacing:0.2em; text-align:center; }
+  form button { width:auto; padding:0 20px; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Fix lip sync</h1>
+  <p class="lead">Film the TV for ten seconds and Plexodus works out the delay and fixes the TV for you.</p>
+
+  <section id="ask" hidden>
+    <p>Type the code shown on the TV.</p>
+    <form id="codeForm"><input id="codeIn" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="000000"><button class="btn" type="submit">Go</button></form>
+    <p class="dim">No code? On the TV open Settings, Lip sync, Fix with my phone.</p>
+  </section>
+
+  <section id="ready" hidden>
+    <ol>
+      <li>Sit where you normally watch, with the TV showing the flashing test.</li>
+      <li>Tap <b>Record the TV</b> and film the whole screen for about 10 seconds (five beeps). Hold still.</li>
+      <li>Tap <b>Use Video</b>. The TV fixes itself.</li>
+    </ol>
+    <label class="btn" id="recordBtn">Record the TV<input id="rec" type="file" accept="video/*" capture="environment"></label>
+    <label class="btn ghost">Upload a video I already filmed<input id="pick" type="file" accept="video/*"></label>
+  </section>
+
+  <section id="busy" class="card" hidden>
+    <div><span class="spin"></span><span id="busyText">Uploading…</span></div>
+    <div class="bar" id="barWrap"><i id="bar"></i></div>
+    <div class="dim" id="busySub"></div>
+  </section>
+
+  <section id="result" class="card" hidden>
+    <div class="dim" id="resHead"></div>
+    <div class="big" id="resBig"></div>
+    <div id="resText"></div>
+    <p class="dim" id="resSaved"></p>
+  </section>
+
+  <section id="failed" class="card" hidden>
+    <div class="err" id="failText"></div>
+  </section>
+
+  <section id="again" hidden>
+    <label class="btn">Check again<input id="rec2" type="file" accept="video/*" capture="environment"></label>
+    <p class="dim">Film it once more: it should come back as in sync.</p>
+  </section>
+</main>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const show = (...ids) => ["ask","ready","busy","result","failed","again"].forEach((s) => ($(s).hidden = !ids.includes(s)));
+  let code = (location.pathname.match(/\/sync\/(\d{6})/) || [])[1] || "";
+  let round = -1, polling = null;
+
+  async function state() {
+    const r = await fetch("/api/lipsync/phone/" + code, { cache: "no-store" });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "Something went wrong.");
+    return j;
+  }
+
+  function fail(msg, retry) {
+    $("failText").textContent = msg;
+    show(...(retry ? ["failed", "ready"] : ["failed"]));
+  }
+
+  async function start() {
+    if (!/^\d{6}$/.test(code)) { show("ask"); return; }
+    try {
+      const s = await state();
+      round = s.round;
+      if (s.state === "done" && s.result) { render(s); show("result", "again"); }
+      else show("ready");
+    } catch (e) { fail(e.message); }
+  }
+
+  $("codeForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    code = $("codeIn").value.trim();
+    history.replaceState(null, "", "/sync/" + code);
+    start();
+  });
+
+  for (const id of ["rec", "pick", "rec2"]) {
+    $(id).addEventListener("change", (e) => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = "";
+      if (f) upload(f);
+    });
+  }
+
+  function upload(file) {
+    show("busy");
+    $("busyText").textContent = "Uploading…";
+    $("barWrap").hidden = false;
+    $("bar").style.width = "0";
+    $("busySub").textContent = (file.size / 1e6).toFixed(0) + " MB";
+    const x = new XMLHttpRequest();
+    x.open("POST", "/api/lipsync/phone/" + code + "/video");
+    x.setRequestHeader("Content-Type", "application/octet-stream");
+    x.upload.onprogress = (e) => { if (e.lengthComputable) $("bar").style.width = (100 * e.loaded / e.total).toFixed(0) + "%"; };
+    x.onload = () => {
+      if (x.status >= 400) {
+        let msg = "The upload failed.";
+        try { msg = JSON.parse(x.responseText).error || msg; } catch {}
+        fail(msg, true);
+        return;
+      }
+      $("busyText").textContent = "Measuring…";
+      $("barWrap").hidden = true;
+      $("busySub").textContent = "Finding the flashes and beeps. This takes a few seconds.";
+      poll();
+    };
+    x.onerror = () => fail("The upload didn't get through. Check you're on the same network as before and try again.", true);
+    x.send(file);
+  }
+
+  function poll() {
+    clearTimeout(polling);
+    polling = setTimeout(async () => {
+      let s;
+      try { s = await state(); } catch (e) { fail(e.message); return; }
+      if (s.state === "failed") { fail(s.error, true); return; }
+      if (s.state === "done" && s.round !== round) {
+        render(s);
+        show("result", "again");
+        if (s.appliedMs == null) poll(); else round = s.round;
+        return;
+      }
+      if (s.state === "done" && s.appliedMs != null) { render(s); return; }
+      poll();
+    }, 1000);
+  }
+
+  function render(s) {
+    const off = s.result.offsetMs, a = Math.abs(off);
+    const inSync = a <= 20;
+    $("resHead").textContent = inSync ? "Result" : "The sound was";
+    $("resBig").className = "big" + (inSync ? " ok" : "");
+    $("resBig").textContent = inSync ? "In sync" : a + " ms " + (off > 0 ? "late" : "early");
+    $("resText").textContent = inSync
+      ? (a ? "Only " + a + " ms out, which nobody can see. " : "") + "Measured from " + s.result.pairs + " beeps."
+      : "So the TV now plays its sound " + a + " ms " + (off > 0 ? "earlier" : "later") + ". Measured from " + s.result.pairs + " beeps.";
+    if (s.appliedMs != null) {
+      $("resSaved").innerHTML = '<span class="ok">✓ Saved on the TV.</span> Every film on it now uses this. Press OK on the remote to finish.';
+    } else {
+      $("resSaved").textContent = "Sending it to the TV…";
+    }
+  }
+
+  start();
+})();
+</script>
+</body>
+</html>

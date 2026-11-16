@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { AdminUser, api, fmtSize, Invite, Library, PlexStatus, PlexSyncStatus, ScanProgress, User } from "../api";
 import { Copy, Folder, Plus, Refresh, Trash, X } from "../components/Icons";
 import { useApi, useUser } from "../hooks";
-import { deviceLipSync, native } from "../native";
+import { deviceLipSync, native, phoneLipSync } from "../native";
 
 function ago(ts?: number | string) {
   if (!ts) return "never";
@@ -960,6 +960,7 @@ function DeviceLipSync() {
         <p className="muted small">
           If voices are early or late on everything you play here (Bluetooth headphones and speakers often add delay),
           set it once for this device. Calibrate plays a beep with a flash: tap the buttons until they land together, then Done.
+          Fix with another phone shows a test and a QR code: film this screen with a second phone and the delay is set for you.
           For one bad file, tap Audio sync in the player instead.
         </p>
         <div className="lipsync-row">
@@ -968,7 +969,8 @@ function DeviceLipSync() {
           <button className="btn glass sm" onClick={() => change(ms - 20)}>Sound earlier</button>
           <button className="btn glass sm" onClick={() => change(ms + 20)}>Sound later</button>
           <button className="btn glass sm" disabled={!ms} onClick={() => change(0)}>Reset</button>
-          {native?.calibrateAudio && <button className="btn primary sm" onClick={() => native?.calibrateAudio?.()}>Calibrate</button>}
+          {native?.calibrateAudio && <button className={`btn ${phoneLipSync() ? "glass" : "primary"} sm`} onClick={() => native?.calibrateAudio?.()}>Calibrate</button>}
+          {phoneLipSync() && <button className="btn primary sm" onClick={() => native?.calibrateWithPhone?.()}>Fix with another phone</button>}
         </div>
       </div>
     </section>

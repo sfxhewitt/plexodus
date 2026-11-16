@@ -44,6 +44,7 @@ import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import kotlin.math.abs
 
 /**
  * Direct-play video player built on libVLC. It streams the original file,
@@ -104,6 +105,11 @@ class PlayerActivity : Activity() {
     private var fileDelayMs = 0
     /** Flash-and-beep calibration of deviceDelayMs instead of a film. */
     private var calibrating = false
+    /** Calibration by a phone filming the TV: a QR code, then the measured fix is applied. */
+    private var phoneMode = false
+    private var phoneCode = ""
+    private var phoneRound = 0
+    private lateinit var phoneStatus: TextView
     private lateinit var syncButton: Button
     /** The Audio sync bar is up: the remote adjusts the sound, not the film. */
     private var syncMode = false
@@ -201,6 +207,7 @@ class PlayerActivity : Activity() {
         itemId = intent.getLongExtra(EXTRA_ITEM_ID, 0)
         startItemId = itemId
         calibrating = intent.getBooleanExtra(EXTRA_CALIBRATE, false)
+        phoneMode = calibrating && intent.getBooleanExtra(EXTRA_PHONE, false)
         deviceDelayMs = Prefs.audioDelay(this)
         fileDelayMs = intent.getIntExtra(EXTRA_AUDIO_OFFSET_MS, 0)
         kind = intent.getStringExtra(EXTRA_KIND) ?: ""
@@ -367,7 +374,7 @@ class PlayerActivity : Activity() {
         if (calibrating) {
             overlay.visibility = View.GONE
             controlsVisible = false
-            updateCalibration()
+            if (phoneMode) startPhoneSync() else updateCalibration()
         } else {
             setControls(true)
         }
@@ -1581,6 +1588,98 @@ class PlayerActivity : Activity() {
         finish()
     }
 
+    // ---- lip sync with a phone ----
+
+    /** Gets a code from the server and shows its QR code, then waits for the phone. */
+    private fun startPhoneSync() {
+        val panel = findViewById<View>(R.id.phone_panel)
+        phoneStatus = findViewById(R.id.phone_status)
+        panel.visibility = View.VISIBLE
+        phoneStatus.setText(R.string.phone_starting)
+        if (touchScreen) {
+            findViewById<TextView>(R.id.phone_hint).setText(R.string.phone_hint_touch)
+            findViewById<View>(R.id.phone_done).apply {
+                visibility = View.VISIBLE
+                setOnClickListener { endCalibration(save = true) }
+            }
+        }
+        io.execute {
+            try {
+                val r = Http.request("$server/api/lipsync/sessions", "POST", JSONObject().put("deviceMs", deviceDelayMs).toString(), mapOf("Cookie" to cookie))
+                if (r.code != 200) throw Exception(JSONObject(r.body).optString("error", "HTTP ${r.code}"))
+                val code = JSONObject(r.body).getString("code")
+                val png = Http.bytes("$server/api/lipsync/sessions/$code/qr.png", mapOf("Cookie" to cookie))
+                val qr = png?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+                ui.post {
+                    if (finished) return@post
+                    phoneCode = code
+                    findViewById<ImageView>(R.id.phone_qr).setImageBitmap(qr)
+                    findViewById<TextView>(R.id.phone_code).text = getString(R.string.phone_code, server, code)
+                    phoneStatus.setText(R.string.phone_waiting)
+                    ui.postDelayed(phonePoll, PHONE_POLL_MS)
+                }
+            } catch (e: Exception) {
+                ui.post { if (!finished) phoneStatus.text = getString(R.string.phone_no_server, e.message ?: "") }
+            }
+        }
+    }
+
+    private val phonePoll: Runnable = Runnable { pollPhone() }
+
+    private fun pollPhone() {
+        if (finished || phoneCode.isEmpty()) return
+        val code = phoneCode
+        val current = deviceDelayMs
+        io.execute {
+            val st = try {
+                val r = Http.request("$server/api/lipsync/sessions/$code?deviceMs=$current", headers = mapOf("Cookie" to cookie))
+                if (r.code == 404) null else if (r.code == 200) JSONObject(r.body) else JSONObject()
+            } catch (_: Exception) {
+                JSONObject() // a blip: keep trying
+            }
+            ui.post {
+                if (finished) return@post
+                if (st == null) {
+                    phoneStatus.setText(R.string.phone_expired)
+                    return@post
+                }
+                onPhoneState(st)
+                ui.postDelayed(phonePoll, PHONE_POLL_MS)
+            }
+        }
+    }
+
+    private fun onPhoneState(st: JSONObject) {
+        when (st.optString("state")) {
+            "uploading" -> phoneStatus.setText(R.string.phone_uploading)
+            "analysing" -> phoneStatus.setText(R.string.phone_analysing)
+            "failed" -> phoneStatus.text = getString(R.string.phone_failed, st.optString("error"))
+            "done" -> {
+                val round = st.optInt("round")
+                if (round <= phoneRound) return
+                phoneRound = round
+                val measured = st.optJSONObject("result")?.optInt("offsetMs") ?: return
+                deviceDelayMs = st.optInt("newDeviceMs", deviceDelayMs - measured).coerceIn(-Prefs.MAX_DELAY, Prefs.MAX_DELAY)
+                Prefs.setAudioDelay(this, deviceDelayMs)
+                applyAudioDelay()
+                val now = describe(deviceDelayMs).replaceFirstChar { it.lowercase() }
+                phoneStatus.text = when {
+                    abs(measured) <= PHONE_IN_SYNC_MS -> getString(R.string.phone_in_sync, abs(measured), now)
+                    measured > 0 -> getString(R.string.phone_fixed_late, measured, now)
+                    else -> getString(R.string.phone_fixed_early, -measured, now)
+                }
+                val code = phoneCode
+                val saved = deviceDelayMs
+                io.execute {
+                    try {
+                        Http.request("$server/api/lipsync/sessions/$code/applied", "POST", JSONObject().put("deviceMs", saved).toString(), mapOf("Cookie" to cookie))
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+        }
+    }
+
     private fun step() = if (calibrating) CALIBRATION_STEP_MS else SYNC_STEP_MS
     private fun bigStep() = step() * if (calibrating) 5 else 4
 
@@ -1701,6 +1800,14 @@ class PlayerActivity : Activity() {
                 KeyEvent.KEYCODE_MEDIA_PLAY -> player.play()
                 KeyEvent.KEYCODE_MEDIA_PAUSE -> player.pause()
                 else -> return super.onKeyDown(keyCode, event)
+            }
+            return true
+        }
+        if (phoneMode) {
+            // Whatever the phone measured is already saved: OK and Back both finish.
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_BACK -> endCalibration(save = true)
+                KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN, KeyEvent.KEYCODE_VOLUME_MUTE -> return super.onKeyDown(keyCode, event)
             }
             return true
         }
@@ -1937,17 +2044,23 @@ class PlayerActivity : Activity() {
         private const val EXTRA_FILE_ID = "fileId"
         private const val EXTRA_AUDIO_OFFSET_MS = "audioOffsetMs"
         private const val EXTRA_CALIBRATE = "calibrate"
+        private const val EXTRA_PHONE = "phone"
+        private const val PHONE_POLL_MS = 1500L
+        /** A measured gap this small is left as "in sync" in the wording (still applied). */
+        private const val PHONE_IN_SYNC_MS = 20
 
         /** The stream URL names the file: /api/stream/{fileId}/{name}. */
         fun fileIdFromUrl(url: String): Long =
             Regex("/api/stream/(\\d+)/").find(url)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
 
         /** Loops the server's flash-and-beep clip to set this device's offset. */
-        fun calibrationIntent(ctx: Context, server: String): Intent =
+        fun calibrationIntent(ctx: Context, server: String, cookie: String = "", phone: Boolean = false): Intent =
             Intent(ctx, PlayerActivity::class.java)
                 .putExtra(EXTRA_SERVER, server)
+                .putExtra(EXTRA_COOKIE, cookie)
                 .putExtra(EXTRA_URL, "$server/api/lipsync-calibration.mkv")
                 .putExtra(EXTRA_CALIBRATE, true)
+                .putExtra(EXTRA_PHONE, phone)
         private const val COUNTDOWN_S = 10
         /** Ask "still watching?" instead of counting down after this many episodes in a row with no button pressed. */
         private const val STILL_WATCHING_AFTER = 3

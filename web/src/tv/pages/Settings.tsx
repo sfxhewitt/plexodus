@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Activity, api, fmtTime, Library, LibraryPrefs, setLibraryPrefs } from "../../api";
 import { Check, Logout, Refresh, X } from "../../components/Icons";
 import { useUser } from "../../hooks";
-import { native, nativeHas } from "../../native";
+import { native, nativeHas, phoneLipSync } from "../../native";
 import { ambientPrefs, onAmbientPrefs, setAmbientPrefs, startScreensaver, trailersSupported } from "../ambient";
 import { TvButton, useBackdrop } from "../components";
 import { useLibraries, usePageFocus, useToast } from "../hooks";
@@ -138,6 +138,7 @@ const fmtSync = (ms: number) => (!ms ? "In sync" : `Sound ${Math.abs(ms)} ms ${m
  */
 function LipSyncChoices() {
   const supported = !!native && nativeHas("avsync");
+  const phone = phoneLipSync();
   const read = () => {
     try {
       return native?.audioDelay?.() || 0;
@@ -161,8 +162,10 @@ function LipSyncChoices() {
       <h2 className="tv-section-title">Lip sync</h2>
       <p className="tv-muted tv-section-note">
         If voices are early or late on everything you play on this TV, the TV or sound system is adding delay.
-        Calibrate plays a beep with a flash: nudge with left and right until they land together, then press OK.
-        For one bad file, use Audio sync in the player instead.
+        {phone
+          ? " Fix with my phone shows a flash-and-beep test and a QR code: scan it, film the TV for ten seconds and this TV sets itself. No guessing which way."
+          : " Calibrate plays a beep with a flash: nudge with left and right until they land together, then press OK."}
+        {" "}For one bad file, use Audio sync in the player instead.
       </p>
       <div className="tv-pref-row" data-row data-group="lipsync">
         <div className="tv-pref-name">
@@ -171,7 +174,8 @@ function LipSyncChoices() {
         </div>
         {supported && (
           <>
-            <TvButton fk="lipsync-calibrate" className="chip ambient" onClick={() => native?.calibrateAudio?.()}>Calibrate</TvButton>
+            {phone && <TvButton fk="lipsync-phone" className="chip ambient" onClick={() => native?.calibrateWithPhone?.()}>Fix with my phone</TvButton>}
+            <TvButton fk="lipsync-calibrate" className="chip ambient" onClick={() => native?.calibrateAudio?.()}>{phone ? "Calibrate by eye" : "Calibrate"}</TvButton>
             <TvButton fk="lipsync-earlier" className="chip ambient" onClick={() => change(ms - 20)}>Sound earlier</TvButton>
             <TvButton fk="lipsync-later" className="chip ambient" onClick={() => change(ms + 20)}>Sound later</TvButton>
             <TvButton fk="lipsync-reset" className="chip ambient" onClick={() => change(0)}>Reset</TvButton>

@@ -39,6 +39,8 @@ interface Bridge {
   setAudioDelay?(ms: number): void;
   /** Opens the flash-and-beep calibration in the app's player. */
   calibrateAudio?(): void;
+  /** Apps with "avsync-phone": the player shows a QR code, a phone films the TV and the fix applies itself. */
+  calibrateWithPhone?(): void;
   /** Apps with "update": checks GitHub and shows the app's own update dialogs. */
   checkForUpdates?(): void;
 }
@@ -57,6 +59,9 @@ export const nativeHas = (feature: string) => nativeFeatures().includes(feature)
 
 /** Inside an Android app that can move its sound for lip sync. */
 export const deviceLipSync = () => !!native && nativeHas("avsync");
+
+/** The app can be calibrated by filming it with a phone. */
+export const phoneLipSync = () => !!native && nativeHas("avsync-phone") && typeof native.calibrateWithPhone === "function";
 
 export const nativePlay = (req: NativePlayRequest) => {
   // Apps from before "Skip recap" would treat a recap like closing credits

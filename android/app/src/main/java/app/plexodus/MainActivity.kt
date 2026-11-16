@@ -250,7 +250,7 @@ class MainActivity : Activity() {
 
         /** Player features the web UI can rely on (older apps lack this). */
         @JavascriptInterface
-        fun features(): String = if (BuildConfig.SELF_UPDATE) "recap,avsync,update" else "recap,avsync"
+        fun features(): String = if (BuildConfig.SELF_UPDATE) "recap,avsync,avsync-phone,update" else "recap,avsync,avsync-phone"
 
         /** "Check for updates" in Settings: the app shows its own dialogs. */
         @JavascriptInterface
@@ -272,6 +272,15 @@ class MainActivity : Activity() {
         fun calibrateAudio() {
             runOnUiThread {
                 startActivityForResult(PlayerActivity.calibrationIntent(this@MainActivity, server), REQ_CALIBRATE)
+            }
+        }
+
+        /** Lip sync with a phone: the player shows a QR code, the phone films the TV, the fix applies itself. */
+        @JavascriptInterface
+        fun calibrateWithPhone() {
+            runOnUiThread {
+                val cookie = CookieManager.getInstance().getCookie(server) ?: ""
+                startActivityForResult(PlayerActivity.calibrationIntent(this@MainActivity, server, cookie, phone = true), REQ_CALIBRATE)
             }
         }
 
