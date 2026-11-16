@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Activity, api, Library } from "../api";
 import { useApi, useUser } from "../hooks";
 import { deviceLipSync } from "../native";
+import { backToTv, canReturnToTv } from "../tv/detect";
 import { Film, Grid, Home, Logout, Pulse, Search, Settings, Tv } from "./Icons";
 import { ProfileAvatar } from "./Profiles";
 
@@ -55,6 +56,23 @@ export function Nav() {
   }, [reloadLibs]);
   const nav = useNavigate();
   const loc = useLocation();
+
+  // Phone-style view on a TV: an obvious, already-focused way back, and the
+  // remote's Back on Home returns to the TV view instead of leaving the app.
+  const [tvBack] = useState(canReturnToTv);
+  const tvBtn = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (tvBack) tvBtn.current?.focus();
+  }, [tvBack]);
+  const atHome = loc.pathname === "/";
+  useEffect(() => {
+    if (!tvBack) return;
+    const w = window as unknown as { __plexodusBack?: () => string };
+    w.__plexodusBack = () => (atHome ? (backToTv(), "handled") : "none");
+    return () => {
+      delete w.__plexodusBack;
+    };
+  }, [tvBack, atHome]);
   const [scrolled, setScrolled] = useState(false);
   const [q, setQ] = useState(() => new URLSearchParams(loc.search).get("q") || "");
   const input = useRef<HTMLInputElement>(null);
@@ -121,6 +139,11 @@ export function Nav() {
         ))}
       </nav>
       <div className="nav-right">
+        {tvBack && (
+          <button ref={tvBtn} className="btn primary tv-back-btn" data-testid="back-to-tv" onClick={backToTv}>
+            <Tv size={18} /><span>Back to TV view</span>
+          </button>
+        )}
         <label className="search-box">
           <Search size={18} />
           <input ref={input} value={q} placeholder="Search or ask…" onChange={(e) => onSearch(e.target.value)}

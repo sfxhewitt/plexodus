@@ -633,3 +633,7 @@ a.cast-card:hover .cast-photo, a.cast-card:focus-visible .cast-photo { transform
 .person-bio.full { display: block; }
 .poster-card.elsewhere { opacity: 0.82; }
 .poster-card.elsewhere:hover { opacity: 1; }
+
+/* Phone-style view on a TV: the way back, easy to spot from the sofa. */
+.tv-back-btn { white-space: nowrap; }
+.tv-back-btn:focus, .tv-back-btn:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
