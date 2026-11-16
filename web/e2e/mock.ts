@@ -88,6 +88,46 @@ SHOW_TITLES.forEach((title, si) => {
 const allEpisodes = [...episodes.values()].flat();
 const byId = new Map<number, Card>([...movies, ...shows, ...[...seasons.values()].flat(), ...allEpisodes].map((c) => [c.id, c]));
 
+/**
+ * Episode guide (TMDB's full list) for the first show: season 1 has two
+ * more episodes than the library (one aired, one coming), and season 5 is
+ * announced but not out. Other shows have no guide.
+ */
+function guide(id: number, seasonParam: string | null) {
+  const c = byId.get(id);
+  const showId = c?.kind === "season" ? c.parentId! : id;
+  const want = c?.kind === "season" ? c.seasonNumber! : seasonParam != null ? Number(seasonParam) : undefined;
+  if (showId !== shows[0].id) return { available: false, total: 0, aired: 0, have: 0, seasons: [], episodes: [], season: want };
+  const local = seasons.get(showId)!;
+  const gs = [1, 2, 3, 4, 5].map((n) => {
+    const ls = local.find((s) => s.seasonNumber === n);
+    const total = n === 1 ? 12 : n === 5 ? 8 : 6;
+    const eps = Array.from({ length: total }, (_, i) => {
+      const e = i + 1;
+      const have = ls ? episodes.get(ls.id)!.find((x) => x.episodeNumber === e) : undefined;
+      const upcoming = n === 5 || (n === 1 && e === 12);
+      const airDate = n === 5 ? (e === 1 ? "2099-03-01" : "") : n === 1 && e === 12 ? "2099-01-15" : `20${10 + n}-0${1 + (e % 9)}-01`;
+      return { season: n, episode: e, name: have?.title || `Unseen ${n}x${e}`, overview: `Guide entry for ${n}x${e}.`, airDate,
+        still: `/b/g${n}-${e}.jpg`, runtime: 44, itemId: have?.id, state: have ? "have" : upcoming ? "upcoming" : "missing" };
+    });
+    const aired = eps.filter((e) => e.state !== "upcoming").length;
+    const haveN = eps.filter((e) => e.itemId).length;
+    return {
+      meta: { season: n, name: `Season ${n}`, airDate: n === 5 ? "2099-03-01" : `20${10 + n}-01-01`, poster: ls?.poster || `/p/g${n}.jpg`,
+        itemId: ls?.id, total, aired, have: haveN, nextAirDate: eps.find((e) => e.state === "upcoming" && e.airDate)?.airDate,
+        state: haveN && haveN >= aired ? "have" : haveN ? "partial" : aired ? "missing" : "upcoming" },
+      eps,
+    };
+  });
+  const all = gs.flatMap((s) => s.eps);
+  return {
+    available: true, status: "Returning Series",
+    total: all.length, aired: all.filter((e) => e.state !== "upcoming").length, have: all.filter((e) => e.itemId).length,
+    next: all.find((e) => e.airDate === "2099-01-15"),
+    seasons: gs.map((s) => s.meta), season: want, episodes: want != null ? gs.find((s) => s.meta.season === want)?.eps ?? [] : [],
+  };
+}
+
 /** Well-known ids the specs navigate to. */
 /** Artwork path -> the title it belongs to (store screenshots letter it onto the poster). */
 export const artTitles = new Map<string, string>();
@@ -428,6 +468,7 @@ addEventListener("message", function (e) {
         ],
       });
     }
+    if ((mm = p.match(/^\/api\/items\/(\d+)\/guide$/))) return json(route, guide(Number(mm[1]), u.searchParams.get("season")));
     if ((mm = p.match(/^\/api\/items\/(\d+)\/trailer$/))) return json(route, { youtube: Number(mm[1]) === ids.movie ? "fakeTrailer" : "" });
     if ((mm = p.match(/^\/api\/play\/(\d+)$/))) {
       return json(route, { externalUrl: `http://media.test/stream/${mm[1]}`, position: 0, file: { id: Number(mm[1]), duration: 5400 }, audioOffsetMs: -120 });

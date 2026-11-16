@@ -658,3 +658,13 @@ a.cast-card:hover .cast-photo, a.cast-card:focus-visible .cast-photo { transform
   .history-actions .btn span { display: none; }
   .history-actions .btn { padding: 0 10px; }
 }
+
+/* Episode guide: seasons and episodes not in the library. */
+.poster-card.missing .poster-frame img, .episode.missing .ep-thumb img, .detail-poster.missing img { filter: grayscale(1) brightness(0.6); }
+.poster-card.missing .poster-meta .s { font-style: italic; }
+.episode.missing { opacity: 0.7; }
+.episode.missing:hover { background: none; }
+.ep-status { font-weight: 600; }
+.ep-status.upcoming, .next-air { color: var(--teal); }
+.ep-status.missing { color: var(--muted); }
+.season-tabs a.missing { opacity: 0.6; }

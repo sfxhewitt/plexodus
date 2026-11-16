@@ -258,3 +258,12 @@ CREATE TABLE IF NOT EXISTS collection_items (
     PRIMARY KEY (collection_id, item_id)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS collection_items_item ON collection_items(item_id);
+
+-- Every season and episode TMDB lists for a show (metadata.Guide as JSON),
+-- fetched when someone opens the show, so its page can show missing and
+-- upcoming episodes. Never fetched in bulk.
+CREATE TABLE IF NOT EXISTS tmdb_guides (
+    tmdb_id    INTEGER PRIMARY KEY,
+    data       TEXT NOT NULL,
+    fetched_at INTEGER NOT NULL
+);

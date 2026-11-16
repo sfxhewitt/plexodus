@@ -7,7 +7,7 @@ import { WhoIsWatching } from "./components/Profiles";
 import { forgetPicked, goHome, loadProfiles, shouldPick } from "./profiles";
 import { UserContext } from "./hooks";
 import Home from "./pages/Home";
-import Item from "./pages/Item";
+import Item, { GuideSeasonPage } from "./pages/Item";
 import Libraries from "./pages/Libraries";
 import Library from "./pages/Library";
 import Login from "./pages/Login";
@@ -35,6 +35,7 @@ function Shell() {
           <Route path="/libraries" element={<Libraries />} />
           <Route path="/library/:id" element={<Library />} />
           <Route path="/item/:id" element={<Item />} />
+          <Route path="/item/:id/season/:n" element={<GuideSeasonPage />} />
           <Route path="/person/:id" element={<Person />} />
           <Route path="/play/:id" element={<Player />} />
           <Route path="/search" element={<Search />} />

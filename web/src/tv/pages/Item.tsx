@@ -11,6 +11,7 @@ import { hasTrailerKey as hasTrailerKeyNow, trailerKey } from "../Trailer";
 import { playCard, playItem } from "../play";
 import { CollectionTile } from "../collectionTile";
 import { initials } from "../../people";
+import { countLabel, episodeCard, episodeStatus, fmtAirDate, Guide, GuideEpisode, mergeEpisodes, mergeSeasons, seasonCard, seasonSub } from "../../guide";
 
 function MediaChips({ d }: { d: Detail }) {
   const f = d.files[0];
@@ -45,6 +46,10 @@ export default function Item() {
   const { data: extras } = useApi<Extras>(isTitle && String(d?.id) === id ? `/api/items/${id}/extras` : null);
   useRefresh(reload);
   const [focusedEp, setFocusedEp] = useState<Card>();
+  // Every episode TMDB lists, aired or not; loads after the page so it never slows it.
+  const isSeriesPage = d?.kind === "show" || d?.kind === "season";
+  const { data: guideData } = useApi<Guide>(isSeriesPage && String(d?.id) === id ? `/api/items/${id}/guide` : null);
+  const guide = guideData?.available ? guideData : undefined;
 
   const ready = !!d && String(d.id) === id;
   const backdrop = d ? (d.kind !== "episode" && d.backdrop) || d.show?.backdrop || d.showBackdrop || d.backdrop : undefined;
@@ -118,12 +123,21 @@ export default function Item() {
     }
   };
 
+  const seasons = d.kind === "show" ? mergeSeasons(d.children, guide) : [];
+  const thisSeason = d.kind === "season" ? guide?.seasons.find((s) => s.itemId === d.id) : undefined;
+  const episodes = d.kind === "season" ? mergeEpisodes(d.children, guide, d.seasonNumber) : [];
+  const seasonCount = seasons.filter((s) => s.season > 0).length || d.children.length;
+  const episodeCount = d.kind === "show" && guide ? countLabel(guide.have, guide.total)
+    : thisSeason ? countLabel(thisSeason.have, thisSeason.total) : "";
   const meta = [
     d.year ? String(d.year) : "",
     d.runtime ? fmtRuntime(d.runtime) : "",
-    d.kind === "show" && d.children.length ? `${d.children.length} season${d.children.length === 1 ? "" : "s"}` : "",
-    isSeries && d.leafCount ? `${d.leafCount} episodes` : "",
+    d.kind === "show" && seasonCount ? `${seasonCount} season${seasonCount === 1 ? "" : "s"}` : "",
+    episodeCount || (isSeries && d.leafCount ? `${d.leafCount} episodes` : ""),
   ].filter(Boolean);
+  const next = d.kind === "show" ? guide?.next : guide?.next?.season === d.seasonNumber ? guide?.next : undefined;
+  const nextLabel = next?.airDate ? `Next episode ${fmtAirDate(next.airDate)}` : "";
+  const focusedEntry = episodes.find((e) => (e.card ?? (e.guide && episodeCard(e.guide, d)))?.id === focusedEp?.id);
 
   return (
     <div className={`tv-page tv-detail kind-${d.kind}`} data-vscroll="reveal" data-margin="4rem">
@@ -142,6 +156,7 @@ export default function Item() {
           <div className="tv-meta">
             {d.rating ? <span className="tv-rating">★ {d.rating.toFixed(1)}</span> : null}
             {meta.map((m) => <span key={m}>{m}</span>)}
+            {nextLabel && <span className="tv-next-air">{nextLabel}</span>}
             {d.genres.slice(0, 3).map((g) => <span key={g} className="tv-genre">{g}</span>)}
             {allWatched && <span className="tv-watched"><Check size={18} /> Watched</span>}
           </div>
@@ -188,35 +203,31 @@ export default function Item() {
         </TvRow>
       )}
 
-      {d.kind === "show" && d.children.length > 0 && (
+      {d.kind === "show" && seasons.length > 0 && (
         <TvRow id={`seasons-${d.id}`} title="Seasons">
-          {d.children.map((s) => (
+          {seasons.map(({ season, card: s, guide: g }) => s ? (
             <TvCard key={s.id} c={{ ...s, showPoster: d.poster }} shape="poster" onSelect={() => nav(`/item/${s.id}`)}
-              isDefault={s.id === (d.onDeck?.parentId ?? d.children[0].id)}
-              sub={`${s.leafCount || 0} episode${s.leafCount === 1 ? "" : "s"}${s.viewedLeafCount ? ` · ${s.viewedLeafCount} watched` : ""}`} />
+              isDefault={s.id === (d.onDeck?.parentId ?? d.children[0]?.id)} sub={seasonSub(g, s)} />
+          ) : g && (
+            <TvCard key={`g${season}`} c={seasonCard(g, d)} shape="poster" missing menu={false} sub={seasonSub(g)}
+              onSelect={() => nav(`/item/${d.id}/season/${season}`)} />
           ))}
         </TvRow>
       )}
 
       {d.kind === "season" && (
         <>
-          {d.siblings && d.siblings.length > 1 && (
-            <div className="tv-tabs" data-row data-group="seasons">
-              {d.siblings.map((s) => (
-                <button key={s.id} data-f data-fk={`s${s.id}`} data-default={s.id === d.id ? "" : undefined}
-                  className={`tv-tab ${s.id === d.id ? "on" : ""}`}
-                  onClick={() => s.id !== d.id && nav(`/item/${s.id}`, { replace: true, state: { focus: `s${s.id}` } })}>
-                  {s.title}
-                </button>
-              ))}
-            </div>
-          )}
-          <TvRow id={`eps-${d.id}`} title="Episodes"
-            extra={<EpisodeBlurb c={focusedEp && d.children.some((e) => e.id === focusedEp.id) ? focusedEp : d.children[0]} />}>
-            {d.children.map((e) => (
+          <SeasonTabs showId={showId} current={d.seasonNumber} siblings={d.siblings ?? []} guide={guide} />
+          <TvRow id={`eps-${d.id}`} title={episodeCount ? `Episodes · ${episodeCount.replace(" episodes", "")}` : "Episodes"}
+            extra={<EpisodeBlurb c={focusedEntry ? focusedEp : d.children[0]} status={focusedEntry?.guide && !focusedEntry.card ? focusedEntry.guide : undefined} />}>
+            {episodes.map(({ episode, card: e, guide: g }) => e ? (
               <TvCard key={e.id} c={{ ...e, showBackdrop: d.show?.backdrop || d.showBackdrop }} shape="land"
                 label={`E${e.episodeNumber ?? ""}`} title={e.title} sub={e.runtime ? fmtRuntime(e.runtime) : ""}
                 onFocusCard={setFocusedEp} onSelect={() => play(e.id)} onPlay={() => play(e.id)} isDefault={e.id === target?.id} />
+            ) : g && (
+              <TvCard key={`g${episode}`} c={episodeCard(g, d, d.show?.backdrop || d.showBackdrop)} shape="land" missing menu={false}
+                label={`E${episode}`} title={g.name || `Episode ${episode}`} sub={episodeStatus(g)}
+                onFocusCard={setFocusedEp} onSelect={() => toast(missingToast(g))} />
             ))}
           </TvRow>
         </>
@@ -264,15 +275,43 @@ export default function Item() {
 type Extras = { cast: { id?: number; name: string; character?: string; profile?: string }[]; similar: Card[] };
 
 
-function EpisodeBlurb({ c }: { c?: Card }) {
+function EpisodeBlurb({ c, status }: { c?: Card; status?: GuideEpisode }) {
   if (!c) return null;
   return (
     <div className="tv-blurb">
       <div className="tv-blurb-title">
         <span className="tv-ep-label">{episodeLabel(c)}</span>{c.title}
         {c.watched && <span className="tv-watched"><Check size={16} /></span>}
+        {status && <span className="tv-blurb-status">{episodeStatus(status)}</span>}
       </div>
       {c.overview && <p>{c.overview}</p>}
+    </div>
+  );
+}
+
+export function missingToast(g: GuideEpisode) {
+  if (g.state === "upcoming") return g.airDate ? `Episode ${g.episode} airs on ${fmtAirDate(g.airDate)}` : `Episode ${g.episode} hasn't got an air date yet`;
+  return `Episode ${g.episode} isn't in your library`;
+}
+
+/** Season tabs on a season page: the library's seasons plus the ones you don't have. */
+export function SeasonTabs({ showId, current, siblings, guide }: { showId?: number; current?: number; siblings: Card[]; guide?: Guide }) {
+  const nav = useNavigate();
+  const tabs = mergeSeasons(siblings, guide);
+  if (tabs.length < 2 || !showId) return null;
+  return (
+    <div className="tv-tabs" data-row data-group="seasons">
+      {tabs.map(({ season, card, guide: g }) => {
+        const on = season === current;
+        const fk = card ? `s${card.id}` : `sg${season}`;
+        return (
+          <button key={season} data-f data-fk={fk} data-default={on ? "" : undefined}
+            className={`tv-tab ${on ? "on" : ""} ${card ? "" : "missing"}`}
+            onClick={() => !on && nav(card ? `/item/${card.id}` : `/item/${showId}/season/${season}`, { replace: true, state: { focus: fk } })}>
+            {card?.title || g?.name || `Season ${season}`}
+          </button>
+        );
+      })}
     </div>
   );
 }

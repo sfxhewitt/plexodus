@@ -5,6 +5,7 @@ import { Img, PosterCard, Row } from "../components/Cards";
 import { Check, Eye, Play, Refresh, Search, Share, Wand, X } from "../components/Icons";
 import { useApi, useDebounced, useUser } from "../hooks";
 import { initials } from "../people";
+import { countLabel, episodeStatus, fmtAirDate, Guide, GuideEpisode, mergeEpisodes, mergeSeasons, seasonCard, seasonSub } from "../guide";
 
 function MatchModal({ item, onClose, onDone }: { item: Detail; onClose: () => void; onDone: () => void }) {
   const [q, setQ] = useState(item.title);
@@ -87,10 +88,11 @@ function FileInfo({ d }: { d: Detail }) {
   );
 }
 
-function EpisodeList({ eps }: { eps: Card[] }) {
+function EpisodeList({ eps, guide }: { eps: Card[]; guide?: { list: ReturnType<typeof mergeEpisodes> } }) {
+  const list = guide?.list ?? eps.map((c) => ({ episode: c.episodeNumber ?? 0, card: c, guide: undefined }));
   return (
     <div className="episodes">
-      {eps.map((e) => (
+      {list.map(({ episode, card: e, guide: g }) => !e ? g && <MissingEpisode key={`g${episode}`} g={g} /> : (
         <div key={e.id} className="episode">
           <Link to={`/play/${e.id}`} className="ep-thumb">
             <Img src={art(e.backdrop, "w500")} alt={e.title} title={`E${e.episodeNumber}`} />
@@ -109,6 +111,78 @@ function EpisodeList({ eps }: { eps: Card[] }) {
   );
 }
 
+/** An episode TMDB lists that isn't in the library: greyed, with when it airs. */
+function MissingEpisode({ g }: { g: GuideEpisode }) {
+  return (
+    <div className="episode missing">
+      <div className="ep-thumb">
+        <Img src={art(g.still, "w500")} alt={g.name || ""} title={`E${g.episode}`} />
+      </div>
+      <div className="ep-body">
+        <div className="ep-title"><span className="ep-num">{g.episode}</span>{g.name || `Episode ${g.episode}`}</div>
+        <div className="ep-meta"><span className={`ep-status ${g.state}`}>{episodeStatus(g)}</span>{g.runtime ? ` · ${fmtRuntime(g.runtime)}` : ""}</div>
+        {g.overview && <p>{g.overview}</p>}
+      </div>
+    </div>
+  );
+}
+
+/** Season tabs: the library's seasons and the ones you don't have. */
+function SeasonTabs({ showId, current, siblings, guide }: { showId?: number; current?: number; siblings: Card[]; guide?: Guide }) {
+  const tabs = mergeSeasons(siblings, guide);
+  if (tabs.length < 2 || !showId) return null;
+  return (
+    <div className="season-tabs">
+      {tabs.map(({ season, card, guide: g }) => (
+        <Link key={season} to={card ? `/item/${card.id}` : `/item/${showId}/season/${season}`}
+          className={`${season === current ? "on" : ""} ${card ? "" : "missing"}`}>
+          {card?.title || g?.name || `Season ${season}`}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+/** A season that isn't in the library, from the episode guide. */
+export function GuideSeasonPage() {
+  const { id, n } = useParams();
+  const season = Number(n);
+  const { data: show, error } = useApi<Detail>(`/api/items/${id}`);
+  const { data: guide } = useApi<Guide>(`/api/items/${id}/guide?season=${season}`);
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [id, n]);
+  if (error) return <div className="page-msg">{error}</div>;
+  if (!show || !guide || guide.season !== season) return <div className="page-loading"><div className="spinner" /></div>;
+  const g = guide.seasons.find((s) => s.season === season);
+  const poster = g?.poster || show.poster;
+  return (
+    <div className="detail kind-season">
+      <div className="detail-bg" style={show.backdrop ? { backgroundImage: `url(${art(show.backdrop, "w1280")})` } : undefined} />
+      <div className="detail-shade" />
+      <div className="detail-main page">
+        <div className="detail-poster missing"><Img src={art(poster, "w500")} alt={g?.name || ""} title={g?.name || ""} /></div>
+        <div className="detail-info">
+          <Link className="crumb" to={`/item/${show.id}`}>{show.title}</Link>
+          <h1>{g?.name || `Season ${season}`}</h1>
+          <div className="meta-line">
+            {g?.airDate ? <span>{g.airDate.slice(0, 4)}</span> : null}
+            {guide.episodes.length ? <span>{guide.episodes.length} episodes</span> : null}
+            <span className="pill">{g && g.aired > 0 ? "Not in your library" : g?.nextAirDate || g?.airDate ? `Coming ${fmtAirDate(g.nextAirDate || g.airDate)}` : "Coming soon"}</span>
+          </div>
+          {!guide.available && guide.message && <p className="overview">{guide.message}</p>}
+        </div>
+      </div>
+      <div className="detail-below page">
+        <section>
+          <SeasonTabs showId={show.id} current={season} siblings={show.children} guide={guide} />
+          <div className="episodes">{guide.episodes.map((e) => <MissingEpisode key={e.episode} g={e} />)}</div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
 export default function Item() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -120,6 +194,9 @@ export default function Item() {
   const [matching, setMatching] = useState(false);
   const { data: shareData } = useApi<{ targets: ShareTarget[] }>("/api/share/targets");
   const [shareMsg, setShareMsg] = useState<string>();
+  const isSeriesPage = d?.kind === "show" || d?.kind === "season";
+  const { data: guideData } = useApi<Guide>(isSeriesPage && String(d?.id) === id ? `/api/items/${id}/guide` : null);
+  const guide = guideData?.available ? guideData : undefined;
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -146,6 +223,12 @@ export default function Item() {
     reload();
   };
   const allWatched = d.kind === "show" || d.kind === "season" ? !!d.leafCount && d.viewedLeafCount === d.leafCount : d.watched;
+  const seasons = d.kind === "show" ? mergeSeasons(d.children, guide) : [];
+  const seasonCount = seasons.filter((s) => s.season > 0).length || d.children.length;
+  const thisSeason = d.kind === "season" ? guide?.seasons.find((s) => s.itemId === d.id) : undefined;
+  const episodeCount = d.kind === "show" && guide ? countLabel(guide.have, guide.total)
+    : thisSeason ? countLabel(thisSeason.have, thisSeason.total) : "";
+  const next = d.kind === "show" ? guide?.next : guide?.next?.season === d.seasonNumber ? guide?.next : undefined;
 
   return (
     <div className={`detail kind-${d.kind}`}>
@@ -172,7 +255,9 @@ export default function Item() {
             {d.rating ? <span className="pill">★ {d.rating.toFixed(1)}</span> : null}
             {d.year ? <span>{d.year}</span> : null}
             {d.runtime ? <span>{fmtRuntime(d.runtime)}</span> : null}
-            {d.kind === "show" && d.leafCount ? <span>{d.children.length} seasons · {d.leafCount} episodes</span> : null}
+            {d.kind === "show" && d.leafCount ? <span>{seasonCount} season{seasonCount === 1 ? "" : "s"} · {episodeCount || `${d.leafCount} episodes`}</span> : null}
+            {d.kind === "season" && episodeCount ? <span>{episodeCount}</span> : null}
+            {next?.airDate ? <span className="next-air">Next episode {fmtAirDate(next.airDate)}</span> : null}
             {d.genres.slice(0, 4).map((g) => <span key={g} className="genre">{g}</span>)}
           </div>
           {d.tagline && <p className="tagline">{d.tagline}</p>}
@@ -215,27 +300,22 @@ export default function Item() {
       </div>
 
       <div className="detail-below page">
-        {d.kind === "show" && d.children.length > 0 && (
+        {d.kind === "show" && seasons.length > 0 && (
           <section>
             <h2 className="section-title">Seasons</h2>
             <div className="grid seasons">
-              {d.children.map((s) => (
-                <PosterCard key={s.id} c={{ ...s, showPoster: d.poster }}
-                  subtitle={`${s.leafCount} episode${s.leafCount === 1 ? "" : "s"}${s.viewedLeafCount ? ` · ${s.viewedLeafCount} watched` : ""}`} />
+              {seasons.map(({ season, card: s, guide: g }) => s ? (
+                <PosterCard key={s.id} c={{ ...s, showPoster: d.poster }} subtitle={seasonSub(g, s)} />
+              ) : g && (
+                <PosterCard key={`g${season}`} c={seasonCard(g, d)} subtitle={seasonSub(g)} missing to={`/item/${d.id}/season/${season}`} />
               ))}
             </div>
           </section>
         )}
         {d.kind === "season" && (
           <section>
-            {d.siblings && d.siblings.length > 1 && (
-              <div className="season-tabs">
-                {d.siblings.map((s) => (
-                  <Link key={s.id} to={`/item/${s.id}`} className={s.id === d.id ? "on" : ""}>{s.title}</Link>
-                ))}
-              </div>
-            )}
-            <EpisodeList eps={d.children} />
+            <SeasonTabs showId={d.show?.id || d.showId || d.parentId} current={d.seasonNumber} siblings={d.siblings ?? []} guide={guide} />
+            <EpisodeList eps={d.children} guide={guide ? { list: mergeEpisodes(d.children, guide, d.seasonNumber) } : undefined} />
           </section>
         )}
         {(d.kind === "movie" || d.kind === "show") && extras && extras.cast.length > 0 && (

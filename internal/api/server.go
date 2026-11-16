@@ -167,6 +167,7 @@ func (s *Server) Handler() http.Handler {
 	user("GET /api/items/{id}/markers", s.handleMarkers)
 	user("GET /api/items/{id}/trailer", s.handleTrailer)
 	user("GET /api/items/{id}/extras", s.handleExtras)
+	user("GET /api/items/{id}/guide", s.handleGuide)
 	user("GET /api/people/{id}", s.handlePerson)
 	user("GET /api/files/{id}/thumbs", s.handleThumbs)
 	user("GET /api/files/{id}/thumbs/{n}", s.handleThumbSheet)

@@ -727,3 +727,14 @@ html.tv [data-hscroll]::-webkit-scrollbar, html.tv [data-vscroll]::-webkit-scrol
   background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.85); font-size: 1.2rem; font-weight: 600;
 }
 .tv-history-more { padding: 0.6rem var(--pad) 0; }
+
+/* Episode guide: seasons and episodes not in the library. */
+.tv-card.missing .tv-card-frame img { filter: grayscale(1) brightness(0.55); }
+.tv-card.missing .tv-card-frame { background: rgba(255, 255, 255, 0.04); }
+.tv-card.missing .tv-card-cap .t { color: var(--tv-muted); }
+.tv-card.missing .tv-card-cap .s { color: var(--tv-muted); font-style: italic; }
+.tv-card.missing:focus .tv-card-frame img { filter: grayscale(0.6) brightness(0.8); }
+.tv-tab.missing { opacity: 0.55; }
+.tv-tab.missing:focus { opacity: 1; }
+.tv-blurb-status { margin-left: 0.8rem; font-size: 1.15rem; font-weight: 600; color: var(--tv-cyan); }
+.tv-next-air { color: var(--tv-cyan); }
