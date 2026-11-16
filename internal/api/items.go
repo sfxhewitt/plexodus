@@ -526,10 +526,31 @@ const (
 	upNextReturnDays  = 365 // shows that may have come back with new episodes
 	upNextNewDays     = 30  // ...if the new episode arrived this recently
 	upNextMax         = 30
+
+	// A film or episode joins Up Next only once this much of it has been
+	// watched, so something played for a few seconds (a mis-click, a peek)
+	// doesn't sit at the front of Home. Short items count once half
+	// watched. Admins can change it in Settings (up_next_min_minutes).
+	upNextMinMinutesDefault = 10
+	upNextMinMinutesKey     = "up_next_min_minutes"
 )
 
+// upNextMinSeconds is how far into a film or episode someone must get
+// before it shows in Up Next.
+func (s *Server) upNextMinSeconds(ctx context.Context) int64 {
+	return int64(s.upNextMinMinutes(ctx)) * 60
+}
+
+func (s *Server) upNextMinMinutes(ctx context.Context) int {
+	if n, err := strconv.Atoi(s.db.Setting(ctx, upNextMinMinutesKey)); err == nil && n >= 0 && n <= 120 {
+		return n
+	}
+	return upNextMinMinutesDefault
+}
+
 // upNext is the first row on Home, newest activity first:
-//   - films and episodes stopped part way, played in the last 7 days;
+//   - films and episodes stopped part way (at least 10 minutes in, by
+//     default, or half way for short ones), played in the last 7 days;
 //   - the next episode of each show with an episode finished in the last
 //     60 days;
 //   - shows that have come back: everything up to the latest season was
@@ -567,9 +588,10 @@ func (s *Server) upNext(r *http.Request) ([]Card, error) {
 		return list, rows.Err()
 	}
 	partial, err := scanIDT(`SELECT w.item_id, w.updated_at FROM watch_state w JOIN items i ON i.id = w.item_id
-		WHERE w.user_id = ?1 AND w.updated_at > ?2 AND w.position > 30 AND w.watched = 0 AND i.kind IN ('movie', 'episode')
+		WHERE w.user_id = ?1 AND w.updated_at > ?2 AND w.watched = 0 AND i.kind IN ('movie', 'episode')
+		AND w.position > 30 AND (w.position >= ?4 OR (w.duration > 0 AND w.position * 2 >= w.duration))
 		AND NOT EXISTS (SELECT 1 FROM continue_hidden ch WHERE ch.user_id = ?1 AND ch.item_id = w.item_id AND ch.hidden_at >= w.updated_at)
-		ORDER BY w.updated_at DESC LIMIT ?3`, uid, now-upNextPartialDays*86400, upNextMax)
+		ORDER BY w.updated_at DESC LIMIT ?3`, uid, now-upNextPartialDays*86400, upNextMax, s.upNextMinSeconds(ctx))
 	if err != nil {
 		return nil, err
 	}

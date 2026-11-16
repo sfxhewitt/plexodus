@@ -195,3 +195,14 @@ func (s *Server) homeChanged(uid int64) {
 		}
 	}
 }
+
+// allHomesChanged marks every cached Home out of date, after a setting that
+// changes what Home shows for everyone.
+func (s *Server) allHomesChanged() {
+	c := &s.homes
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, e := range c.m {
+		e.dirty = true
+	}
+}

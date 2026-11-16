@@ -544,6 +544,7 @@ type SettingsT = {
   tmdbKeySet: boolean; tmdbKeyMasked: string; tmdbKeyFromEnv: boolean; apiKey: string;
   anthropicKeySet: boolean; anthropicKeyMasked: string; anthropicKeyFromEnv: boolean; askModel: string;
   detectMarkers: boolean;
+  upNextMinMinutes?: number;
   autoUpdate?: AutoUpdateT;
 };
 
@@ -673,6 +674,21 @@ function Metadata() {
         </form>
       </section>
       <AskSettings />
+      <section className="settings-section">
+        <h2>Up Next</h2>
+        <div className="card form">
+          <label htmlFor="upnext-min">Show a film or episode in Up Next after watching</label>
+          <select id="upnext-min" value={data?.upNextMinMinutes ?? 10}
+            onChange={async (e) => setData(await api.put<SettingsT>("/api/settings", { upNextMinMinutes: Number(e.target.value) }))}>
+            {[0, 2, 5, 10, 15, 20, 30].map((m) => (
+              <option key={m} value={m}>{m === 0 ? "Any amount" : `${m} minutes`}</option>
+            ))}
+          </select>
+          <p className="muted small">
+            Titles only played for a moment stay off Up Next until you get this far in (or half way, for anything shorter). Applies to everyone, including progress synced from Plex.
+          </p>
+        </div>
+      </section>
       <section className="settings-section">
         <h2>Skip buttons</h2>
         <div className="card form">
