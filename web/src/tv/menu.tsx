@@ -8,7 +8,7 @@ import { useApi } from "../hooks";
 import { focusables, focusEl, focusInitial, onBack, setFocusFallback, swallowSelectUntilRelease } from "./focus";
 import { useToast } from "./hooks";
 import { playCard, playItem } from "./play";
-import { hideFromUpNext } from "./upNextHidden";
+import { hideOnHome, unhideOnHome } from "./homeHidden";
 
 export interface MenuAction {
   key: string;
@@ -182,6 +182,8 @@ export interface CardMenuOptions {
   continueRow?: boolean;
   /** The card is on History, so it can be removed from there. */
   history?: boolean;
+  /** The card is on Home: marking it watched takes it off at once. */
+  home?: boolean;
 }
 
 function watchedNow(c: Card) {
@@ -211,7 +213,7 @@ export function useCardMenu() {
     if (opts.continueRow) {
       acts.push({
         key: "hide-continue", label: "Remove from Up Next", icon: <X size={22} />, removes: true,
-        done: "Removed from Up Next", quiet: true, local: () => hideFromUpNext(c.id),
+        done: "Removed from Up Next", quiet: true, local: () => hideOnHome(c.id),
         run: () => api.post(`/api/items/${c.id}/continue/hide`),
       });
     }
@@ -230,7 +232,8 @@ export function useCardMenu() {
     }
     acts.push({
       key: "watched", label: watched ? "Mark as unwatched" : "Mark as watched", icon: watched ? <Eye size={22} /> : <Check size={22} />,
-      removes: !watched && !!opts.continueRow, done: watched ? "Marked as unwatched" : "Marked as watched",
+      removes: !watched && !!(opts.continueRow || opts.home), done: watched ? "Marked as unwatched" : "Marked as watched",
+      local: () => (watched ? unhideOnHome(c.id) : (opts.continueRow || opts.home) && hideOnHome(c.id)),
       run: () => api.post(`/api/items/${c.id}/watched`, { watched: !watched }),
     });
     for (const t of shareTargets ?? []) {

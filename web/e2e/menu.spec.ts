@@ -80,6 +80,23 @@ test("Menu key: add to watchlist (Home has no Watchlist row: it's a tab)", async
   expect((await focused(page)).fk, "focus stays on the card").toBe(f.fk);
 });
 
+test("Mark as watched on any Home row takes the card off at once", async ({ page, openTv }) => {
+  await openTv("/");
+  await waitForFocus(page, "hero-play");
+  await press(page, "down");
+  await press(page, "down");
+  await press(page, "down"); // Recently Added Movies
+  const f = await press(page, "right"); // the first film is already watched
+  const row = page.locator(".tv-row", { has: page.locator(`[data-fk="${f.fk}"]`) });
+  const next = await row.locator("[data-f]").nth(2).getAttribute("data-fk");
+  await press(page, "ContextMenu");
+  await page.locator('[data-fk="menu-watched"]').focus();
+  await press(page, "Enter");
+  await expect(page.locator(`.tv-home [data-fk="${f.fk}"]`)).toHaveCount(0);
+  await expect.poll(async () => (await focused(page)).fk, { message: "focus moves to the next card" }).toBe(next);
+  await expect(page.locator(".tv-toast")).toHaveText("Marked as watched");
+});
+
 test("a quick OK still opens the title", async ({ page, openTv }) => {
   await openTv("/");
   await waitForFocus(page, "hero-play");
