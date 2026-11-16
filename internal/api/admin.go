@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -381,6 +382,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		"scanInterval":        s.cfg.ScanInterval.String(),
 		"detectMarkers":       s.detector.Enabled(r.Context()),
 		"autoUpdate":          s.autoUpdateSettings(r.Context()),
+		"upNextMinMinutes":    s.upNextMinMinutes(r.Context()),
 	})
 }
 
@@ -392,6 +394,7 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		Detect       *bool   `json:"detectMarkers"`
 		AutoUpdate   *bool   `json:"autoUpdate"`
 		UpdateNow    bool    `json:"updateNow"`
+		UpNextMin    *int    `json:"upNextMinMinutes"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, 400, err.Error())
@@ -417,6 +420,14 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 			v = "off"
 		}
 		s.db.SetSetting(r.Context(), detect.SettingKey, v)
+	}
+	if body.UpNextMin != nil {
+		if *body.UpNextMin < 0 || *body.UpNextMin > 120 {
+			writeErr(w, 400, "Up Next minimum must be 0 to 120 minutes")
+			return
+		}
+		s.db.SetSetting(r.Context(), upNextMinMinutesKey, strconv.Itoa(*body.UpNextMin))
+		s.allHomesChanged()
 	}
 	if body.AutoUpdate != nil {
 		s.setAutoUpdate(r.Context(), *body.AutoUpdate)

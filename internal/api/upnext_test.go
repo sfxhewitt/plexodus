@@ -91,3 +91,63 @@ func TestUpNextRules(t *testing.T) {
 }
 
 func itoa(n int64) string { return idList([]int64{n}) }
+
+// Up Next leaves out titles only played for a moment: a film or episode
+// needs 10 minutes watched (or half of a short one), whether the progress
+// came from Plexodus or the Plex sync. The minimum is a setting.
+func TestUpNextMinimumWatched(t *testing.T) {
+	s, u := testServer(t)
+	now := db.Now()
+	progress := func(id int64, pos, dur float64) {
+		t.Helper()
+		if _, err := s.db.W.Exec(`INSERT INTO watch_state(user_id, item_id, position, duration, watched, updated_at) VALUES (?, ?, ?, ?, 0, ?)`,
+			u.ID, id, pos, dur, now-id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.W.Exec(`INSERT INTO items(id, library_id, kind, guid, title, sort_title, added_at, updated_at) VALUES
+		(30, 1, 'movie', 'm30', 'Ronin', 'ronin', 0, 0), (40, 1, 'movie', 'm40', 'Short', 'short', 0, 0), (50, 1, 'movie', 'm50', 'Odd', 'odd', 0, 0)`); err != nil {
+		t.Fatal(err)
+	}
+	progress(10, 5, 6000)   // a few seconds: hidden
+	progress(20, 300, 6000) // 5 minutes: hidden by default
+	progress(30, 700, 6000) // past 10 minutes: shown
+	progress(40, 200, 360)  // 6-minute short, over half: shown
+	progress(50, 200, 0)    // unknown length, 3 minutes: hidden
+
+	upNext := func() []int64 {
+		t.Helper()
+		s.allHomesChanged()
+		s.homes.m = nil
+		var h struct {
+			Rows []Row `json:"rows"`
+		}
+		call(t, s, u, s.handleHome, "GET", "/api/home", "", nil, &h)
+		var got []int64
+		for _, r := range h.Rows {
+			if r.Title == "Up Next" {
+				for _, c := range r.Items {
+					got = append(got, c.ID)
+				}
+			}
+		}
+		return got
+	}
+	same := func(got, want []int64) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Fatalf("up next = %v, want %v", got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("up next = %v, want %v", got, want)
+			}
+		}
+	}
+	same(upNext(), []int64{30, 40})
+
+	if err := s.db.SetSetting(t.Context(), upNextMinMinutesKey, "2"); err != nil {
+		t.Fatal(err)
+	}
+	same(upNext(), []int64{20, 30, 40, 50})
+}
