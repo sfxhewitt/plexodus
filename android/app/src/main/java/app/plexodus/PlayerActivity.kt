@@ -424,7 +424,8 @@ class PlayerActivity : Activity() {
         started = false
         pendingStartMs = if (startMs > 5_000 && !calibrating) startMs else 0L
         lastReport = 0L
-        if (calibrating) media.addOption(":input-repeat=65535")
+        // The calibration clip is 10 s; it's restarted at its end (EndReached)
+        // rather than with :input-repeat, after which the Cube showed no picture.
         player.setMedia(media)
         media.release()
         player.play()
@@ -515,8 +516,10 @@ class PlayerActivity : Activity() {
                 updateTime()
             }
             MediaPlayer.Event.ESAdded, MediaPlayer.Event.ESSelected -> updateTrackButtons()
-            MediaPlayer.Event.Vout -> if (e.voutCount > 0) matchRefreshRate()
-            MediaPlayer.Event.EndReached -> if (!calibrating) onEnd()
+            // Not for the calibration clip: switching the TV to 50 Hz for it blanked
+            // the picture on the Fire TV Cube while the beeps carried on.
+            MediaPlayer.Event.Vout -> if (e.voutCount > 0 && !calibrating) matchRefreshRate()
+            MediaPlayer.Event.EndReached -> if (calibrating) ui.post { if (!finished) load(mediaUrl, 0) } else onEnd()
             MediaPlayer.Event.EncounteredError -> {
                 spinner.visibility = View.GONE
                 errorText.text = getString(R.string.player_error)
@@ -1961,8 +1964,16 @@ class PlayerActivity : Activity() {
             player.setEventListener(null)
             player.stop()
             player.detachViews()
-            player.release()
-            libVlc.release()
+            // Stopping closes the audio output, and Android then reports the
+            // device change to libVLC on the main thread; if the player is
+            // already released by then, libVLC throws and the app crashes
+            // ("can't get VLCObject instance"). Release once that has passed.
+            val p = player
+            val vlc = libVlc
+            Handler(Looper.getMainLooper()).postDelayed({
+                p.release()
+                vlc.release()
+            }, RELEASE_DELAY_MS)
         }
         abandonAudioFocus()
         // Let the last progress POST go out before the executor dies.
@@ -2045,6 +2056,7 @@ class PlayerActivity : Activity() {
         private const val EXTRA_AUDIO_OFFSET_MS = "audioOffsetMs"
         private const val EXTRA_CALIBRATE = "calibrate"
         private const val EXTRA_PHONE = "phone"
+        private const val RELEASE_DELAY_MS = 3000L
         private const val PHONE_POLL_MS = 1500L
         /** A measured gap this small is left as "in sync" in the wording (still applied). */
         private const val PHONE_IN_SYNC_MS = 20
