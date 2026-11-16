@@ -130,11 +130,13 @@ export interface CardProps {
   isDefault?: boolean;
   /** Hold OK (or Menu) for the action menu; false turns it off. */
   menu?: CardMenuOptions | false;
+  /** Not in the library (an episode guide entry): greyed, not playable. */
+  missing?: boolean;
 }
 
-export const TvCard = memo(function TvCard({ c, shape, onSelect, onPlay, onFocusCard, title, sub, label, autoFocus, isDefault, menu }: CardProps) {
+export const TvCard = memo(function TvCard({ c, shape, onSelect, onPlay, onFocusCard, title, sub, label, autoFocus, isDefault, menu, missing }: CardProps) {
   const openMenu = useCardMenu();
-  const press = useLongPress(() => onSelect(c), menu === false ? undefined : (el) => openMenu(c, menu || {}, el));
+  const press = useLongPress(() => onSelect(c), menu === false || missing ? undefined : (el) => openMenu(c, menu || {}, el));
   const isEp = c.kind === "episode";
   const img = shape === "poster"
     ? art(c.poster || c.showPoster, "w342")
@@ -143,7 +145,7 @@ export const TvCard = memo(function TvCard({ c, shape, onSelect, onPlay, onFocus
   const s = sub ?? c.note ?? (isEp && shape === "land" ? cardSub(c) : c.kind === "season" ? cardSub(c) : c.year ? String(c.year) : "");
   return (
     <button
-      className={`tv-card ${shape}`}
+      className={`tv-card ${shape}${missing ? " missing" : ""}`}
       data-f
       data-fk={`c${c.id}`}
       data-autofocus={autoFocus ? "" : undefined}
@@ -167,7 +169,7 @@ export const TvCard = memo(function TvCard({ c, shape, onSelect, onPlay, onFocus
         {label && <span className="tv-card-label">{label}</span>}
         <Badge c={c} />
         <Progress c={c} />
-        <span className="tv-card-play"><Play size={28} /></span>
+        {!missing && <span className="tv-card-play"><Play size={28} /></span>}
       </div>
       <div className="tv-card-cap">
         <div className="t">{t}</div>

@@ -13,6 +13,7 @@ import { lastPlayedItem, onPlayBusy, playItem } from "./play";
 import { parseVoice, playVoice } from "./voice";
 import Home from "./pages/Home";
 import Item from "./pages/Item";
+import GuideSeason from "./pages/GuideSeason";
 import LibraryPage from "./pages/Library";
 import SearchPage from "./pages/Search";
 import SettingsPage from "./pages/Settings";
@@ -264,6 +265,7 @@ function Shell() {
               <Route path="/" element={<Home />} />
               <Route path="/library/:id" element={<LibraryPage />} />
               <Route path="/item/:id" element={<Item />} />
+              <Route path="/item/:id/season/:n" element={<GuideSeason />} />
               <Route path="/search" element={<SearchPage />} />
               <Route path="/watchlist" element={<WatchlistPage />} />
               <Route path="/history" element={<HistoryPage />} />

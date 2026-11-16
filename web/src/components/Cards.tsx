@@ -52,15 +52,15 @@ function Badge({ c }: { c: Card }) {
   return null;
 }
 
-export function PosterCard({ c, subtitle }: { c: Card; subtitle?: string }) {
+export function PosterCard({ c, subtitle, to, missing }: { c: Card; subtitle?: string; to?: string; missing?: boolean }) {
   const sub = subtitle ?? c.note ?? (c.kind === "season" ? `${c.leafCount || 0} episodes` : c.year ? String(c.year) : "");
   return (
-    <Link to={itemLink(c)} className="poster-card">
+    <Link to={to || itemLink(c)} className={`poster-card${missing ? " missing" : ""}`}>
       <div className="poster-frame">
         <Img src={art(c.poster || c.showPoster, "w342")} alt={c.title} title={c.title} />
         <Badge c={c} />
         <Progress c={c} />
-        <div className="poster-hover"><span className="play-dot"><Play size={20} /></span></div>
+        {!missing && <div className="poster-hover"><span className="play-dot"><Play size={20} /></span></div>}
       </div>
       <div className="poster-meta">
         <div className="t">{c.title}</div>
