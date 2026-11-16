@@ -18,3 +18,16 @@ test("a film's page: Share with Dad adds it to his Plex watchlist", async ({ pag
   await share.click();
   await expect(page.locator("body")).toContainText("to Dad's Plex watchlist");
 });
+
+test("hold OK on a card: Share with Dad is in the menu", async ({ page, openTv }) => {
+  await openTv("/");
+  await waitForFocus(page, "hero-play");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.down("Enter");
+  await page.waitForTimeout(800);
+  await page.keyboard.up("Enter");
+  const item = page.locator(".tv-menu .tv-menu-item", { hasText: "Share with Dad" });
+  await expect(item).toHaveCount(1);
+  await item.click();
+  await expect(page.locator("body")).toContainText("to Dad's Plex watchlist");
+});

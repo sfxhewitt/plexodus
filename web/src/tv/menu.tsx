@@ -2,8 +2,9 @@
 // do with what's focused, like Plex's and Jellyfin's context menus.
 import { createContext, KeyboardEvent, ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, Card, episodeLabel, Library, setLibraryPrefs } from "../api";
-import { Check, Eye, Info, Play, Plus, Refresh, Tv, X } from "../components/Icons";
+import { api, Card, episodeLabel, Library, setLibraryPrefs, ShareTarget, shareToPlex } from "../api";
+import { Check, Eye, Info, Play, Plus, Refresh, Share, Tv, X } from "../components/Icons";
+import { useApi } from "../hooks";
 import { focusables, focusEl, focusInitial, onBack, setFocusFallback, swallowSelectUntilRelease } from "./focus";
 import { useToast } from "./hooks";
 import { playCard, playItem } from "./play";
@@ -184,6 +185,10 @@ function watchedNow(c: Card) {
 export function useCardMenu() {
   const open = useMenu();
   const nav = useNavigate();
+  const toast = useToast();
+  // People linked in Settings > Share to Plex (admins only; empty for everyone else).
+  const { data: shareData } = useApi<{ targets: ShareTarget[] }>("/api/share/targets");
+  const shareTargets = shareData?.targets;
   return useCallback((c: Card, opts: CardMenuOptions = {}, from?: HTMLElement | null) => {
     const playable = c.kind === "movie" || c.kind === "episode";
     const resume = playable && !!c.position && !c.watched;
@@ -219,6 +224,17 @@ export function useCardMenu() {
       removes: !watched && !!opts.continueRow, done: watched ? "Marked as unwatched" : "Marked as watched",
       run: () => api.post(`/api/items/${c.id}/watched`, { watched: !watched }),
     });
+    for (const t of shareTargets ?? []) {
+      // An episode or season shares its show.
+      acts.push({
+        key: `share-${t.id}`, label: c.kind === "movie" || c.kind === "show" ? `Share with ${t.name}` : `Share the show with ${t.name}`,
+        icon: <Share size={22} />,
+        run: async () => {
+          toast(`Sending to ${t.name}…`);
+          toast(await shareToPlex(t, { itemId: c.id }));
+        },
+      });
+    }
     if (c.kind === "episode" && c.showId) acts.push({ key: "show", label: "Go to show", icon: <Tv size={22} />, run: () => nav(`/item/${c.showId}`) });
     if (c.kind === "episode" && c.parentId) acts.push({ key: "season", label: "Go to season", icon: <Tv size={22} />, run: () => nav(`/item/${c.parentId}`) });
     acts.push({ key: "details", label: c.kind === "episode" ? "Episode details" : "Details", icon: <Info size={22} />, run: () => nav(`/item/${c.id}`) });
@@ -226,7 +242,7 @@ export function useCardMenu() {
     const title = c.kind === "episode" ? c.showTitle || c.title : c.title;
     const sub = c.kind === "episode" ? `${episodeLabel(c)} · ${c.title}` : c.year ? String(c.year) : "";
     open({ title, sub, actions: acts, from });
-  }, [open, nav]);
+  }, [open, nav, toast, shareTargets]);
 }
 
 /** Opens the menu for a library tab: hide it from the menu or from Home. */
