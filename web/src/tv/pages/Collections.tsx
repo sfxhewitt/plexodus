@@ -1,6 +1,6 @@
-import { useCallback, useContext, useEffect, useRef } from "react";
+import { useCallback, useContext, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { art, Collection, CollectionShelf } from "../../api";
+import { Collection, CollectionShelf } from "../../api";
 import { Grid } from "../../components/Icons";
 import { useApi } from "../../hooks";
 import { CollectionTile } from "../collectionTile";
@@ -25,15 +25,8 @@ export default function CollectionsPage() {
   useRefresh(reload);
   usePageFocus(!!data);
   const setBackdrop = useContext(BackdropCtx);
-  const timer = useRef<ReturnType<typeof setTimeout>>();
-  useEffect(() => () => {
-    clearTimeout(timer.current);
-    setBackdrop(undefined);
-  }, [setBackdrop]);
-  const onFocusTile = useCallback((c: Collection) => {
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => setBackdrop(art(c.backdrop, "w1280")), 350);
-  }, [setBackdrop]);
+  // No artwork behind the grid as you move: it stays calm, like the library pages.
+  useEffect(() => setBackdrop(undefined), [setBackdrop]);
   const open = useCallback((c: Collection) => nav(`/collection/${c.id}`), [nav]);
 
   if (error) return <div className="tv-center"><p className="tv-muted">{error}</p></div>;
@@ -58,7 +51,7 @@ export default function CollectionsPage() {
           <div className="tv-grid">
             {list.map((c, i) => (
               <div key={c.id} data-row>
-                <CollectionTile c={c} autoFocus={i === 0} onSelect={open} onFocusTile={onFocusTile} />
+                <CollectionTile c={c} autoFocus={i === 0} onSelect={open} />
               </div>
             ))}
           </div>
@@ -81,7 +74,7 @@ export default function CollectionsPage() {
       {shelves.map((s, si) => (
         <TvRow key={s.name} id={`shelf-${si}`} title={`${s.name} · ${s.collections.length.toLocaleString()}`}>
           {s.collections.slice(0, SHELF_MAX).map((c, i) => (
-            <CollectionTile key={c.id} c={c} autoFocus={si === 0 && i === 0} onSelect={open} onFocusTile={onFocusTile} />
+            <CollectionTile key={c.id} c={c} autoFocus={si === 0 && i === 0} onSelect={open} />
           ))}
           {s.collections.length > SHELF_MAX && (
             <button className="tv-card poster tv-see-all" data-f data-fk={`all-${si}`}

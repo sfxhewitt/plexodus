@@ -1,5 +1,5 @@
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
-import { api, art, Card, episodeLabel, HistoryCard, historyDays, historyNote, type HistoryPage } from "../../api";
+import { useCallback, useContext, useEffect, useState } from "react";
+import { api, Card, episodeLabel, HistoryCard, historyDays, historyNote, type HistoryPage } from "../../api";
 import { BackdropCtx, Spinner, TvButton, TvCard, TvRow } from "../components";
 import { usePageFocus, useRefresh, useToast } from "../hooks";
 import { playItem } from "../play";
@@ -37,15 +37,8 @@ export default function TvHistoryPage() {
   }, [more, loading, toast]);
 
   const setBackdrop = useContext(BackdropCtx);
-  const timer = useRef<ReturnType<typeof setTimeout>>();
-  useEffect(() => () => {
-    clearTimeout(timer.current);
-    setBackdrop(undefined);
-  }, [setBackdrop]);
-  const onFocusCard = useCallback((c: Card) => {
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => setBackdrop(art(c.backdrop || c.showBackdrop, "w1280")), 350);
-  }, [setBackdrop]);
+  // No artwork behind the grid as you move: it stays calm, like the library pages.
+  useEffect(() => setBackdrop(undefined), [setBackdrop]);
   // OK resumes (or plays again, if it was finished).
   const play = useCallback((c: Card) => {
     playItem(c.id, { fromStart: !!c.watched && !c.position }).catch((e: Error) => toast(e.message));
@@ -72,7 +65,7 @@ export default function TvHistoryPage() {
               <TvCard key={c.id} c={c} shape="land" autoFocus={di === 0 && i === 0}
                 title={c.kind === "episode" ? c.showTitle || c.title : c.title}
                 sub={[c.kind === "episode" ? episodeLabel(c) : "", historyNote(c)].filter(Boolean).join(" · ")}
-                onSelect={play} onPlay={play} onFocusCard={onFocusCard} menu={HISTORY_MENU} />
+                onSelect={play} onPlay={play} menu={HISTORY_MENU} />
             ))}
           </TvRow>
         ))

@@ -1,12 +1,12 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, art, Card } from "../../api";
+import { api, Card } from "../../api";
 import { Check, Shuffle, Sliders, SortIcon } from "../../components/Icons";
 import { BackdropCtx, Spinner, TvButton, TvCard } from "../components";
 import { focusInitial, focusKey, onBack } from "../focus";
 import { useLibraries, usePageFocus, useRefresh, useToast } from "../hooks";
-import { requestTrailer, stopTrailer } from "../ambient";
+import { stopTrailer } from "../ambient";
 import { playCard } from "../play";
 
 const PAGE = 120;
@@ -239,13 +239,10 @@ export default function LibraryPage() {
   }, [base]);
   useRefresh(refresh);
 
-  // The focused title's art fades in behind the grid once you pause on it.
-  // Set directly rather than through state: re-rendering the page on every
-  // move re-rendered every poster in the grid.
+  // The grid stays calm: no artwork or trailer behind it as you move
+  // (Daniel preferred the plain look of the grid with nothing focused).
   const setBackdrop = useContext(BackdropCtx);
-  const bdTimer = useRef<ReturnType<typeof setTimeout>>();
-  useEffect(() => () => {
-    clearTimeout(bdTimer.current);
+  useEffect(() => {
     setBackdrop(undefined);
     stopTrailer();
   }, [setBackdrop]);
@@ -287,10 +284,6 @@ export default function LibraryPage() {
   const latest = useRef({ state, load });
   latest.current = { state, load };
   const onFocusCard = useCallback((c: Card) => {
-    clearTimeout(bdTimer.current);
-    bdTimer.current = setTimeout(() => setBackdrop(art(c.backdrop, "w1280")), 350);
-    // Rest on a poster a little longer and its trailer plays behind the grid.
-    requestTrailer(c.kind === "movie" || c.kind === "show" ? c.id : undefined, 3000);
     const { state: st, load: ld } = latest.current;
     const i = st.items.indexOf(c);
     if (st.start + st.items.length < st.total && i > st.items.length - 40) ld(st.start + st.items.length);
@@ -302,7 +295,7 @@ export default function LibraryPage() {
     const l = letterOf(st.letters, st.start + i);
     document.querySelectorAll(".tv-az-letter.on").forEach((el) => el.classList.remove("on"));
     if (l) document.querySelector(`.tv-az-letter[data-fk="az-${CSS.escape(l)}"]`)?.classList.add("on");
-  }, [setBackdrop]);
+  }, []);
 
   const jump = useCallback(async (l: Letter) => {
     const st = latest.current.state;
