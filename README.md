@@ -43,11 +43,11 @@ curl -fsSL https://github.com/sfxhewitt/plexodus/releases/download/latest/instal
 
 ### Updates
 
-The install script also sets up automatic updates. Every 15 minutes a systemd timer (`plexodus-update.timer`) checks the `latest` release, and if it has a new build it installs it and restarts Plexodus, but only when nobody is watching: while any stream is open (playing or paused) it waits for the next check. **Settings > Updates** shows what it last did, turns it off, and has an **Update now** button that installs straight away.
+The install script also sets up automatic updates. Every 2 minutes a systemd timer (`plexodus-update.timer`) checks the `latest` release, and if it has a new build it installs it and restarts Plexodus straight away, even mid-film: the restart takes a couple of seconds, and the TV app and web player reconnect and carry on from the same spot. **Settings > Updates** shows what it last did, turns it off, and has an **Update now** button that installs straight away.
 
 ```sh
 journalctl -u plexodus-update            # what the updater did
-sudo plexodus-update --now               # update now, even with streams open
+sudo plexodus-update --now               # check and update right now
 ```
 
 To turn automatic updates off on the server, put `PLEXODUS_AUTO_UPDATE=off` in `/etc/plexodus.env` (this overrides Settings). The no-sudo install from `setup.sh` gets the same updater through cron.

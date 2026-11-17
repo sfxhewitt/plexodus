@@ -91,6 +91,10 @@ class PlayerActivity : Activity() {
     private val io = Executors.newSingleThreadExecutor()
 
     private var server = ""
+    // Riding through a server restart (an automatic update): see reconnect().
+    private var bootId = ""
+    private var reconnecting = false
+    private val stallCheck = Any()
     private var cookie = ""
     private var itemId = 0L
     private var fileId = 0L
@@ -244,6 +248,7 @@ class PlayerActivity : Activity() {
         fileDelayMs = intent.getIntExtra(EXTRA_AUDIO_OFFSET_MS, 0)
         kind = intent.getStringExtra(EXTRA_KIND) ?: ""
         val url = intent.getStringExtra(EXTRA_URL) ?: run { finish(); return }
+        rememberBoot()
         fileId = intent.getLongExtra(EXTRA_FILE_ID, 0).takeIf { it > 0 } ?: fileIdFromUrl(url)
         val startMs = intent.getLongExtra(EXTRA_START_MS, 0)
         lengthMs = intent.getLongExtra(EXTRA_DURATION_MS, 0)
@@ -528,7 +533,13 @@ class PlayerActivity : Activity() {
                 report(force = true)
                 if (!upNextVisible && !calibrating && !syncMode && !subMoveMode) setControls(true)
             }
-            MediaPlayer.Event.Buffering -> spinner.visibility = if (e.buffering < 100f) View.VISIBLE else View.GONE
+            MediaPlayer.Event.Buffering -> {
+                spinner.visibility = if (e.buffering < 100f || reconnecting) View.VISIBLE else View.GONE
+                ui.removeCallbacksAndMessages(stallCheck)
+                if (e.buffering < 100f && started && !calibrating && !finished) {
+                    ui.postAtTime({ checkStall() }, stallCheck, SystemClock.uptimeMillis() + 6_000)
+                }
+            }
             MediaPlayer.Event.TimeChanged -> {
                 if (pendingStartMs > 0) {
                     val want = pendingStartMs
@@ -557,8 +568,18 @@ class PlayerActivity : Activity() {
             // Not for the calibration clip: switching the TV to 50 Hz for it blanked
             // the picture on the Fire TV Cube while the beeps carried on.
             MediaPlayer.Event.Vout -> if (e.voutCount > 0 && !calibrating) matchRefreshRate()
-            MediaPlayer.Event.EndReached -> if (calibrating) ui.post { if (!finished) load(mediaUrl, 0) } else onEnd()
+            MediaPlayer.Event.EndReached -> when {
+                calibrating -> ui.post { if (!finished) load(mediaUrl, 0) }
+                // The stream stopped well before the end: the server went away
+                // (an update restarts it), not the film ending.
+                started && lengthMs > 0 && timeMs < lengthMs - 60_000 -> reconnect()
+                else -> onEnd()
+            }
             MediaPlayer.Event.EncounteredError -> {
+                if (started && !calibrating && !finished) {
+                    reconnect()
+                    return
+                }
                 spinner.visibility = View.GONE
                 errorText.text = getString(R.string.player_error)
                 errorText.visibility = View.VISIBLE
@@ -1645,6 +1666,68 @@ class PlayerActivity : Activity() {
         hideUpNext()
         setControls(true)
         focusHome()
+    }
+
+    // ---- riding through a server restart ----
+    // The server updates itself as soon as a release is out, even mid-film.
+    // Its restart takes a couple of seconds; when the stream drops, wait for
+    // it to come back and carry on from the same spot and tracks.
+
+    private fun fetchBoot(): String? = try {
+        val r = Http.request("$server/api/status", timeoutMs = 4_000)
+        if (r.code == 200) Regex("\"boot\":\"([^\"]*)\"").find(r.body)?.groupValues?.get(1) ?: "" else null
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun rememberBoot() {
+        if (server.isEmpty()) return
+        io.execute { fetchBoot()?.let { b -> ui.post { if (bootId.isEmpty()) bootId = b } } }
+    }
+
+    /** Buffering for a while mid-film: reconnect only if the server restarted or is down. */
+    private fun checkStall() {
+        if (reconnecting || finished || server.isEmpty()) return
+        io.execute {
+            val b = fetchBoot()
+            ui.post {
+                if (!reconnecting && !finished && (b == null || (bootId.isNotEmpty() && b != bootId))) reconnect()
+            }
+        }
+    }
+
+    private fun reconnect() {
+        if (reconnecting || finished || server.isEmpty()) return
+        reconnecting = true
+        val at = timeMs
+        val tracks = Pair(player.audioTrack, player.spuTrack)
+        ui.removeCallbacksAndMessages(stallCheck)
+        spinner.visibility = View.VISIBLE
+        errorText.text = getString(R.string.player_reconnecting)
+        errorText.visibility = View.VISIBLE
+        io.execute {
+            var boot: String? = null
+            for (i in 0 until 90) {
+                boot = fetchBoot()
+                if (boot != null || finished) break
+                Thread.sleep(2_000)
+            }
+            ui.post {
+                reconnecting = false
+                if (finished) return@post
+                if (boot == null) {
+                    spinner.visibility = View.GONE
+                    errorText.text = getString(R.string.player_error)
+                    setControls(true)
+                    return@post
+                }
+                bootId = boot
+                errorText.visibility = View.GONE
+                restoreTracks = tracks
+                player.stop()
+                load(mediaUrl, at)
+            }
+        }
     }
 
     private fun onEnd() {

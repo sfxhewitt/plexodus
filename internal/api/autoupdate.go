@@ -12,12 +12,14 @@ import (
 
 // Automatic updates. The server can't replace its own binary or restart
 // itself (it runs unprivileged), so the installer adds a root systemd timer
-// that runs deploy/update.sh every 15 minutes. The two talk through small
+// that runs deploy/update.sh every 2 minutes. The two talk through small
 // files in the data directory:
 //
 //   update-status.json  written here every 15 s: whether automatic updates
-//                       are on and how many streams are open, so the updater
-//                       never restarts the server in the middle of a film.
+//                       are on, the running version (so the updater can
+//                       tell an installed-but-not-restarted binary) and how
+//                       many streams are open (for information: updates no
+//                       longer wait, players resume after the restart).
 //   update-result.json  written by the updater: when it last checked, what
 //                       it did and the version it installed.
 //   update-now          written here when an admin presses "Update now";

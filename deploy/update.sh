@@ -2,16 +2,16 @@
 # Plexodus automatic updater.
 #
 # install.sh puts this at /usr/local/sbin/plexodus-update and runs it from a
-# systemd timer every 15 minutes (plexodus-update.timer). setup.sh's no-sudo
+# systemd timer every 2 minutes (plexodus-update.timer). setup.sh's no-sudo
 # install runs it from cron as `update.sh --home ~/plexodus`.
 #
 # Each run: if the "latest" release has a different binary from the one
-# installed, and nobody is watching anything, install it and restart
-# Plexodus. While a stream is open it waits for the next run instead.
+# installed, install it and restart Plexodus. Players ride through the
+# restart: they reconnect and resume where they were.
 #
 # Turn it off in Settings > Updates, or put PLEXODUS_AUTO_UPDATE=off in
 # /etc/plexodus.env. `sudo plexodus-update --now` updates straight away,
-# even with streams open or automatic updates off.
+# even with automatic updates off.
 set -uo pipefail
 
 HOME_DIR=""
@@ -103,38 +103,22 @@ if [ -z "$WANT" ]; then
   exit 1
 fi
 
-# Never restart in the middle of a film. The server refreshes this file
-# every 15 s; if it's old the server isn't running, so nobody is watching.
-busy() {
-  [ "$FORCE" -eq 0 ] && [ -f "$STATUS" ] || return 1
-  local at streams
-  at="$(field "$STATUS" at)"
-  streams="$(field "$STATUS" streams)"
-  [ -n "$at" ] && [ $(($(now) - at)) -lt 120 ] && [ "${streams:-0}" -gt 0 ] || return 1
-  if [ "$streams" -eq 1 ]; then OPEN="1 stream"; else OPEN="$streams streams"; fi
-}
-
 if [ "$WANT" = "$HAVE" ]; then
   # Installed but not running yet (an install that stopped before the
-  # restart): restart once nobody is watching.
+  # restart): restart into it.
   RUNNING="$(field "$STATUS" version)"
-  if [ -z "$HOME_DIR" ] && [ -n "$RUNNING" ] && [ "$RUNNING" != "$(current_version)" ] && [ $(($(now) - $(field "$STATUS" at))) -lt 120 ]; then
-    if busy; then
-      result waiting "A new version is installed. Plexodus restarts into it once nobody is watching ($OPEN open now)."
-    else
-      systemctl restart plexodus 9>&- && LAST_UPDATED="$(now)" && result updated "Restarted into $(current_version)."
-    fi
+  AT="$(field "$STATUS" at)"
+  if [ -z "$HOME_DIR" ] && [ -n "$RUNNING" ] && [ -n "$AT" ] && [ "$RUNNING" != "$(current_version)" ] && [ $(($(now) - AT)) -lt 120 ]; then
+    systemctl restart plexodus 9>&- && LAST_UPDATED="$(now)" && result updated "Restarted into $(current_version)."
     exit 0
   fi
   result up-to-date "Plexodus is up to date."
   exit 0
 fi
 
-if busy; then
-  result waiting "A new version is ready. It installs once nobody is watching ($OPEN open now)."
-  exit 0
-fi
-
+# Updates install straight away, even mid-film: the restart takes a couple
+# of seconds and the players (TV app and browser) reconnect and carry on
+# from the same spot.
 FROM="$(current_version)"
 echo "Updating Plexodus from $FROM..."
 if [ -n "$HOME_DIR" ]; then
