@@ -93,6 +93,10 @@
     <string name="phone_no_server">Couldn\'t reach the server: %1$s</string>
     <string name="phone_expired">The code expired. Press OK and start again.</string>
     <string name="phone_hint">OK or Back to finish</string>
+    <string name="phone_check">Check sync with my phone</string>
+    <string name="phone_title_check">Check this film\'s lip sync</string>
+    <string name="phone_steps_check">1. Scan this with your phone\'s camera.\n2. Let the film play on. Tap Record the TV and film the whole screen for about 10 seconds; talking or movement works best.\n3. Tap Use Video straight away. The server finds that moment in the film and this TV fixes itself.</string>
+    <string name="phone_hint_check">OK or Back to close · the film keeps playing</string>
     <string name="phone_hint_touch">Tap Done to finish</string>
     <string name="adjust_done">Done</string>
     <string name="audio_sync_value_zero">In sync (0 ms)</string>

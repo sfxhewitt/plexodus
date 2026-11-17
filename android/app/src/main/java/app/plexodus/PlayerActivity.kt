@@ -106,6 +106,8 @@ class PlayerActivity : Activity() {
     private var calibrating = false
     /** Calibration by a phone filming the TV: a QR code, then the measured fix is applied. */
     private var phoneMode = false
+    /** "Check with my phone" during a film: the same panel over the playing film. */
+    private var phoneCheck = false
     private var phoneCode = ""
     private var phoneRound = 0
     private lateinit var phoneStatus: TextView
@@ -736,6 +738,10 @@ class PlayerActivity : Activity() {
                     list.addView(linkRow(getString(R.string.audio_sync), "") {
                         dialog.dismiss()
                         showAudioSync()
+                    })
+                    list.addView(linkRow(getString(R.string.phone_check), "") {
+                        dialog.dismiss()
+                        startPhoneSync(content = true)
                     })
                 }
             })
@@ -1593,27 +1599,41 @@ class PlayerActivity : Activity() {
     // ---- lip sync with a phone ----
 
     /** Gets a code from the server and shows its QR code, then waits for the phone. */
-    private fun startPhoneSync() {
+    private fun startPhoneSync(content: Boolean = false) {
+        if (content && (phoneCheck || fileId == 0L || server.isEmpty())) return
+        phoneCheck = content
         val panel = findViewById<View>(R.id.phone_panel)
         phoneStatus = findViewById(R.id.phone_status)
+        if (content) {
+            setControls(false)
+            phoneCode = ""
+            phoneRound = 0
+            findViewById<TextView>(R.id.phone_title).setText(R.string.phone_title_check)
+            findViewById<TextView>(R.id.phone_steps).setText(R.string.phone_steps_check)
+            findViewById<TextView>(R.id.phone_hint).setText(if (touchScreen) R.string.phone_hint_touch else R.string.phone_hint_check)
+            findViewById<ImageView>(R.id.phone_qr).setImageBitmap(null)
+            findViewById<TextView>(R.id.phone_code).text = ""
+        }
         panel.visibility = View.VISIBLE
         phoneStatus.setText(R.string.phone_starting)
         if (touchScreen) {
-            findViewById<TextView>(R.id.phone_hint).setText(R.string.phone_hint_touch)
+            if (!content) findViewById<TextView>(R.id.phone_hint).setText(R.string.phone_hint_touch)
             findViewById<View>(R.id.phone_done).apply {
                 visibility = View.VISIBLE
-                setOnClickListener { endCalibration(save = true) }
+                setOnClickListener { if (phoneCheck) endPhoneCheck() else endCalibration(save = true) }
             }
         }
+        val body = JSONObject().put("deviceMs", deviceDelayMs)
+        if (content) body.put("fileId", fileId).put("fileMs", fileDelayMs).put("positionMs", player.time)
         io.execute {
             try {
-                val r = Http.request("$server/api/lipsync/sessions", "POST", JSONObject().put("deviceMs", deviceDelayMs).toString(), mapOf("Cookie" to cookie))
+                val r = Http.request("$server/api/lipsync/sessions", "POST", body.toString(), mapOf("Cookie" to cookie))
                 if (r.code != 200) throw Exception(JSONObject(r.body).optString("error", "HTTP ${r.code}"))
                 val code = JSONObject(r.body).getString("code")
                 val png = Http.bytes("$server/api/lipsync/sessions/$code/qr.png", mapOf("Cookie" to cookie))
                 val qr = png?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
                 ui.post {
-                    if (finished) return@post
+                    if (finished || (content && !phoneCheck)) return@post
                     phoneCode = code
                     findViewById<ImageView>(R.id.phone_qr).setImageBitmap(qr)
                     findViewById<TextView>(R.id.phone_code).text = getString(R.string.phone_code, server, code)
@@ -1626,21 +1646,32 @@ class PlayerActivity : Activity() {
         }
     }
 
+    /** Closes "Check with my phone"; the film carries on with whatever was saved. */
+    private fun endPhoneCheck() {
+        phoneCheck = false
+        phoneCode = ""
+        ui.removeCallbacks(phonePoll)
+        findViewById<View>(R.id.phone_panel).visibility = View.GONE
+        findViewById<View>(R.id.phone_done).visibility = View.GONE
+    }
+
     private val phonePoll: Runnable = Runnable { pollPhone() }
 
     private fun pollPhone() {
         if (finished || phoneCode.isEmpty()) return
         val code = phoneCode
         val current = deviceDelayMs
+        // While checking a film the server needs to know where playback is.
+        val pos = if (phoneCheck && ::player.isInitialized) "&positionMs=${player.time}" else ""
         io.execute {
             val st = try {
-                val r = Http.request("$server/api/lipsync/sessions/$code?deviceMs=$current", headers = mapOf("Cookie" to cookie))
+                val r = Http.request("$server/api/lipsync/sessions/$code?deviceMs=$current$pos", headers = mapOf("Cookie" to cookie))
                 if (r.code == 404) null else if (r.code == 200) JSONObject(r.body) else JSONObject()
             } catch (_: Exception) {
                 JSONObject() // a blip: keep trying
             }
             ui.post {
-                if (finished) return@post
+                if (finished || code != phoneCode) return@post
                 if (st == null) {
                     phoneStatus.setText(R.string.phone_expired)
                     return@post
@@ -1801,6 +1832,15 @@ class PlayerActivity : Activity() {
                 KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_SPACE -> togglePlay()
                 KeyEvent.KEYCODE_MEDIA_PLAY -> player.play()
                 KeyEvent.KEYCODE_MEDIA_PAUSE -> player.pause()
+                else -> return super.onKeyDown(keyCode, event)
+            }
+            return true
+        }
+        if (phoneCheck) {
+            // The fix is saved as soon as it arrives: OK and Back just close the panel.
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_BACK -> endPhoneCheck()
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_SPACE -> togglePlay()
                 else -> return super.onKeyDown(keyCode, event)
             }
             return true

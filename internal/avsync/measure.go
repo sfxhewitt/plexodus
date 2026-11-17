@@ -67,10 +67,16 @@ var ptsRe = regexp.MustCompile(`pts_time:\s*(-?[0-9.]+)`)
 
 // readVideo returns each frame's time and its luma, gridW x gridH cells.
 func readVideo(ctx context.Context, ffmpeg, path string) ([]float64, [][]byte, error) {
-	cmd := exec.CommandContext(ctx, ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "info",
-		"-i", path, "-map", "0:v:0", "-an", "-sn",
+	return readVideoArgs(ctx, ffmpeg, []string{"-i", path})
+}
+
+// readVideoArgs is readVideo with any input options (a seek, a length).
+func readVideoArgs(ctx context.Context, ffmpeg string, input []string) ([]float64, [][]byte, error) {
+	args := append([]string{"-nostdin", "-hide_banner", "-loglevel", "info"}, input...)
+	args = append(args, "-map", "0:v:0", "-an", "-sn",
 		"-vf", fmt.Sprintf("scale=%d:%d:flags=area,format=gray,showinfo", gridW, gridH),
 		"-vsync", "passthrough", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1")
+	cmd := exec.CommandContext(ctx, ffmpeg, args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

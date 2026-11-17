@@ -89,3 +89,26 @@ func TestLipsyncPhone(t *testing.T) {
 		t.Fatalf("recording not deleted: %v", left)
 	}
 }
+
+func TestLipsyncContentSession(t *testing.T) {
+	s, u := testServer(t)
+	if _, err := s.db.W.Exec(`INSERT INTO media_files(id, item_id, library_id, path, size, mtime) VALUES (5, 10, 1, '/m/heat.mkv', 1, 0)`); err != nil {
+		t.Fatal(err)
+	}
+	var start struct{ Code string }
+	if code := call(t, s, u, s.handleLipsyncStart, "POST", "/x", `{"deviceMs":10,"fileId":5,"fileMs":-40,"positionMs":61000}`, nil, &start); code != 200 {
+		t.Fatal(code)
+	}
+	var st phoneSession
+	call(t, s, u, s.handleLipsyncPoll, "GET", "/x?deviceMs=10&positionMs=62500", "", map[string]string{"code": start.Code}, &st)
+	if !st.Content || st.State != "waiting" {
+		t.Fatalf("state: %+v", st)
+	}
+	sess := s.phone.get(start.Code)
+	if sess.fileID != 5 || sess.fileMs != -40 || sess.posSec != 62.5 {
+		t.Fatalf("session: %+v", sess)
+	}
+	if code := call(t, s, u, s.handleLipsyncStart, "POST", "/x", `{"deviceMs":0,"fileId":999}`, nil, nil); code != 404 {
+		t.Fatalf("unknown file: %d", code)
+	}
+}
