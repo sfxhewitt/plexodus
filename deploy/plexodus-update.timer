@@ -2,8 +2,10 @@
 Description=Check for a new Plexodus release every 15 minutes
 
 [Timer]
-OnBootSec=10min
-OnUnitActiveSec=15min
+# Wall-clock times, so the schedule never depends on when the updater last
+# ran (or whether it ever has).
+OnCalendar=*:0/15
+OnBootSec=5min
 RandomizedDelaySec=1min
 
 [Install]

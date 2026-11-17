@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sfxhewitt/plexodus/internal/config"
 )
@@ -64,6 +65,35 @@ func TestAutoUpdateStatus(t *testing.T) {
 	if st := readStatus(t, s); !st.AutoUpdate {
 		t.Fatalf("on: %+v", st)
 	}
+
+	// A stream left "in flight" (a player that kept its connection open,
+	// or a TV switched off mid-film) stops counting once it goes quiet.
+	done := s.nowPlaying.direct(httptest.NewRequest("GET", "/", nil), admin.ID, 10, 5)
+	s.nowPlaying.progress(httptest.NewRequest("POST", "/", nil), admin.ID, 10, 60, 600, "playing")
+	if n := s.openStreams(); n != 1 {
+		t.Fatalf("playing in flight: %d", n)
+	}
+	s.nowPlaying.mu.Lock()
+	for _, st := range s.nowPlaying.m {
+		st.lastProgress = st.lastProgress.Add(-5 * time.Minute)
+		st.lastSeen = st.lastSeen.Add(-5 * time.Minute)
+	}
+	s.nowPlaying.mu.Unlock()
+	if n := s.openStreams(); n != 0 {
+		t.Fatalf("stale in-flight stream still blocks updates: %d", n)
+	}
+	// Paused counts for longer.
+	s.nowPlaying.progress(httptest.NewRequest("POST", "/", nil), admin.ID, 10, 60, 600, "paused")
+	s.nowPlaying.mu.Lock()
+	for _, st := range s.nowPlaying.m {
+		st.lastProgress = st.lastProgress.Add(-10 * time.Minute)
+	}
+	s.nowPlaying.mu.Unlock()
+	if n := s.openStreams(); n != 1 {
+		t.Fatalf("paused 10 min: %d", n)
+	}
+	done(0)
+	s.nowPlaying.progress(httptest.NewRequest("POST", "/", nil), admin.ID, 10, 60, 600, "stopped")
 
 	// The environment wins.
 	s.cfg.AutoUpdate = "off"

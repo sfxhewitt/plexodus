@@ -62,10 +62,36 @@ func (s *Server) autoUpdateEnabled(ctx context.Context) bool {
 	return !s.autoUpdateFromEnv() && s.db.Setting(ctx, autoUpdateSetting) != "off"
 }
 
-// openStreams counts streams that are playing or paused. A paused film
-// still counts: restarting would drop the player's connection.
+// Streams the updater waits for. Players report progress every 10 s while
+// playing, so a stream that has gone quiet for updateQuietFor isn't being
+// watched, even if Now watching still lists it (a connection a player left
+// open, or a TV switched off mid-film, can keep a direct-play request
+// "in flight" for hours). A film the player said is paused keeps the
+// update waiting for up to npPausedFor.
+const updateQuietFor = 2 * time.Minute
+
+// openStreams counts streams someone is actually watching.
 func (s *Server) openStreams() int {
-	return len(s.nowPlaying.snapshot(time.Now()))
+	now := time.Now()
+	n := 0
+	for _, st := range s.nowPlaying.snapshot(now) {
+		if watching(st, now) {
+			n++
+		}
+	}
+	return n
+}
+
+func watching(st npRaw, now time.Time) bool {
+	switch {
+	case st.lastProgress.IsZero():
+		// A player that never reports progress: only fresh requests count.
+		return now.Sub(st.lastSeen) < updateQuietFor
+	case st.state == "paused":
+		return now.Sub(st.lastProgress) < npPausedFor
+	default:
+		return now.Sub(st.lastProgress) < updateQuietFor
+	}
 }
 
 // writeUpdateStatus refreshes update-status.json.
