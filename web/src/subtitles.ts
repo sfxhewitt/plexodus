@@ -29,9 +29,13 @@ export interface SubPrefs {
   // For real ASS tracks: keep the file's own styling (recommended for anime)
   // instead of applying the presets.
   keepStyling: boolean;
+  // Where subtitles sit, moved from bottom centre as a share of the picture:
+  // x to the right, y upwards. Moves every track, styled ones included.
+  posX: number;
+  posY: number;
 }
 
-export const sizes = { s: { label: "S", scale: 0.8 }, m: { label: "M", scale: 1 }, l: { label: "L", scale: 1.25 }, xl: { label: "XL", scale: 1.55 } } as const;
+export const sizes = { xxs: { label: "XXS", scale: 0.45 }, xs: { label: "XS", scale: 0.6 }, s: { label: "S", scale: 0.8 }, m: { label: "M", scale: 1 }, l: { label: "L", scale: 1.25 }, xl: { label: "XL", scale: 1.55 } } as const;
 export const colors = {
   white: { label: "White", rgb: 0xffffff },
   yellow: { label: "Yellow", rgb: 0xffe14d },
@@ -51,7 +55,7 @@ function defaultLang() {
 }
 
 export function loadPrefs(): SubPrefs {
-  const d: SubPrefs = { mode: "auto", lang: defaultLang(), size: "m", color: "white", background: "outline", keepStyling: true };
+  const d: SubPrefs = { mode: "auto", lang: defaultLang(), size: "m", color: "white", background: "outline", keepStyling: true, posX: 0, posY: 0 };
   try {
     const p = JSON.parse(localStorage.getItem(prefsKey) || "{}");
     return {
@@ -59,10 +63,30 @@ export function loadPrefs(): SubPrefs {
       size: p.size in sizes ? p.size : d.size,
       color: p.color in colors ? p.color : d.color,
       background: p.background in backgrounds ? p.background : d.background,
+      ...clampPos(Number(p.posX) || 0, Number(p.posY) || 0),
     };
   } catch {
     return d;
   }
+}
+
+export const POS_MAX_X = 0.45;
+export const POS_MIN_Y = -0.15;
+export const POS_MAX_Y = 0.85;
+
+export function clampPos(x: number, y: number) {
+  const r = (v: number) => Math.round(v * 1000) / 1000;
+  return { posX: r(Math.max(-POS_MAX_X, Math.min(POS_MAX_X, x))), posY: r(Math.max(POS_MIN_Y, Math.min(POS_MAX_Y, y))) };
+}
+
+// "Bottom centre", "12% up, 5% left" and so on.
+export function describePos(x: number, y: number) {
+  const up = Math.round(y * 100);
+  const right = Math.round(x * 100);
+  const parts: string[] = [];
+  if (up) parts.push(up > 0 ? `${up}% up` : `${-up}% down`);
+  if (right) parts.push(right > 0 ? `${right}% right` : `${-right}% left`);
+  return parts.join(", ") || "Bottom centre";
 }
 
 export function savePrefs(p: SubPrefs) {

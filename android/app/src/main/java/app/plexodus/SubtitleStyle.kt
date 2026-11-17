@@ -17,13 +17,12 @@ import org.json.JSONObject
  * Styled .ass tracks keep their own look; picture subtitles (PGS) can't be styled.
  */
 data class SubtitleStyle(
-    val size: Int = 2,
+    val size: Int = MEDIUM,
     val font: Int = 0,
     val bold: Boolean = false,
     val colour: Int = 0,
     val edge: Int = 3,
     val background: Int = 0,
-    val position: Int = 0,
 ) {
     /** libVLC options for this style. [screenHeightPx] places raised subtitles. */
     fun vlcOptions(screenHeightPx: Int): List<String> {
@@ -55,8 +54,8 @@ data class SubtitleStyle(
         val box = BACKGROUNDS[background.coerceIn(BACKGROUNDS.indices)].second
         opts += if (box > 0) listOf("--freetype-background-opacity=$box", "--freetype-background-color=0")
         else listOf("--freetype-background-opacity=0")
-        val margin = (screenHeightPx * POSITIONS[position.coerceIn(POSITIONS.indices)].second).toInt()
-        if (margin != 0) opts += "--sub-margin=$margin"
+        // Start from the very bottom of the picture; SubtitlePosition moves them from there.
+        opts += "--sub-margin=" + (screenHeightPx * BOTTOM_MARGIN).toInt()
         return opts
     }
 
@@ -83,7 +82,7 @@ data class SubtitleStyle(
 
     fun toJson(): String = JSONObject()
         .put("size", size).put("font", font).put("bold", bold).put("colour", colour)
-        .put("edge", edge).put("background", background).put("position", position)
+        .put("edge", edge).put("background", background).put("v", VERSION)
         .toString()
 
     companion object {
@@ -92,8 +91,18 @@ data class SubtitleStyle(
         const val EDGE_OUTLINE = 2
         const val EDGE_BOTH = 3
 
-        /** Label and libVLC's --freetype-rel-fontsize: the text is 1/N of the picture's height. */
-        val SIZES = listOf("Tiny" to 36, "Small" to 31, "Medium" to 27, "Large" to 23, "Huge" to 19)
+        /**
+         * Label and libVLC's --freetype-rel-fontsize: the text is 1/N of the picture's height.
+         * The first three (2026-11-17) go well below the old smallest, "Tiny".
+         */
+        val SIZES = listOf(
+            "Micro" to 60, "Extra small" to 50, "Very small" to 42,
+            "Tiny" to 36, "Small" to 31, "Medium" to 27, "Large" to 23, "Huge" to 19,
+        )
+        const val MEDIUM = 5
+        /** Sizes saved before the smaller ones existed count from "Tiny". */
+        private const val ADDED_SMALLER = 3
+        private const val VERSION = 2
         /** Label and an Android system font family (libVLC finds it in the system's font list). */
         val FONTS = listOf("Sans" to "sans-serif", "Condensed" to "sans-serif-condensed", "Serif" to "serif", "Typewriter" to "monospace")
         /** Label and colour (0xRRGGBB). Soft white is easier on the eyes in HDR. */
@@ -102,12 +111,14 @@ data class SubtitleStyle(
         /** Label and the box's opacity (0–255). */
         val BACKGROUNDS = listOf("None" to 0, "Soft box" to 120, "Solid box" to 215)
         /**
-         * Label and the share of the screen height the subtitles are moved up by
-         * (--sub-margin). libVLC already leaves 4% of the picture below them, so
-         * "Very bottom" pulls them down into that gap: libVLC stops them at the
-         * picture's edge, leaving just the outline's few pixels.
+         * --sub-margin as a share of the screen height. libVLC leaves 4% of the
+         * picture below text subtitles; this pulls them down into that gap (libVLC
+         * stops them at the picture's edge). Daniel asked for the very bottom
+         * (2026-11-15), and SubtitlePosition moves them anywhere from there.
          */
-        val POSITIONS = listOf("Very bottom" to -0.036f, "Bottom" to 0f, "Raised" to 0.05f, "High" to 0.1f)
+        const val BOTTOM_MARGIN = -0.036f
+        /** The old fixed positions, as SubtitlePosition heights above BOTTOM_MARGIN. */
+        internal val OLD_POSITIONS = listOf(0f, 0.036f, 0.086f, 0.136f)
 
         val DEFAULT = SubtitleStyle()
 
@@ -115,13 +126,13 @@ data class SubtitleStyle(
             // Netflix / Infuse: white, thin outline and a soft shadow.
             "Cinema" to DEFAULT,
             // Apple TV's default: white on a dark see-through box.
-            "Boxed" to SubtitleStyle(size = 2, edge = EDGE_NONE, background = 1),
+            "Boxed" to SubtitleStyle(size = MEDIUM, edge = EDGE_NONE, background = 1),
             // Small, soft white with only a shadow: barely there.
-            "Minimal" to SubtitleStyle(size = 1, colour = 1, edge = EDGE_SHADOW),
+            "Minimal" to SubtitleStyle(size = MEDIUM - 1, colour = 1, edge = EDGE_SHADOW),
             // DVD era: yellow with a bold outline.
-            "Classic" to SubtitleStyle(size = 2, bold = true, colour = 2, edge = EDGE_OUTLINE),
+            "Classic" to SubtitleStyle(size = MEDIUM, bold = true, colour = 2, edge = EDGE_OUTLINE),
             // Easiest to read: bigger, bold, on a solid box.
-            "Large print" to SubtitleStyle(size = 3, bold = true, edge = EDGE_NONE, background = 2),
+            "Large print" to SubtitleStyle(size = MEDIUM + 1, bold = true, edge = EDGE_NONE, background = 2),
         )
 
         private const val KEY = "subtitleStyle"
@@ -131,15 +142,23 @@ data class SubtitleStyle(
             val s = p.getString(KEY, null) ?: return DEFAULT
             return try {
                 val o = JSONObject(s)
-                SubtitleStyle(
-                    size = o.optInt("size", 2).coerceIn(SIZES.indices),
+                val old = o.optInt("v", 1) < VERSION
+                if (old && o.has("position")) {
+                    // Before free positioning: carry the old Position choice over once.
+                    val y = OLD_POSITIONS[o.optInt("position", 0).coerceIn(OLD_POSITIONS.indices)]
+                    if (y != 0f) SubtitlePosition.save(ctx, SubtitlePosition(0f, y))
+                }
+                val style = SubtitleStyle(
+                    size = (o.optInt("size", 2) + if (old) ADDED_SMALLER else 0).coerceIn(SIZES.indices),
                     font = o.optInt("font", 0).coerceIn(FONTS.indices),
                     bold = o.optBoolean("bold", false),
                     colour = o.optInt("colour", 0).coerceIn(COLOURS.indices),
                     edge = o.optInt("edge", EDGE_BOTH).coerceIn(EDGES.indices),
                     background = o.optInt("background", 0).coerceIn(BACKGROUNDS.indices),
-                    position = o.optInt("position", 0).coerceIn(POSITIONS.indices),
                 )
+                // Saved in the new form at once, so the old Position is carried over only once.
+                if (old) save(ctx, style)
+                style
             } catch (_: Exception) {
                 DEFAULT
             }
@@ -147,6 +166,57 @@ data class SubtitleStyle(
 
         fun save(ctx: Context, style: SubtitleStyle) {
             ctx.getSharedPreferences("plexodus", Context.MODE_PRIVATE).edit().putString(KEY, style.toJson()).apply()
+        }
+    }
+}
+
+/**
+ * Where subtitles sit on this device, as a share of the screen moved from
+ * their usual place (bottom centre): [x] to the right, [y] upwards.
+ *
+ * libVLC draws subtitles on their own surface above the picture, so moving
+ * that surface moves them anywhere, live, without restarting the player. It
+ * also moves picture (PGS) and styled (.ass) subtitles, which a libVLC option
+ * couldn't. Kept apart from SubtitleStyle so a preset or Reset doesn't undo it.
+ */
+data class SubtitlePosition(val x: Float = 0f, val y: Float = 0f) {
+    fun moved(dx: Float, dy: Float) = SubtitlePosition(
+        (x + dx).coerceIn(-MAX_X, MAX_X).round(),
+        (y + dy).coerceIn(MIN_Y, MAX_Y).round(),
+    )
+
+    /** "Bottom centre", "12% up, 5% left" and so on. */
+    fun describe(): String {
+        val parts = ArrayList<String>()
+        val up = Math.round(y * 100)
+        val right = Math.round(x * 100)
+        if (up > 0) parts += "$up% up" else if (up < 0) parts += "${-up}% down"
+        if (right > 0) parts += "$right% right" else if (right < 0) parts += "${-right}% left"
+        return if (parts.isEmpty()) "Bottom centre" else parts.joinToString(", ")
+    }
+
+    private fun Float.round() = Math.round(this * 1000) / 1000f
+
+    companion object {
+        val DEFAULT = SubtitlePosition()
+        const val MAX_X = 0.45f
+        const val MIN_Y = -0.15f
+        const val MAX_Y = 0.85f
+        private const val KEY = "subtitlePosition"
+
+        fun load(ctx: Context): SubtitlePosition {
+            val s = ctx.getSharedPreferences("plexodus", Context.MODE_PRIVATE).getString(KEY, null) ?: return DEFAULT
+            return try {
+                val o = JSONObject(s)
+                DEFAULT.moved(o.optDouble("x", 0.0).toFloat(), o.optDouble("y", 0.0).toFloat())
+            } catch (_: Exception) {
+                DEFAULT
+            }
+        }
+
+        fun save(ctx: Context, p: SubtitlePosition) {
+            ctx.getSharedPreferences("plexodus", Context.MODE_PRIVATE).edit()
+                .putString(KEY, JSONObject().put("x", p.x.toDouble()).put("y", p.y.toDouble()).toString()).apply()
         }
     }
 }

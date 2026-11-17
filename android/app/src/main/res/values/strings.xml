@@ -58,6 +58,10 @@
     <string name="sub_position">Position</string>
     <string name="sub_apply">Done</string>
     <string name="sub_reset">Reset to Cinema</string>
+    <string name="sub_move_sample">Subtitles will sit here</string>
+    <string name="sub_move_bar">Move subtitles: %1$s   ·   ◀ ▲ ▼ ▶ move   ·   ≡ centre   ·   OK keep   ·   Back undo</string>
+    <string name="sub_move_bar_touch">Drag to move the subtitles: %1$s   ·   tap here to keep</string>
+    <string name="sub_move_saved">Subtitles: %1$s on this device</string>
     <string name="aspect">Aspect ratio</string>
     <string name="back">Back</string>
     <string name="play_pause">Play or pause</string>

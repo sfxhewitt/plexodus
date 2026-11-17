@@ -115,6 +115,14 @@ class PlayerActivity : Activity() {
     private var syncMode = false
     private var syncStart = 0
     private lateinit var syncBar: TextView
+    /** Moving the subtitles: the remote (or a finger) moves them, not the film. */
+    private var subMoveMode = false
+    private var subPos = SubtitlePosition.DEFAULT
+    private var subMoveStart = SubtitlePosition.DEFAULT
+    private var subMoveBar: TextView? = null
+    private var subGhost: TextView? = null
+    private var dragX = 0f
+    private var dragY = 0f
     private lateinit var calibrationText: TextView
     /** Phones and tablets: on-screen buttons for Audio sync and calibration. */
     private lateinit var adjustButtons: LinearLayout
@@ -219,6 +227,10 @@ class PlayerActivity : Activity() {
         loadShareTargets()
 
         videoLayout = findViewById(R.id.video)
+        // The subtitle move is a share of the screen: redo it if the size changes.
+        videoLayout.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or, ob ->
+            if (r - l != or - ol || b - t != ob - ot) applySubtitlePosition()
+        }
         overlay = findViewById(R.id.overlay)
         spinner = findViewById(R.id.spinner)
         errorText = findViewById(R.id.error)
@@ -390,6 +402,8 @@ class PlayerActivity : Activity() {
         player = MediaPlayer(libVlc)
         player.attachViews(videoLayout, null, true, false)
         player.setEventListener { onEvent(it) }
+        subPos = SubtitlePosition.load(this)
+        applySubtitlePosition()
     }
 
     /**
@@ -488,7 +502,7 @@ class PlayerActivity : Activity() {
                 if (!calibrating && overviewText.text.isNotEmpty()) overviewText.visibility = View.VISIBLE
                 playPause.setImageResource(R.drawable.ic_play)
                 report(force = true)
-                if (!upNextVisible && !calibrating && !syncMode) setControls(true)
+                if (!upNextVisible && !calibrating && !syncMode && !subMoveMode) setControls(true)
             }
             MediaPlayer.Event.Buffering -> spinner.visibility = if (e.buffering < 100f) View.VISIBLE else View.GONE
             MediaPlayer.Event.TimeChanged -> {
@@ -761,6 +775,10 @@ class PlayerActivity : Activity() {
                 list.addView(linkRow(getString(R.string.sub_style), if (preset >= 0) SubtitleStyle.PRESETS[preset].first else getString(R.string.sub_custom)) {
                     showStylePage(dialog, frame)
                 })
+                list.addView(linkRow(getString(R.string.sub_position), subPos.describe()) {
+                    dialog.dismiss()
+                    showSubtitleMove()
+                })
             })
         }
         if (canShare()) {
@@ -920,9 +938,11 @@ class PlayerActivity : Activity() {
         setting(getString(R.string.sub_background), { SubtitleStyle.BACKGROUNDS[style.background].first }) { by ->
             style = style.copy(background = cycle(style.background, by, SubtitleStyle.BACKGROUNDS.size))
         }
-        setting(getString(R.string.sub_position), { SubtitleStyle.POSITIONS[style.position].first }) { by ->
-            style = style.copy(position = (style.position + by).coerceIn(SubtitleStyle.POSITIONS.indices))
-        }
+        var moveAfter = false
+        list.addView(linkRow(getString(R.string.sub_position), subPos.describe()) {
+            moveAfter = true
+            dialog.dismiss()
+        })
         list.addView(divider())
         val done = linkRow(getString(R.string.sub_apply), "") { dialog.dismiss() }
         list.addView(done)
@@ -940,7 +960,7 @@ class PlayerActivity : Activity() {
                 SubtitleStyle.save(this, style)
                 restartPlayer()
             }
-            scheduleHide()
+            if (moveAfter) showSubtitleMove() else scheduleHide()
         }
     }
 
@@ -1183,13 +1203,39 @@ class PlayerActivity : Activity() {
         val track = player.currentVideoTrack
         if (track == null || track.frameRateNum <= 0 || track.frameRateDen <= 0) {
             // libVLC often learns the frame rate a moment after the first
-            // frame is shown, so keep asking for a few seconds.
+            // frame is shown, so keep asking for a few seconds. Some files
+            // never say (no frame rate in the MKV header): then count frames.
             ui.removeCallbacksAndMessages(modeRetry)
-            if (attempt < 20) ui.postAtTime({ matchRefreshRate(attempt + 1) }, modeRetry, SystemClock.uptimeMillis() + 500)
+            if (attempt < 8) ui.postAtTime({ matchRefreshRate(attempt + 1) }, modeRetry, SystemClock.uptimeMillis() + 500)
+            else measureFrameRate()
             return
         }
+        switchDisplayTo(track.frameRateNum.toFloat() / track.frameRateDen, "file")
+    }
+
+    /**
+     * Counts the frames libVLC shows over a few seconds of steady playback and
+     * snaps that to a standard rate. A 24 fps film on a 60 Hz screen judders
+     * (3:2 pulldown) and hitches every few seconds, so a good guess beats none.
+     */
+    private fun measureFrameRate(tries: Int = 0) {
+        if (modeSwitched || isFinishing) return
+        val start = player.media?.stats?.displayedPictures ?: -1
+        val t0 = SystemClock.elapsedRealtime()
+        ui.postAtTime({
+            if (modeSwitched || isFinishing) return@postAtTime
+            val end = player.media?.stats?.displayedPictures ?: -1
+            val secs = (SystemClock.elapsedRealtime() - t0) / 1000f
+            val fps = if (start >= 0 && end > start && player.isPlaying && !seeking) (end - start) / secs else 0f
+            val snapped = STANDARD_RATES.minByOrNull { Math.abs(it - fps) }!!
+            if (fps > 0 && Math.abs(snapped - fps) / snapped < 0.06f) switchDisplayTo(snapped, "counted %.2f".format(fps))
+            else if (tries < 5) measureFrameRate(tries + 1)
+            else android.util.Log.i(TAG, "refresh rate: frame rate unknown, leaving the display as it is")
+        }, modeRetry, SystemClock.uptimeMillis() + 4_000)
+    }
+
+    private fun switchDisplayTo(fps: Float, source: String) {
         modeSwitched = true
-        val fps = track.frameRateNum.toFloat() / track.frameRateDen
         @Suppress("DEPRECATION")
         val display = windowManager.defaultDisplay
         val current = display.mode
@@ -1203,8 +1249,10 @@ class PlayerActivity : Activity() {
             }
             // Exact match first (23.976 over 24), then the lowest such rate.
             .sortedWith(compareBy<Pair<Display.Mode, Float>>({ Math.round(it.second * 1000) }, { it.first.refreshRate }))
-            .firstOrNull()?.first ?: return
-        if (best.modeId == current.modeId) return
+            .firstOrNull()?.first
+        android.util.Log.i(TAG, "refresh rate: film %.3f fps (%s), display %.3f Hz, picked %s".format(
+            fps, source, current.refreshRate, best?.let { "%.3f Hz".format(it.refreshRate) } ?: "none"))
+        if (best == null || best.modeId == current.modeId) return
         window.attributes = window.attributes.also { it.preferredDisplayModeId = best.modeId }
     }
 
@@ -1767,6 +1815,124 @@ class PlayerActivity : Activity() {
         }
     }
 
+    // ---- subtitle position ----
+
+    /** libVLC's subtitle layer (it draws subtitles on their own surface above the picture). */
+    private fun subtitleSurface(): View? = videoLayout.findViewById(org.videolan.R.id.surface_subtitles)
+
+    /** Moves the subtitle layer to [subPos]; live, with no player restart. */
+    private fun applySubtitlePosition() {
+        val surface = subtitleSurface()
+        if (surface == null || videoLayout.width == 0) {
+            // Not laid out yet: try again once it is.
+            videoLayout.post { if (!isFinishing && videoLayout.width > 0 && subtitleSurface() != null) applySubtitlePosition() }
+            return
+        }
+        surface.translationX = subPos.x * videoLayout.width
+        surface.translationY = -subPos.y * videoLayout.height
+        if (subMoveMode) placeGhost()
+    }
+
+    /**
+     * Free positioning: the film keeps playing while the D-pad moves the
+     * subtitles anywhere on screen (a finger drags them on a touch screen).
+     * A faint sample line shows where they'll be between lines of dialogue.
+     * OK keeps the place for this device, Back puts them back.
+     */
+    private fun showSubtitleMove() {
+        subMoveMode = true
+        subMoveStart = subPos
+        setControls(false)
+        val root = findViewById<android.widget.FrameLayout>(R.id.root)
+        val bar = subMoveBar ?: TextView(this).apply {
+            setBackgroundResource(R.drawable.bg_sync_bar)
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 15f
+            gravity = android.view.Gravity.CENTER
+            setPadding(dp(22), dp(10), dp(22), dp(10))
+            setShadowLayer(4f, 0f, 1f, android.graphics.Color.BLACK)
+            setOnClickListener { closeSubtitleMove(keep = true) }
+            root.addView(this, android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL,
+            ).apply { topMargin = dp(28) })
+            subMoveBar = this
+        }
+        val ghost = subGhost ?: TextView(this).apply {
+            text = getString(R.string.sub_move_sample)
+            gravity = android.view.Gravity.CENTER
+            setPadding(dp(8), dp(2), dp(8), dp(3))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setStroke(dp(1), 0x99FFFFFF.toInt(), dp(6).toFloat(), dp(4).toFloat())
+                cornerRadius = dp(6).toFloat()
+            }
+            alpha = 0.6f
+            root.addView(this, android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL,
+            ))
+            subGhost = this
+        }
+        val style = SubtitleStyle.load(this)
+        style.preview(ghost, resources.displayMetrics.heightPixels / resources.displayMetrics.density)
+        // The preview's box would hide the dashed outline; the outline is what matters here.
+        ghost.background = android.graphics.drawable.GradientDrawable().apply {
+            setStroke(dp(1), 0x99FFFFFF.toInt(), dp(6).toFloat(), dp(4).toFloat())
+            cornerRadius = dp(6).toFloat()
+        }
+        bar.visibility = View.VISIBLE
+        ghost.visibility = View.VISIBLE
+        bar.bringToFront()
+        updateSubMoveBar()
+        applySubtitlePosition()
+    }
+
+    private fun moveSubtitles(dx: Float, dy: Float) {
+        subPos = subPos.moved(dx, dy)
+        applySubtitlePosition()
+        updateSubMoveBar()
+    }
+
+    private fun updateSubMoveBar() {
+        subMoveBar?.text = getString(if (touchScreen) R.string.sub_move_bar_touch else R.string.sub_move_bar, subPos.describe())
+    }
+
+    /** The sample line sits where libVLC puts a one-line subtitle: bottom centre of the picture, then moved. */
+    private fun placeGhost() {
+        val ghost = subGhost ?: return
+        val surface = subtitleSurface() ?: return
+        val root = findViewById<View>(R.id.root)
+        val at = IntArray(2)
+        val rootAt = IntArray(2)
+        surface.getLocationOnScreen(at)
+        root.getLocationOnScreen(rootAt)
+        // Where the picture's bottom edge is, without the move (translation is added below).
+        val bottom = at[1] - rootAt[1] - surface.translationY + surface.height
+        val lp = ghost.layoutParams as android.widget.FrameLayout.LayoutParams
+        val want = (root.height - bottom).toInt().coerceAtLeast(0) + dp(2)
+        if (lp.bottomMargin != want) {
+            lp.bottomMargin = want
+            ghost.layoutParams = lp
+        }
+        ghost.translationX = surface.translationX
+        ghost.translationY = surface.translationY
+    }
+
+    private fun closeSubtitleMove(keep: Boolean) {
+        subMoveMode = false
+        subMoveBar?.visibility = View.GONE
+        subGhost?.visibility = View.GONE
+        if (keep) {
+            if (subPos != subMoveStart) {
+                SubtitlePosition.save(this, subPos)
+                Toast.makeText(this, getString(R.string.sub_move_saved, subPos.describe()), Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            subPos = subMoveStart
+            applySubtitlePosition()
+        }
+    }
+
     // ---- keyboard / remote control ----
 
     // Any button press while the controls are up keeps them up, so they don't
@@ -1787,10 +1953,49 @@ class PlayerActivity : Activity() {
             autoPlays = 0
             stopCountdown()
         }
+        if (subMoveMode && !touchesView(subMoveBar, ev)) {
+            // Dragging anywhere moves the subtitles by as much as the finger moves.
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { dragX = ev.rawX; dragY = ev.rawY }
+                MotionEvent.ACTION_MOVE -> {
+                    val w = videoLayout.width.coerceAtLeast(1)
+                    val h = videoLayout.height.coerceAtLeast(1)
+                    moveSubtitles((ev.rawX - dragX) / w, (dragY - ev.rawY) / h)
+                    dragX = ev.rawX
+                    dragY = ev.rawY
+                }
+            }
+            return true
+        }
         return super.dispatchTouchEvent(ev)
     }
 
+    private fun touchesView(v: View?, ev: MotionEvent): Boolean {
+        if (v == null || v.visibility != View.VISIBLE) return false
+        val at = IntArray(2)
+        v.getLocationOnScreen(at)
+        return ev.rawX >= at[0] && ev.rawX <= at[0] + v.width && ev.rawY >= at[1] && ev.rawY <= at[1] + v.height
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (subMoveMode) {
+            // Held down, it speeds up: 1% of the screen a press, then 3%.
+            val step = if (event.repeatCount > 6) 0.03f else 0.01f
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> moveSubtitles(-step, 0f)
+                KeyEvent.KEYCODE_DPAD_RIGHT -> moveSubtitles(step, 0f)
+                KeyEvent.KEYCODE_DPAD_UP -> moveSubtitles(0f, step)
+                KeyEvent.KEYCODE_DPAD_DOWN -> moveSubtitles(0f, -step)
+                KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_CAPTIONS -> moveSubtitles(-subPos.x, -subPos.y)
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> closeSubtitleMove(keep = true)
+                KeyEvent.KEYCODE_BACK -> closeSubtitleMove(keep = false)
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_SPACE -> togglePlay()
+                KeyEvent.KEYCODE_MEDIA_PLAY -> player.play()
+                KeyEvent.KEYCODE_MEDIA_PAUSE -> player.pause()
+                else -> return super.onKeyDown(keyCode, event)
+            }
+            return true
+        }
         if (syncMode) {
             when (keyCode) {
                 KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_REWIND -> nudgeSync(-SYNC_STEP_MS)
@@ -2050,6 +2255,9 @@ class PlayerActivity : Activity() {
         private val PASSTHROUGH_CLOSES_CLEANLY = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
 
         const val EXTRA_RESULT = "result"
+        private const val TAG = "Plexodus"
+        /** What films and shows are made at; 23.976 wins a near-24 count (most films). */
+        private val STANDARD_RATES = listOf(23.976f, 25f, 29.97f, 50f, 59.94f)
         private const val SYNC_STEP_MS = 25
         private const val CALIBRATION_STEP_MS = 10
         private const val EXTRA_FILE_ID = "fileId"
