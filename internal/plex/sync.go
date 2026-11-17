@@ -143,6 +143,10 @@ type Syncer struct {
 	status      SyncStatus
 	extras      ExtrasStatus
 	extrasAfter time.Time // no extras before this (set after a failure)
+
+	// Rematched is called after a title is re-matched from Plex, with its
+	// new TMDB id (0 if Plex has none), to fill in what Plex doesn't carry.
+	Rematched func(ctx context.Context, itemID int64, kind string, tmdbID int64)
 }
 
 func NewSyncer(d *db.DB, client func(context.Context) (*Client, PathMap), busy func() bool) *Syncer {
@@ -337,6 +341,14 @@ func (s *Syncer) runExtras(ctx context.Context) {
 		s.setPhase("intro and credits markers")
 		mctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 		if err := s.syncMarkers(mctx, c, pm); err != nil {
+			fail(err)
+		}
+		cancel()
+	}
+	if s.matchesDue(ctx) {
+		s.setPhase("matches fixed in Plex")
+		mctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+		if err := s.syncMatches(mctx, c, pm); err != nil {
 			fail(err)
 		}
 		cancel()

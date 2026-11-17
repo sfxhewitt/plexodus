@@ -100,6 +100,11 @@ func migrate(w *sql.DB) error {
 		// briefly, for History. Marking watched by hand leaves it alone; 0 =
 		// never played or removed from History.
 		{"watch_state", "played_at", "INTEGER NOT NULL DEFAULT 0"},
+		// Plex's guid for a linked title when last seen, so a re-match in
+		// Plex ("Fix match") can be noticed and copied over.
+		{"plex_links", "plex_guid", "TEXT"},
+		// 1 when an admin fixed the match in Plexodus.
+		{"items", "match_manual", "INTEGER NOT NULL DEFAULT 0"},
 	}
 	for _, c := range columns {
 		var n int

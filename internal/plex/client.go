@@ -155,6 +155,7 @@ type Metadata struct {
 	Duration              int64             `json:"duration"`
 	OriginallyAvailableAt string            `json:"originallyAvailableAt"`
 	AddedAt               int64             `json:"addedAt"`
+	UpdatedAt             int64             `json:"updatedAt"`
 	Thumb                 string            `json:"thumb"`
 	Art                   string            `json:"art"`
 	ViewCount             int               `json:"viewCount"`
