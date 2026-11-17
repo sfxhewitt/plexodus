@@ -84,6 +84,8 @@ class PlayerActivity : Activity() {
     private var passthrough = false
     /** The HDMI sink takes Dolby/DTS, so passthrough is on whenever headphones aren't. */
     private var hdmiSurround = false
+    /** libVLC is mixing down to stereo for headphones (see [STEREO_FOR_HEADPHONES]). */
+    private var stereoOut = false
     private var modeSwitched = false
     private lateinit var overviewText: TextView
     private val modeRetry = Any()
@@ -360,7 +362,8 @@ class PlayerActivity : Activity() {
         // Send Dolby/DTS untouched to the TV or receiver when it says it can
         // take them (like Plex's "passthrough"); otherwise decode to PCM.
         // Bluetooth or wired headphones can't take a bitstream: it would go out of the
-        // TV's speakers instead, so decode while they're connected.
+        // TV's speakers instead, so decode while they're connected, and mix down to
+        // stereo for them (see STEREO_FOR_HEADPHONES).
         // Not before Android 11 (so not on the Fire TV Cube): see PASSTHROUGH_CLOSES_CLEANLY.
         hdmiSurround = hdmiTakesSurround()
         passthrough = PASSTHROUGH_CLOSES_CLEANLY && hdmiSurround && !headphonesConnected()
@@ -388,6 +391,7 @@ class PlayerActivity : Activity() {
         opts += if (passthrough) "--spdif" else "--no-spdif"
         libVlc = LibVLC(this, opts)
         player = MediaPlayer(libVlc)
+        stereoOut = hdmiSurround && headphonesConnected() && player.setAudioOutputDevice(STEREO_FOR_HEADPHONES)
         player.attachViews(videoLayout, null, true, false)
         player.setEventListener { onEvent(it) }
     }
@@ -1223,16 +1227,24 @@ class PlayerActivity : Activity() {
     private fun headphonesConnected(): Boolean =
         (getSystemService(Context.AUDIO_SERVICE) as AudioManager).getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { it.type in headphoneTypes }
 
-    /** Headphones connected or gone mid-film: switch between passthrough and decoding. */
+    /**
+     * Headphones connected mid-film: stereo for them (no passthrough). Gone again: rebuild the
+     * player from the same moment, so libVLC picks the HDMI output (and passthrough) itself.
+     */
     private val deviceWatch = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>) = recheck()
         override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) = recheck()
         private fun recheck() {
             if (finished || !::player.isInitialized) return
-            val want = PASSTHROUGH_CLOSES_CLEANLY && hdmiSurround && !headphonesConnected()
-            if (want == passthrough) return
-            passthrough = want
-            player.setAudioDigitalOutputEnabled(want)
+            val phones = headphonesConnected()
+            if (phones == stereoOut) return
+            if (phones) {
+                passthrough = false
+                stereoOut = player.setAudioOutputDevice(STEREO_FOR_HEADPHONES)
+            } else {
+                passthrough = PASSTHROUGH_CLOSES_CLEANLY && hdmiSurround
+                restartPlayer()
+            }
         }
     }
 
@@ -1289,7 +1301,13 @@ class PlayerActivity : Activity() {
             .append(String.format(Locale.US, " @ %.3f Hz", mode.refreshRate)).append('\n')
         val audioName = player.audioTracks?.firstOrNull { it.id == player.audioTrack }?.name
         sb.append("AUDIO    ").append(audioName ?: "-").append('\n')
-        sb.append("OUTPUT   ").append(if (passthrough) "Passthrough to HDMI (when the format allows)" else "Decoded to PCM").append('\n')
+        sb.append("OUTPUT   ").append(
+            when {
+                passthrough -> "Passthrough to HDMI (when the format allows)"
+                stereoOut -> "Decoded to stereo for headphones"
+                else -> "Decoded to PCM"
+            }
+        ).append('\n')
         val media = player.media
         try {
             val st = media?.stats
@@ -2048,6 +2066,15 @@ class PlayerActivity : Activity() {
          * on from Android 11 (the SHIELD), which hasn't shown this; Android 10 decodes to be safe.
          */
         private val PASSTHROUGH_CLOSES_CLEANLY = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+
+        /**
+         * libVLC's audio device for headphones: up to 2 channels, libVLC mixes 5.1/7.1 down itself.
+         * Left alone, libVLC picks "pcm" (up to 8 channels) whenever the HDMI sink lists a surround
+         * format, even while Bluetooth headphones are the route, and Fire OS plays a 5.1 PCM track
+         * to A2DP as silence (Fire TV Cube, 15 Nov 2026: track 0x3F at 0 dB on the A2DP mixer,
+         * nothing heard; YouTube's stereo fine).
+         */
+        private const val STEREO_FOR_HEADPHONES = "stereo"
 
         const val EXTRA_RESULT = "result"
         private const val SYNC_STEP_MS = 25
