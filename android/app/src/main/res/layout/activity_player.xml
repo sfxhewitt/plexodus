@@ -139,6 +139,25 @@
             android:scaleType="centerCrop"
             android:visibility="gone" />
 
+        <!-- Where the remote is taking you, and how far from now (+1:30). -->
+        <TextView
+            android:id="@+id/scrub_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|start"
+            android:layout_marginBottom="96dp"
+            android:background="@drawable/bg_track_panel"
+            android:elevation="7dp"
+            android:fontFamily="sans-serif-medium"
+            android:fontFeatureSettings="tnum"
+            android:paddingStart="8dp"
+            android:paddingTop="3dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="3dp"
+            android:textColor="@color/text"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
         <!-- Bottom: title, a slim progress line and small glass chips. -->
         <LinearLayout
             android:layout_width="match_parent"

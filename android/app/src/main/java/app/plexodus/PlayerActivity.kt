@@ -138,7 +138,30 @@ class PlayerActivity : Activity() {
     private var touchSeeking = false
     /** Where the remote has moved the seek bar to, before the jump is made; -1 when idle. */
     private var scrubMs = -1L
+    /** Where the film was when this scrub began, for the "+1:30" label. */
+    private var scrubFromMs = -1L
     private val commitScrub = Runnable { commitSeek() }
+    /** The seek key being held down (0 when none), its direction and timings. */
+    private var holdKey = 0
+    private var holdDir = 0
+    private var holdStart = 0L
+    private var holdLast = 0L
+    private var holdSeen = 0L
+    /** A seek key whose press the player took, so its release is taken too. */
+    private var seekKeyDown = 0
+    private val holdTick = object : Runnable {
+        override fun run() {
+            if (holdKey == 0) return
+            val now = SystemClock.uptimeMillis()
+            // The key-up can go missing (focus change, remote out of range): stop when repeats do.
+            if (now - holdSeen > HOLD_LOST_MS) { stopHold(); return }
+            val dt = now - holdLast
+            holdLast = now
+            val speed = holdSpeed((now - holdStart) / 1000.0)
+            scrubBy((holdDir * speed * dt).toLong())
+            ui.postDelayed(this, HOLD_FRAME_MS)
+        }
+    }
     /**
      * libVLC has started this file. Until then timeMs is only the resume
      * point we asked for, so nothing is reported: backing out of a film that
@@ -537,31 +560,128 @@ class PlayerActivity : Activity() {
     }
 
     /**
-     * The remote moves the seek bar: each press 10 s, holding it speeds up.
-     * The player jumps once the presses stop (or on OK), like Plex and Netflix.
+     * Fast forward / rewind from the remote, D-pad or media keys alike.
+     *
+     * A press moves +30 s forward or -10 s back (Netflix and YouTube steps).
+     * Presses add up, and the player only jumps once they stop (or on OK),
+     * so three quick presses are one jump of 1:30, not three re-buffers.
+     * Holding scrubs smoothly: the position glides at 20 s of film per
+     * second at first and gently speeds up to 6 min per second over about
+     * eight seconds, with the frame and "+12:30" shown before the jump.
+     * The D-pad seeks while the film is playing with no controls up, or
+     * when the progress line has the focus; on other buttons it moves focus.
      */
-    private fun scrubBy(dir: Int, repeat: Int) {
-        if (lengthMs <= 0) return
-        if (scrubMs < 0) scrubMs = timeMs
-        val step = when {
-            repeat < 4 -> 10_000L
-            repeat < 20 -> 30_000L
-            else -> maxOf(60_000L, lengthMs / 60)
+    private fun handleSeekKey(event: KeyEvent): Boolean {
+        val code = event.keyCode
+        val media = code == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD || code == KeyEvent.KEYCODE_MEDIA_REWIND
+        val dpad = code == KeyEvent.KEYCODE_DPAD_RIGHT || code == KeyEvent.KEYCODE_DPAD_LEFT
+        if (!media && !dpad) return false
+        if (event.action == KeyEvent.ACTION_UP) {
+            if (seekKeyDown != code) return false
+            seekKeyDown = 0
+            if (holdKey == code) stopHold()
+            return true
         }
-        scrubMs = (scrubMs + dir * step).coerceIn(0, lengthMs)
+        if (event.action != KeyEvent.ACTION_DOWN) return seekKeyDown == code
+        if (seekKeyDown != code) {
+            // A fresh press: the D-pad only seeks from the film or the progress line.
+            if (event.repeatCount > 0) return false
+            if (dpad && controlsVisible && currentFocus != seek) return false
+            seekKeyDown = code
+        }
+        if (lengthMs <= 0 || !started) return true
+        val dir = if (code == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD || code == KeyEvent.KEYCODE_DPAD_RIGHT) 1 else -1
+        if (event.repeatCount == 0) {
+            if (holdKey != 0) stopHold()
+            scrubBy(if (dir > 0) TAP_FORWARD_MS else -TAP_BACK_MS)
+        } else {
+            holdSeen = SystemClock.uptimeMillis()
+            if (holdKey != code) startHold(code, dir)
+        }
+        return true
+    }
+
+    private fun startHold(code: Int, dir: Int) {
+        holdKey = code
+        holdDir = dir
+        holdStart = SystemClock.uptimeMillis()
+        holdLast = holdStart
+        holdSeen = holdStart
+        ui.removeCallbacks(holdTick)
+        ui.post(holdTick)
+    }
+
+    private fun stopHold() {
+        holdKey = 0
+        ui.removeCallbacks(holdTick)
+        if (scrubMs >= 0) {
+            ui.removeCallbacks(commitScrub)
+            ui.postDelayed(commitScrub, SCRUB_SETTLE_MS)
+        }
+    }
+
+    /** Seconds of film per second held: gentle at first, then gradually quicker. */
+    private fun holdSpeed(heldS: Double): Double {
+        fun ramp(t: Double, t0: Double, t1: Double, a: Double, b: Double) = a + (b - a) * ((t - t0) / (t1 - t0)).coerceIn(0.0, 1.0)
+        return when {
+            heldS < 1.0 -> 20.0
+            heldS < 4.0 -> ramp(heldS, 1.0, 4.0, 20.0, 90.0)
+            else -> ramp(heldS, 4.0, 8.0, 90.0, 360.0)
+        }
+    }
+
+    /** Moves where the seek bar points by deltaMs; the player jumps once it settles. */
+    private fun scrubBy(deltaMs: Long) {
+        if (lengthMs <= 0) return
+        if (scrubMs < 0) {
+            scrubMs = timeMs
+            scrubFromMs = timeMs
+        }
+        // Never quite to the end: landing on it would finish the film.
+        val last = (lengthMs - 1_000).coerceAtLeast(0)
+        scrubMs = (scrubMs + deltaMs).coerceIn(0, last)
         seeking = true
+        if (!controlsVisible) setControls(true)
         ui.removeCallbacks(hideControls)
         seek.max = (lengthMs / 1000).toInt().coerceAtLeast(1)
         seek.progress = (scrubMs / 1000).toInt()
         timeText.text = fmt(scrubMs)
         showScrubPreview(scrubMs)
+        showScrubLabel(scrubMs)
         ui.removeCallbacks(commitScrub)
-        ui.postDelayed(commitScrub, SCRUB_SETTLE_MS)
+        if (holdKey == 0) ui.postDelayed(commitScrub, SCRUB_SETTLE_MS)
+    }
+
+    /** "1:02:30  +1:30" over the seek bar at the time you're going to. */
+    private fun showScrubLabel(ms: Long) {
+        val label = findViewById<TextView>(R.id.scrub_label)
+        val delta = if (scrubFromMs >= 0) ms - scrubFromMs else 0
+        val sign = if (delta < 0) "\u2212" else "+"
+        label.text = "${fmt(ms)}   $sign${fmt(kotlin.math.abs(delta))}"
+        label.visibility = View.VISIBLE
+        label.post {
+            val seekLoc = IntArray(2)
+            val parentLoc = IntArray(2)
+            seek.getLocationInWindow(seekLoc)
+            (label.parent as View).getLocationInWindow(parentLoc)
+            val frac = if (lengthMs > 0) ms.toFloat() / lengthMs else 0f
+            val cx = seekLoc[0] - parentLoc[0] + seek.paddingLeft + frac * (seek.width - seek.paddingLeft - seek.paddingRight)
+            val maxX = ((label.parent as View).width - label.width).toFloat().coerceAtLeast(0f)
+            label.translationX = (cx - label.width / 2f).coerceIn(0f, maxX)
+        }
+    }
+
+    private fun hideScrubLabel() {
+        scrubFromMs = -1L
+        findViewById<View>(R.id.scrub_label).visibility = View.GONE
     }
 
     /** Makes the jump the seek bar has been moved to. */
     private fun commitSeek() {
         ui.removeCallbacks(commitScrub)
+        holdKey = 0
+        ui.removeCallbacks(holdTick)
+        hideScrubLabel()
         val target = scrubMs
         scrubMs = -1L
         seeking = false
@@ -1809,6 +1929,9 @@ class PlayerActivity : Activity() {
             if (!volume) stopCountdown()
             if (controlsVisible) scheduleHide()
         }
+        // Seek keys are taken here, before the focused seek bar sees them: its own
+        // step is a twentieth of the film (6 min of a 2-hour film) per press.
+        if (!syncMode && !phoneCheck && !phoneMode && !calibrating && !upNextVisible && handleSeekKey(event)) return true
         return super.dispatchKeyEvent(event)
     }
 
@@ -1886,17 +2009,8 @@ class PlayerActivity : Activity() {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_SPACE -> togglePlay()
             KeyEvent.KEYCODE_MEDIA_PLAY -> player.play()
             KeyEvent.KEYCODE_MEDIA_PAUSE -> player.pause()
-            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> seekBy(30_000)
-            KeyEvent.KEYCODE_MEDIA_REWIND -> seekBy(-30_000)
-            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_LEFT -> {
-                val dir = if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) 1 else -1
-                when {
-                    !controlsVisible -> seekBy(dir * 10_000L)
-                    // The seek bar has the focus: move it, jump when the presses stop.
-                    currentFocus == seek -> scrubBy(dir, event.repeatCount)
-                    else -> return super.onKeyDown(keyCode, event)
-                }
-            }
+            // Seeking itself is handled in dispatchKeyEvent (handleSeekKey).
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_MEDIA_REWIND -> {}
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
                 if (controlsVisible && scrubMs >= 0 && (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER)) {
                     commitSeek()
@@ -1935,6 +2049,9 @@ class PlayerActivity : Activity() {
                 scrubMs >= 0 -> {
                     // Back while moving the seek bar: stay where the film is.
                     ui.removeCallbacks(commitScrub)
+                    holdKey = 0
+                    ui.removeCallbacks(holdTick)
+                    hideScrubLabel()
                     scrubMs = -1L
                     seeking = false
                     updateTime()
@@ -2125,6 +2242,13 @@ class PlayerActivity : Activity() {
         private const val EXTRA_START_MS = "startMs"
         /** How long after the last press on the seek bar the player jumps. */
         private const val SCRUB_SETTLE_MS = 700L
+        /** One press of fast forward / rewind. */
+        private const val TAP_FORWARD_MS = 30_000L
+        private const val TAP_BACK_MS = 10_000L
+        /** How often a held key moves the position (about 30 times a second). */
+        private const val HOLD_FRAME_MS = 33L
+        /** Key repeats come every ~50 ms; this long without one means the key is up. */
+        private const val HOLD_LOST_MS = 400L
         private const val EXTRA_DURATION_MS = "durationMs"
         private const val EXTRA_MARKERS = "markers"
 
