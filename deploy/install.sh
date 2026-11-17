@@ -88,9 +88,12 @@ systemctl daemon-reload
 systemctl enable plexodus >/dev/null
 systemctl enable plexodus-update.timer plexodus-update.path >/dev/null 2>&1 || true
 systemctl restart plexodus
-# start, not restart: when the updater runs this, its own path unit and
-# timer are what started it.
-systemctl start plexodus-update.timer plexodus-update.path || true
+# The path unit is only started: when the updater runs this, the path unit
+# may be what started it.
+# Restarting the timer applies schedule changes; it never stops a running
+# update.
+systemctl restart plexodus-update.timer || true
+systemctl start plexodus-update.path || true
 sleep 1
 systemctl --no-pager --lines=5 status plexodus || true
 echo
