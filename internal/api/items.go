@@ -20,15 +20,18 @@ import (
 
 // Card is the compact shape used in grids and rows.
 type Card struct {
-	ID            int64   `json:"id"`
-	LibraryID     int64   `json:"libraryId"`
-	Kind          string  `json:"kind"`
-	Title         string  `json:"title"`
-	Year          int     `json:"year,omitempty"`
-	Poster        string  `json:"poster,omitempty"`
-	Backdrop      string  `json:"backdrop,omitempty"`
-	Logo          string  `json:"logo,omitempty"`
-	Rating        float64 `json:"rating,omitempty"`
+	ID        int64   `json:"id"`
+	LibraryID int64   `json:"libraryId"`
+	Kind      string  `json:"kind"`
+	Title     string  `json:"title"`
+	Year      int     `json:"year,omitempty"`
+	Poster    string  `json:"poster,omitempty"`
+	Backdrop  string  `json:"backdrop,omitempty"`
+	Logo      string  `json:"logo,omitempty"`
+	Rating    float64 `json:"rating,omitempty"`
+	// Rotten Tomatoes Tomatometer and audience score, 0–100.
+	RTCritic      *int    `json:"rtCritic,omitempty"`
+	RTAudience    *int    `json:"rtAudience,omitempty"`
 	Runtime       int     `json:"runtime,omitempty"`
 	SeasonNumber  *int    `json:"seasonNumber,omitempty"`
 	EpisodeNumber *int    `json:"episodeNumber,omitempty"`
@@ -59,7 +62,7 @@ const cardCols = `i.id, i.library_id, i.kind, i.title, COALESCE(i.year, 0), COAL
 	CASE WHEN i.kind = 'show' THEN (SELECT COUNT(*) FROM items s JOIN items e ON e.parent_id = s.id WHERE s.parent_id = i.id
 		AND EXISTS (SELECT 1 FROM watch_state ws WHERE ws.user_id = ?1 AND ws.item_id = e.id AND ws.watched = 1)) ELSE 0 END,
 	CASE WHEN i.kind = 'episode' THEN COALESCE(i.overview, '') ELSE '' END,
-	EXISTS (SELECT 1 FROM watchlist wl WHERE wl.user_id = ?1 AND wl.item_id = i.id)`
+	EXISTS (SELECT 1 FROM watchlist wl WHERE wl.user_id = ?1 AND wl.item_id = i.id), i.rt_critic, i.rt_audience`
 
 const cardFrom = `FROM items i
 	LEFT JOIN watch_state w ON w.item_id = i.id AND w.user_id = ?1
@@ -71,11 +74,19 @@ func scanCards(rows *sql.Rows) ([]Card, error) {
 	out := []Card{}
 	for rows.Next() {
 		var c Card
-		var sn, en sql.NullInt64
+		var sn, en, rc, ra sql.NullInt64
 		if err := rows.Scan(&c.ID, &c.LibraryID, &c.Kind, &c.Title, &c.Year, &c.Poster, &c.Backdrop, &c.Logo, &c.Rating,
 			&c.Runtime, &sn, &en, &c.ParentID, &c.ShowID, &c.ShowTitle, &c.ShowPoster, &c.ShowBackdrop, &c.AddedAt,
-			&c.Position, &c.Duration, &c.Watched, &c.LeafCount, &c.ViewedLeaves, &c.Overview, &c.Watchlisted); err != nil {
+			&c.Position, &c.Duration, &c.Watched, &c.LeafCount, &c.ViewedLeaves, &c.Overview, &c.Watchlisted, &rc, &ra); err != nil {
 			return nil, err
+		}
+		if rc.Valid {
+			n := int(rc.Int64)
+			c.RTCritic = &n
+		}
+		if ra.Valid {
+			n := int(ra.Int64)
+			c.RTAudience = &n
 		}
 		if sn.Valid {
 			n := int(sn.Int64)
@@ -254,13 +265,15 @@ func (f *fileStats) forget() {
 }
 
 var sortColumns = map[string]string{
-	"title":   "i.sort_title",
-	"added":   "i.added_at",
-	"year":    "i.year",
-	"rating":  "i.rating",
-	"release": "i.release_date",
-	"runtime": "i.runtime",
-	"random":  "random", // replaced by a seeded order in handleLibraryItems
+	"title":    "i.sort_title",
+	"added":    "i.added_at",
+	"year":     "i.year",
+	"rating":   "i.rating",
+	"critics":  "i.rt_critic",
+	"audience": "i.rt_audience",
+	"release":  "i.release_date",
+	"runtime":  "i.runtime",
+	"random":   "random", // replaced by a seeded order in handleLibraryItems
 }
 
 // itemVisible reports whether the current user may see an item.

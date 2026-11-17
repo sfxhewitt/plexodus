@@ -10,6 +10,9 @@ export interface Card {
   backdrop?: string;
   logo?: string;
   rating?: number;
+  /** Rotten Tomatoes critics' Tomatometer and audience score, 0–100. */
+  rtCritic?: number;
+  rtAudience?: number;
   runtime?: number;
   seasonNumber?: number;
   episodeNumber?: number;

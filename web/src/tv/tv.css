@@ -772,3 +772,8 @@ html.tv [data-hscroll]::-webkit-scrollbar, html.tv [data-vscroll]::-webkit-scrol
 .tv-fp-opts .tv-list-item.none:not(.on) { color: var(--tv-muted); opacity: 0.6; }
 .tv-fp-foot { display: flex; align-items: center; margin-top: 1.6rem; padding: 1.4rem 0.3rem 0; border-top: 1px solid var(--tv-line); }
 .tv-fp-foot > * + * { margin-left: 1rem; }
+
+/* Rotten Tomatoes overlay on TV posters (see rt.css). */
+.tv-card .rt-badge { left: 0.6rem; bottom: 0.7rem; font-size: 1.05rem; padding: 0.3rem 0.6rem 0.3rem 0.4rem; }
+.tv-card .tv-progress ~ .rt-badge { bottom: 1.5rem; }
+.tv-rt { font-size: 1.25rem; }

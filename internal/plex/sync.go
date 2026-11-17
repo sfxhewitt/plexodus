@@ -366,6 +366,14 @@ func (s *Syncer) runExtras(ctx context.Context) {
 		}
 		cancel()
 	}
+	if s.rtDue(ctx) {
+		s.setPhase("Rotten Tomatoes scores")
+		rctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+		if err := s.syncRT(rctx, c); err != nil {
+			fail(fmt.Errorf("rotten tomatoes: %w", err))
+		}
+		cancel()
+	}
 	if s.db.Setting(ctx, ratingsDoneKey) != "1" {
 		s.setPhase("content ratings")
 		rctx, cancel := context.WithTimeout(ctx, 10*time.Minute)

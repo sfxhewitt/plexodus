@@ -4,6 +4,7 @@ import { Check, Play } from "../components/Icons";
 import { ambientPrefs, closeTrailerFull, onTrailer, onTrailerFull, stopTrailer, trailerFull } from "./ambient";
 import { CardMenuOptions, useCardMenu, useLongPress } from "./menu";
 import { onPlayBusy } from "./play";
+import { RTBadge } from "../rt";
 import { focusables, focusEl } from "./focus";
 import { TrailerVideo } from "./Trailer";
 
@@ -169,6 +170,7 @@ export const TvCard = memo(function TvCard({ c, shape, onSelect, onPlay, onFocus
         {label && <span className="tv-card-label">{label}</span>}
         <Badge c={c} />
         <Progress c={c} />
+        {shape === "poster" && !missing && <RTBadge c={c} />}
         {!missing && <span className="tv-card-play"><Play size={28} /></span>}
       </div>
       <div className="tv-card-cap">

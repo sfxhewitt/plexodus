@@ -4,6 +4,7 @@ import { art, Card, fmtRuntime, HomeData, Library } from "../api";
 import { Row } from "../components/Cards";
 import { Info, Play } from "../components/Icons";
 import { useApi, useUser } from "../hooks";
+import { hasRT, RTScores } from "../rt";
 
 function Hero({ items }: { items: Card[] }) {
   const [i, setI] = useState(0);
@@ -28,7 +29,7 @@ function Hero({ items }: { items: Card[] }) {
           <h1 className="hero-title">{c.title}</h1>
         )}
         <div className="hero-meta">
-          {c.rating ? <span className="pill">★ {c.rating.toFixed(1)}</span> : null}
+          {hasRT(c) ? <RTScores c={c} /> : c.rating ? <span className="pill">★ {c.rating.toFixed(1)}</span> : null}
           {c.year ? <span>{c.year}</span> : null}
           {c.runtime ? <span>{fmtRuntime(c.runtime)}</span> : null}
           <span className="cap">{c.kind === "show" ? "Series" : "Film"}</span>

@@ -6,6 +6,7 @@ import { native, nativeHas, phoneLipSync } from "../../native";
 import { ambientPrefs, onAmbientPrefs, setAmbientPrefs, startScreensaver, trailersSupported } from "../ambient";
 import { TvButton, useBackdrop } from "../components";
 import { useLibraries, usePageFocus, useToast } from "../hooks";
+import { rtPostersOn, setRtPosters } from "../../rt";
 
 /** On/off switch for one library choice. */
 function Toggle({ on, fk, label, onClick }: { on: boolean; fk: string; label: string; onClick: () => void }) {
@@ -87,6 +88,24 @@ function AmbientChoices() {
             <Toggle fk="trailer-sound" on={p.trailerSound} label="With sound" onClick={() => setAmbientPrefs({ trailerSound: !p.trailerSound })} />
           </>
         )}
+      </div>
+    </section>
+  );
+}
+
+/** Rotten Tomatoes overlays on posters, kept on this TV. */
+function RatingChoices() {
+  const [on, setOn] = useState(rtPostersOn);
+  return (
+    <section className="tv-lib-prefs">
+      <h2 className="tv-section-title">Ratings</h2>
+      <p className="tv-muted tv-section-note">
+        Rotten Tomatoes scores come from your Plex server: the critics' Tomatometer (tomato or splat) and the audience
+        score (popcorn). They always show on title pages; this choice is for the small badge on posters, on this TV only.
+      </p>
+      <div className="tv-pref-row" data-row data-group="rt-posters">
+        <div className="tv-pref-name"><span>Scores on posters</span></div>
+        <Toggle fk="rt-posters" on={on} label={on ? "Shown" : "Hidden"} onClick={() => { setRtPosters(!on); setOn(!on); }} />
       </div>
     </section>
   );
@@ -255,6 +274,7 @@ export default function SettingsPage() {
       {user?.isAdmin && !user.isProfile && <NowWatching />}
       <LibraryChoices />
       <AmbientChoices />
+      <RatingChoices />
       {native && <LipSyncChoices />}
       <p className="tv-muted tv-note">Adding libraries, users and the Plex import live in the Plexodus web page on a computer.</p>
       <div className="tv-page-tail" />

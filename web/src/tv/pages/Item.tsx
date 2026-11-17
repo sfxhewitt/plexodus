@@ -12,6 +12,7 @@ import { playCard, playItem } from "../play";
 import { CollectionTile } from "../collectionTile";
 import { initials } from "../../people";
 import { countLabel, episodeCard, episodeStatus, fmtAirDate, Guide, GuideEpisode, mergeEpisodes, mergeSeasons, seasonCard, seasonSub } from "../../guide";
+import { hasRT, RTScores } from "../../rt";
 
 function MediaChips({ d }: { d: Detail }) {
   const f = d.files[0];
@@ -154,7 +155,7 @@ export default function Item() {
             </h1>
           )}
           <div className="tv-meta">
-            {d.rating ? <span className="tv-rating">★ {d.rating.toFixed(1)}</span> : null}
+            {hasRT(d) ? <RTScores c={d} labels className="tv-rt" /> : d.rating ? <span className="tv-rating">★ {d.rating.toFixed(1)}</span> : null}
             {meta.map((m) => <span key={m}>{m}</span>)}
             {nextLabel && <span className="tv-next-air">{nextLabel}</span>}
             {d.genres.slice(0, 3).map((g) => <span key={g} className="tv-genre">{g}</span>)}

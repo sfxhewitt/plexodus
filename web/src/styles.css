@@ -668,3 +668,10 @@ a.cast-card:hover .cast-photo, a.cast-card:focus-visible .cast-photo { transform
 .ep-status.upcoming, .next-air { color: var(--teal); }
 .ep-status.missing { color: var(--muted); }
 .season-tabs a.missing { opacity: 0.6; }
+
+/* Rotten Tomatoes poster overlay (see rt.css). */
+.poster-frame .progress ~ .rt-badge { bottom: 20px; }
+@media (max-width: 520px) {
+  .poster-frame .rt-badge { font-size: 10.5px; left: 4px; bottom: 5px; padding: 2px 5px 2px 3px; }
+  .poster-frame .progress ~ .rt-badge { bottom: 17px; }
+}

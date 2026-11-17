@@ -43,6 +43,9 @@ for (let i = 0; i < 60; i++) {
     poster: `/p/m${i}.jpg`, backdrop: `/b/m${i}.jpg`, rating: 5 + ((i * 7) % 45) / 10, runtime: 85 + (i * 13) % 70,
     addedAt: NOW - i * DAY, watched: i % 5 === 0, position: i === 3 ? 2400 : undefined, duration: i === 3 ? 6000 : undefined,
     overview: LOGLINES[i % LOGLINES.length],
+    // Rotten Tomatoes: most films have both scores, some only one, a few none.
+    rtCritic: i % 9 === 8 ? undefined : (i * 37 + 41) % 101,
+    rtAudience: i % 9 === 8 || i % 11 === 5 ? undefined : (i * 53 + 62) % 61 + 39,
   });
 }
 
@@ -56,6 +59,8 @@ SHOW_TITLES.forEach((title, si) => {
     id: showId, libraryId: SHOWS_LIB, kind: "show", title, year: 2008 + si, poster: `/p/s${si}.jpg`, backdrop: `/b/s${si}.jpg`,
     rating: 7 + (si % 3) / 2, addedAt: NOW - si * 2 * DAY, leafCount: 0, viewedLeafCount: 0,
     overview: SHOW_LOGLINES[si % SHOW_LOGLINES.length],
+    rtCritic: si % 4 === 3 ? undefined : 70 + (si * 13) % 30,
+    rtAudience: si % 4 === 3 ? undefined : 60 + (si * 17) % 39,
   };
   const ss: Card[] = [];
   const nSeasons = si === 0 ? 4 : 1 + (si % 3);
@@ -292,8 +297,10 @@ function libraryItems(id: number, q: URLSearchParams) {
   if (decade) items = items.filter((c) => Math.floor((c.year || 0) / 10) * 10 === Number(decade));
   const rating = q.get("rating");
   if (rating) items = items.filter((c) => (c.rating || 0) >= Number(rating));
+  const rt = q.get("rt");
+  if (rt) items = items.filter((c) => (rt === "audience" ? (c.rtAudience ?? -1) >= 80 : rt === "rotten" ? c.rtCritic != null && c.rtCritic < 60 : (c.rtCritic ?? -1) >= (rt === "90" ? 90 : 60)));
   const sort = q.get("sort") || "title";
-  const key = (c: Card) => (sort === "added" ? c.addedAt : sort === "rating" ? c.rating || 0 : sort === "year" || sort === "release" ? c.year || 0 : c.title.toLowerCase().replace(/^(the|a|an) /, ""));
+  const key = (c: Card) => (sort === "added" ? c.addedAt : sort === "rating" ? c.rating || 0 : sort === "critics" ? c.rtCritic ?? -1 : sort === "audience" ? c.rtAudience ?? -1 : sort === "year" || sort === "release" ? c.year || 0 : c.title.toLowerCase().replace(/^(the|a|an) /, ""));
   items.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
   if ((q.get("order") || (sort === "title" ? "asc" : "desc")) === "desc") items.reverse();
   const offset = Number(q.get("offset") || 0);
@@ -330,6 +337,7 @@ function facets(id: number, q: URLSearchParams) {
       { key: "filter", label: "Watched", options: opts("filter", [["unwatched", "Unwatched", (c) => !c.watched], ["inprogress", "In progress", (c) => !!c.position], ["watched", "Watched", (c) => !!c.watched]]) },
       { key: "decade", label: "Decade", options: opts("decade", decades) },
       { key: "rating", label: "Rating", options: opts("rating", [["8", "8+ Outstanding", (c) => (c.rating || 0) >= 8], ["7", "7+ Great", (c) => (c.rating || 0) >= 7], ["6", "6+ Good", (c) => (c.rating || 0) >= 6]]) },
+      { key: "rt", label: "Rotten Tomatoes", options: opts("rt", [["90", "Critics 90%+", (c) => (c.rtCritic ?? -1) >= 90], ["fresh", "Fresh · critics 60%+", (c) => (c.rtCritic ?? -1) >= 60], ["rotten", "Rotten · critics under 60%", (c) => c.rtCritic != null && c.rtCritic < 60], ["audience", "Audience 80%+", (c) => (c.rtAudience ?? -1) >= 80]]) },
     ],
     genres: GENRES.map((name) => ({ v: name, l: name, count: g.filter((c) => detail(c).genres.includes(name)).length })).filter((x) => x.count > 0),
   };
