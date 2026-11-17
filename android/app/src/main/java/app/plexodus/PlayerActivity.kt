@@ -44,7 +44,6 @@ import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
-import kotlin.math.abs
 
 /**
  * Direct-play video player built on libVLC. It streams the original file,
@@ -1667,7 +1666,7 @@ class PlayerActivity : Activity() {
                 applyAudioDelay()
                 val now = describe(deviceDelayMs).replaceFirstChar { it.lowercase() }
                 phoneStatus.text = when {
-                    abs(measured) <= PHONE_IN_SYNC_MS -> getString(R.string.phone_in_sync, abs(measured), now)
+                    measured == 0 -> getString(R.string.phone_in_sync, now)
                     measured > 0 -> getString(R.string.phone_fixed_late, measured, now)
                     else -> getString(R.string.phone_fixed_early, -measured, now)
                 }
@@ -2058,8 +2057,6 @@ class PlayerActivity : Activity() {
         private const val EXTRA_PHONE = "phone"
         private const val RELEASE_DELAY_MS = 3000L
         private const val PHONE_POLL_MS = 1500L
-        /** A measured gap this small is left as "in sync" in the wording (still applied). */
-        private const val PHONE_IN_SYNC_MS = 20
 
         /** The stream URL names the file: /api/stream/{fileId}/{name}. */
         fun fileIdFromUrl(url: String): Long =

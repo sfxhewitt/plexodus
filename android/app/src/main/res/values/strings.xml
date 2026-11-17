@@ -86,9 +86,9 @@
     <string name="phone_waiting">Waiting for your phone…</string>
     <string name="phone_uploading">Your phone is sending the video…</string>
     <string name="phone_analysing">Measuring the video…</string>
-    <string name="phone_fixed_late">The sound was %1$d ms late.\nFixed: this TV now plays sound %2$s.\nFilm it again to check, or press OK to finish.</string>
-    <string name="phone_fixed_early">The sound was %1$d ms early.\nFixed: this TV now plays sound %2$s.\nFilm it again to check, or press OK to finish.</string>
-    <string name="phone_in_sync">In sync (%1$d ms out, too little to see).\nSaved: %2$s. Press OK to finish.</string>
+    <string name="phone_fixed_late">The sound was %1$d ms late.\nCorrected to 0 ms: this TV now plays sound %2$s.\nFilm it again to check, or press OK to finish.</string>
+    <string name="phone_fixed_early">The sound was %1$d ms early.\nCorrected to 0 ms: this TV now plays sound %2$s.\nFilm it again to check, or press OK to finish.</string>
+    <string name="phone_in_sync">Spot on: 0 ms out.\nSaved: %1$s. Press OK to finish.</string>
     <string name="phone_failed">%1$s\nFilm it again when you\'re ready.</string>
     <string name="phone_no_server">Couldn\'t reach the server: %1$s</string>
     <string name="phone_expired">The code expired. Press OK and start again.</string>
