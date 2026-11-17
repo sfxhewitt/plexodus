@@ -6,7 +6,7 @@ import { Back, Copy, External, Forward, Fullscreen, Mute, Pause, Play, Rewind, S
 import { native, NativeEnded, nativePlay } from "../native";
 import {
   backgrounds, BackgroundKey, colors, ColorKey, fetchTrack, langOf, LoadedTrack, loadDelay, loadPrefs, pickTrack, saveDelay, savePrefs,
-  sizes, SizeKey, SubPrefs, SubRenderer, SubTrack, trackLabel, trackTags,
+  sizes, SizeKey, SubPrefs, clampPos, describePos, SubRenderer, SubTrack, trackLabel, trackTags,
 } from "../subtitles";
 
 // Plexodus never re-encodes video. The browser gets the file as it is when
@@ -762,6 +762,15 @@ export default function Player() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).tagName === "INPUT") return;
+      if (e.shiftKey && e.key.startsWith("Arrow")) {
+        // Shift + arrows move the subtitles, 1% of the picture a press.
+        e.preventDefault();
+        const d = { ArrowLeft: [-0.01, 0], ArrowRight: [0.01, 0], ArrowUp: [0, 0.01], ArrowDown: [0, -0.01] }[e.key] || [0, 0];
+        const p = clampPos(subPrefs.posX + d[0], subPrefs.posY + d[1]);
+        setSubPrefs(p);
+        showToast(`Subtitles: ${describePos(p.posX, p.posY)}`);
+        return;
+      }
       switch (e.key) {
         case " ":
         case "k":
@@ -900,7 +909,8 @@ export default function Player() {
           }}
         />
       )}
-      {showVideo && <div ref={subLayer} className="sub-layer" />}
+      {showVideo && <div ref={subLayer} className="sub-layer"
+        style={subPrefs.posX || subPrefs.posY ? { translate: `${subPrefs.posX * 100}% ${-subPrefs.posY * 100}%` } : undefined} />}
       {toast && <div className="player-toast">{toast}</div>}
 
       {(!info || waiting) && !unsupported && (
@@ -1080,6 +1090,20 @@ function SubtitleMenu(props: {
             ))}
           </div>
         </div>
+      </div>
+
+      <div className="sub-sec">
+        <div className="sub-h">
+          Position <span className="sub-delay">{describePos(prefs.posX, prefs.posY)}</span>
+        </div>
+        <div className="sub-row">
+          {([["◀", -0.02, 0, "left"], ["▲", 0, 0.02, "up"], ["▼", 0, -0.02, "down"], ["▶", 0.02, 0, "right"]] as const).map(([icon, dx, dy, dir]) => (
+            <button key={dir} className="sub-chip" aria-label={`Move subtitles ${dir}`}
+              onClick={() => onPrefs(clampPos(prefs.posX + dx, prefs.posY + dy))}>{icon}</button>
+          ))}
+          <button className="sub-chip" onClick={() => onPrefs({ posX: 0, posY: 0 })} disabled={!prefs.posX && !prefs.posY}>Reset</button>
+        </div>
+        <div className="muted small sub-keys">Moves every subtitle track on this browser. Keys: Shift + arrows</div>
       </div>
 
       <div className="sub-sec">
