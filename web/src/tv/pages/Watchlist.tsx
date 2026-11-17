@@ -1,6 +1,6 @@
-import { useCallback, useContext, useEffect, useRef } from "react";
+import { useCallback, useContext, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { art, Card } from "../../api";
+import { Card } from "../../api";
 import { useApi } from "../../hooks";
 import { BackdropCtx, Spinner, TvCard } from "../components";
 import { usePageFocus, useRefresh, useToast } from "../hooks";
@@ -14,15 +14,8 @@ export default function WatchlistPage() {
   useRefresh(reload);
   usePageFocus(!!data);
   const setBackdrop = useContext(BackdropCtx);
-  const timer = useRef<ReturnType<typeof setTimeout>>();
-  useEffect(() => () => {
-    clearTimeout(timer.current);
-    setBackdrop(undefined);
-  }, [setBackdrop]);
-  const onFocusCard = useCallback((c: Card) => {
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => setBackdrop(art(c.backdrop, "w1280")), 350);
-  }, [setBackdrop]);
+  // No artwork behind the grid as you move: it stays calm, like the library pages.
+  useEffect(() => setBackdrop(undefined), [setBackdrop]);
   const open = useCallback((c: Card) => nav(`/item/${c.id}`), [nav]);
   const playIt = useCallback((c: Card) => playCard(c).catch((e: Error) => toast(e.message)), [toast]);
 
@@ -46,7 +39,7 @@ export default function WatchlistPage() {
         <div className="tv-grid">
           {items.map((c, i) => (
             <div key={c.id} data-row>
-              <TvCard c={c} shape="poster" autoFocus={i === 0} onSelect={open} onPlay={playIt} onFocusCard={onFocusCard} />
+              <TvCard c={c} shape="poster" autoFocus={i === 0} onSelect={open} onPlay={playIt} />
             </div>
           ))}
         </div>
