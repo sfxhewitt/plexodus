@@ -30,7 +30,7 @@ test("A–Z bar: Right from the grid's edge, pick a letter, land on its first ti
   await snap(page, info, "01 A–Z bar");
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await focused(page)).fk ?? "").toMatch(/^c\d+$/);
-  const title = await page.locator(":focus .tv-card-cap .t, :focus").first().innerText();
+  const title = await page.locator(":focus .tv-card-cap .t").first().innerText();
   expect(title.replace(/^(the|a|an) /i, "")[0].toUpperCase()).toBe(want);
   await expect(page.locator(`.tv-az-letter.on[data-fk="az-${want}"]`)).toHaveCount(1);
   await snap(page, info, "02 jumped");

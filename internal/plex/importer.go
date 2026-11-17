@@ -266,7 +266,9 @@ func applyMetadata(tx *sql.Tx, id int64, m *Metadata, still bool) error {
 	if err != nil {
 		return err
 	}
-	if _, err := SetRT(tx, id, m.RT()); err != nil {
+	// Replace, not merge: after a re-match the old title's scores are wrong.
+	rt := m.RT()
+	if _, err := tx.Exec(`UPDATE items SET rt_critic = ?, rt_audience = ? WHERE id = ?`, nullPct(rt.Critic), nullPct(rt.Audience), id); err != nil {
 		return err
 	}
 	return SetContentRating(tx, id, m.ContentRating)
