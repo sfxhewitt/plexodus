@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"github.com/sfxhewitt/plexodus/internal/auth"
 	"github.com/sfxhewitt/plexodus/internal/db"
 	"github.com/sfxhewitt/plexodus/internal/detect"
+	"github.com/sfxhewitt/plexodus/internal/plex"
 	"github.com/sfxhewitt/plexodus/internal/scanner"
 )
 
@@ -286,7 +288,23 @@ func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 502, err.Error())
 		return
 	}
+	plex.RecordManualMatch(r.Context(), s.db, id)
+	s.allHomesChanged()
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// plexRematched fills in what Plex doesn't carry (logo, certificate,
+// collection, TMDB artwork and seasons) after a title is re-matched in Plex,
+// and refreshes everyone's Home.
+func (s *Server) plexRematched(ctx context.Context, id int64, kind string, tmdbID int64) {
+	if tmdbID != 0 && s.agent.Enabled() {
+		actx, cancel := context.WithTimeout(ctx, time.Minute)
+		if err := s.agent.Apply(actx, id, kind, tmdbID); err != nil {
+			log.Printf("plex match sync: TMDB details for item %d: %v", id, err)
+		}
+		cancel()
+	}
+	s.allHomesChanged()
 }
 
 func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {

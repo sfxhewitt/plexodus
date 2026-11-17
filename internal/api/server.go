@@ -80,6 +80,7 @@ func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner,
 	s.claude = ask.NewClaude(s.anthropicKey(ctx), cfg.AskModel)
 	s.detector = detect.New(d, cfg.FFmpeg, cfg.FFprobe)
 	s.plexSync = plex.NewSyncer(d, s.plexClient, func() bool { return s.importer.Status().Running })
+	s.plexSync.Rematched = s.plexRematched
 	s.signKey, _ = hex.DecodeString(key)
 	if d.Setting(ctx, "api_key") == "" {
 		d.SetSetting(ctx, "api_key", randomHex(16))
