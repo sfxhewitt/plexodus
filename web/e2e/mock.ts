@@ -287,6 +287,11 @@ function libraryItems(id: number, q: URLSearchParams) {
   if (genre) items = items.filter((c) => detail(c).genres.includes(genre));
   if (q.get("filter") === "unwatched") items = items.filter((c) => !c.watched);
   if (q.get("filter") === "inprogress") items = items.filter((c) => c.position);
+  if (q.get("filter") === "watched") items = items.filter((c) => c.watched);
+  const decade = q.get("decade");
+  if (decade) items = items.filter((c) => Math.floor((c.year || 0) / 10) * 10 === Number(decade));
+  const rating = q.get("rating");
+  if (rating) items = items.filter((c) => (c.rating || 0) >= Number(rating));
   const sort = q.get("sort") || "title";
   const key = (c: Card) => (sort === "added" ? c.addedAt : sort === "rating" ? c.rating || 0 : sort === "year" || sort === "release" ? c.year || 0 : c.title.toLowerCase().replace(/^(the|a|an) /, ""));
   items.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
@@ -303,6 +308,31 @@ function libraryItems(id: number, q: URLSearchParams) {
     });
   }
   return out;
+}
+
+// Live counts for the TV filter panel: each choice counted with the other filters applied.
+function facets(id: number, q: URLSearchParams) {
+  const without = (k: string) => {
+    const p = new URLSearchParams(q);
+    p.delete(k);
+    p.set("limit", "100000");
+    return libraryItems(id, p).items;
+  };
+  const opts = (k: string, list: [string, string, (c: Card) => boolean][]) => {
+    const items = without(k);
+    return list.map(([v, l, f]) => ({ v, l, count: items.filter(f).length }));
+  };
+  const decades = [2020, 2010, 2000, 1990, 1980].map((d) => [String(d), `${d}s`, (c: Card) => Math.floor((c.year || 0) / 10) * 10 === d] as [string, string, (c: Card) => boolean]);
+  const g = without("genre");
+  return {
+    total: libraryItems(id, new URLSearchParams([...q, ["limit", "1"]])).total,
+    facets: [
+      { key: "filter", label: "Watched", options: opts("filter", [["unwatched", "Unwatched", (c) => !c.watched], ["inprogress", "In progress", (c) => !!c.position], ["watched", "Watched", (c) => !!c.watched]]) },
+      { key: "decade", label: "Decade", options: opts("decade", decades) },
+      { key: "rating", label: "Rating", options: opts("rating", [["8", "8+ Outstanding", (c) => (c.rating || 0) >= 8], ["7", "7+ Great", (c) => (c.rating || 0) >= 7], ["6", "6+ Good", (c) => (c.rating || 0) >= 6]]) },
+    ],
+    genres: GENRES.map((name) => ({ v: name, l: name, count: g.filter((c) => detail(c).genres.includes(name)).length })).filter((x) => x.count > 0),
+  };
 }
 
 function hue(s: string) {
@@ -443,6 +473,7 @@ addEventListener("message", function (e) {
       return json(route, { ok: true });
     }
     if ((mm = p.match(/^\/api\/libraries\/(\d+)\/genres$/))) return json(route, GENRES.map((name, i) => ({ name, count: 40 - i * 5 })));
+    if ((mm = p.match(/^\/api\/libraries\/(\d+)\/facets$/))) return json(route, facets(Number(mm[1]), u.searchParams));
     if ((mm = p.match(/^\/api\/libraries\/(\d+)\/items$/))) return json(route, libraryItems(Number(mm[1]), u.searchParams));
     if ((mm = p.match(/^\/api\/items\/(\d+)\/markers$/))) return json(route, []);
     // Only the first film has a trailer, so the other screens stay still.

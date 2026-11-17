@@ -337,10 +337,17 @@ html.tv [data-hscroll]::-webkit-scrollbar, html.tv [data-vscroll]::-webkit-scrol
 
 /* ---------- library ---------- */
 
-.tv-lib-head { display: flex; align-items: flex-end; justify-content: space-between; padding: var(--tv-top) var(--tv-safe) 1.2rem var(--pad); }
-.tv-count { font-size: 1.25rem; margin-top: 0.3rem; }
-.tv-lib-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; max-width: 64%; }
-.tv-lib-controls > * { margin: 0.4rem 0 0.4rem 0.8rem; }
+.tv-lib-head { padding: var(--tv-top) var(--tv-safe) 0.6rem var(--pad); }
+.tv-lib-title { display: flex; align-items: baseline; }
+.tv-count { font-size: 1.25rem; margin-left: 1.4rem; }
+/* Filters, sort and quick filters in one bar under the title: one press up from the grid. */
+.tv-lib-bar { display: flex; flex-wrap: wrap; align-items: center; margin: 0.9rem 0 0 -0.4rem; }
+.tv-lib-bar > * { margin: 0.4rem 0.4rem; }
+.tv-lib-bar .tv-btn.chip svg { width: 1.5rem; height: 1.5rem; flex: none; }
+.tv-lib-bar .tv-btn.chip svg + span { margin-left: 0.6rem; }
+.tv-lib-filters.on { background: rgba(34, 228, 255, 0.14); }
+.tv-btn.chip.tv-clear { color: var(--tv-muted); background: none; box-shadow: inset 0 0 0 0.1rem var(--tv-line); }
+.tv-btn.chip.tv-clear:focus { background: #fff; color: #07070c; }
 .tv-sep { width: 1px; height: 2rem; background: var(--tv-line); }
 .tv-grid {
   display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-column-gap: 1.8rem; grid-row-gap: 0.8rem;
@@ -387,6 +394,8 @@ html.tv [data-hscroll]::-webkit-scrollbar, html.tv [data-vscroll]::-webkit-scrol
   color: var(--tv-muted); transition: background var(--tv-move) var(--tv-ease), color var(--tv-move) var(--tv-ease), transform var(--tv-move) var(--tv-ease);
 }
 .tv-az-letter.on { color: var(--tv-cyan); }
+.tv-az-filters { height: 2.4rem; margin-bottom: 0.3rem; color: var(--tv-soft); }
+.tv-az-filters svg { width: 1.4rem; height: 1.4rem; }
 .tv-az-letter:focus { background: var(--tv-text); color: var(--tv-bg); transform: scale(1.25); }
 /* A collection page: a shorter hero so the first row of films peeks in. */
 .tv-collection-hero { min-height: 62vh; }
@@ -738,3 +747,28 @@ html.tv [data-hscroll]::-webkit-scrollbar, html.tv [data-vscroll]::-webkit-scrol
 .tv-tab.missing:focus { opacity: 1; }
 .tv-blurb-status { margin-left: 0.8rem; font-size: 1.15rem; font-weight: 600; color: var(--tv-cyan); }
 .tv-next-air { color: var(--tv-cyan); }
+
+/* ---------- library filter panel ---------- */
+
+.tv-fp-wrap { background: rgba(2, 2, 6, 0.55); }
+.tv-modal-panel.tv-fp { width: 66rem; padding: 3.6rem 2.4rem 2.4rem; }
+.tv-fp-head { display: flex; align-items: baseline; justify-content: space-between; margin: 0 1.2rem 1.6rem; }
+.tv-fp-head .tv-modal-title { margin: 0; }
+.tv-fp-total { font-size: 1.4rem; font-weight: 700; color: var(--tv-cyan); }
+.tv-fp-cols { flex: 1; min-height: 0; display: flex; }
+.tv-fp-cats { flex: none; width: 24rem; padding: 0.3rem; margin-right: 1.6rem; border-right: 1px solid var(--tv-line); padding-right: 1.6rem; }
+.tv-fp-cat {
+  display: flex; flex-direction: column; justify-content: center; align-items: flex-start; width: 100%; height: 4.6rem;
+  padding: 0 1.2rem; border-radius: 0.8rem; text-align: left; color: var(--tv-soft);
+}
+.tv-fp-cat .l { font-size: 1.35rem; font-weight: 700; }
+.tv-fp-cat .v { font-size: 1.1rem; color: var(--tv-muted); margin-top: 0.2rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-fp-cat.set .v { color: var(--tv-cyan); }
+.tv-fp-cat.sel { background: rgba(255, 255, 255, 0.07); color: var(--tv-text); }
+.tv-fp-cat:focus { background: #fff; color: #07070c; box-shadow: 0 0 1.2rem rgba(34, 228, 255, 0.5); }
+.tv-fp-cat:focus .v { color: #3a3a48; }
+.tv-fp-opts { flex: 1; }
+.tv-fp-opts .tv-list-item { height: 3.6rem; }
+.tv-fp-opts .tv-list-item.none:not(.on) { color: var(--tv-muted); opacity: 0.6; }
+.tv-fp-foot { display: flex; align-items: center; margin-top: 1.6rem; padding: 1.4rem 0.3rem 0; border-top: 1px solid var(--tv-line); }
+.tv-fp-foot > * + * { margin-left: 1rem; }

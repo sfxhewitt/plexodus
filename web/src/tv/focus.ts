@@ -284,9 +284,25 @@ export function onBack(h: BackHandler) {
   };
 }
 
+const backLast: BackHandler[] = [];
+
+/**
+ * Register the app-wide Back (leave the page), tried only after every
+ * onBack handler, so a page's own Back (the library grid: go to its
+ * filters) wins however the effects happened to be ordered.
+ */
+export function onBackLast(h: BackHandler) {
+  backLast.push(h);
+  return () => {
+    const i = backLast.lastIndexOf(h);
+    if (i >= 0) backLast.splice(i, 1);
+  };
+}
+
 /** Runs the Back handlers. Returns "handled" or "exit" (the app should close). */
 export function handleBack(): "handled" | "exit" {
   for (let i = backStack.length - 1; i >= 0; i--) if (backStack[i]()) return "handled";
+  for (let i = backLast.length - 1; i >= 0; i--) if (backLast[i]()) return "handled";
   return "exit";
 }
 

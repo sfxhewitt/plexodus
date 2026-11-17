@@ -98,28 +98,44 @@ test("movie page: buttons in a line, nothing below", async ({ page, openTv }, in
   await expect(page.locator('[data-fk="watchlist"]')).toHaveText("On your Watchlist");
 });
 
-test("library: grid, filters and the genre picker", async ({ page, openTv }, info) => {
+test("library: grid, filter bar and the filter panel", async ({ page, openTv }, info) => {
   await openTv(`/library/${MOVIES_LIB}`);
   await waitForFocus(page, /^c\d+$/);
   await snap(page, info, "01 library");
   const down = await walk(page, "down", 6);
   expect(down.length).toBeGreaterThan(4);
   await snap(page, info, "02 scrolled down");
+  // Back from deep in the grid goes straight to the filters.
+  expect((await press(page, "Escape")).fk, "Back from the grid jumps to Filters").toBe("filters");
+  expect((await press(page, "down")).fk, "Down from the bar goes back into the grid").toMatch(/^c\d+$/);
   const up = await walk(page, "up");
-  expect(up.at(-2)!.fk, "Up from the top row reaches the filters").toMatch(/^(f-|sort|order|genre)/);
+  expect(up.at(-2)!.fk, "Up from the top row reaches the filter bar").toMatch(/^(filters|sort|q-|p-|clear)/);
   expect(up.at(-1)!.fk, "...and then this library's tab").toBe(`nav-lib${MOVIES_LIB}`);
-  expect((await press(page, "down")).fk, "Down leaves the tab bar into the filters").toMatch(/^(f-|sort|order|genre)/);
-  await walk(page, "right");
-  expect((await focused(page)).fk).toBe("genre");
+  expect((await press(page, "down")).fk, "Down leaves the tab bar into the filter bar").toMatch(/^(filters|sort|q-|p-|clear)/);
 
-  // The picker is a modal: focus stays inside it, Back closes it and returns to the button.
+  // The panel is a modal: categories on the left, choices with counts on the right.
+  await page.locator('[data-fk="filters"]').focus();
   await page.keyboard.press("Enter");
-  await waitForFocus(page, "g-");
-  await walk(page, "down");
-  expect((await press(page, "left")).fk, "Left doesn't escape the modal").toMatch(/^g-/);
-  await snap(page, info, "03 genre picker");
+  await waitForFocus(page, "cat-genre");
+  expect((await press(page, "right")).fk, "Right goes to the choices, on Any").toBe("o-genre-");
+  const g = await press(page, "down");
+  expect(g.fk).toMatch(/^o-genre-./);
+  await page.keyboard.press("Enter");
+  await expect(page.locator('.tv-fp-cat[data-fk="cat-genre"] .v')).toHaveText(g.fk.slice(8));
+  await expect(page.locator(".tv-fp-total")).toHaveText(/\d+ titles?/);
+  expect((await press(page, "left")).fk, "Left returns to its category").toBe("cat-genre");
+  await snap(page, info, "03 filter panel");
+  expect((await walk(page, "left")).length, "Left doesn't escape the modal").toBe(1);
+  // Back closes it and returns to the Filters button, which counts what's on.
   await page.keyboard.press("Escape");
-  await waitForFocus(page, "genre");
+  await waitForFocus(page, "filters");
+  await expect(page.locator('[data-fk="filters"]')).toHaveText("Filters · 1");
+  await expect(page.locator('[data-fk="p-genre"]')).toBeVisible();
+  // One OK on the chip removes it.
+  await page.locator('[data-fk="p-genre"]').focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator('[data-fk="p-genre"]')).toHaveCount(0);
+  await expect(page.locator('[data-fk="filters"]')).toHaveText("Filters");
 });
 
 test("search: keyboard to results", async ({ page, openTv }, info) => {
