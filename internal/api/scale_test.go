@@ -173,3 +173,23 @@ func TestScaleCollections(t *testing.T) {
 		}
 	}
 }
+
+// The TV filter panel's live counts and a filtered grid page at full size.
+func TestScaleLibraryFacets(t *testing.T) {
+	if os.Getenv("PLEXODUS_SCALE") == "" {
+		t.Skip()
+	}
+	s, u := scaleServer(t)
+	s.db.W.Exec(`UPDATE media_files SET width = 1920, height = 1080 WHERE library_id = 1 AND item_id % 3 = 0`)
+	s.db.W.Exec(`UPDATE media_files SET width = 3840, height = 2160 WHERE library_id = 1 AND item_id % 7 = 0`)
+	for _, q := range []string{"", "genre=Drama", "genre=Drama&res=4k&filter=unwatched&decade=1990"} {
+		for _, lib := range []string{"1", "3"} {
+			start := time.Now()
+			call(t, s, u, s.handleLibraryFacets, "GET", "/api/libraries/"+lib+"/facets?"+q, "", map[string]string{"id": lib}, nil)
+			t.Logf("facets lib %s %q took %s", lib, q, time.Since(start))
+			start = time.Now()
+			call(t, s, u, s.handleLibraryItems, "GET", "/api/libraries/"+lib+"/items?sort=title&limit=120&letters=1&"+q, "", map[string]string{"id": lib}, nil)
+			t.Logf("items lib %s %q took %s", lib, q, time.Since(start))
+		}
+	}
+}

@@ -54,4 +54,7 @@ export const Sparkle = (p: P) => (
 export const Pulse = (p: P) => (<Svg {...p}><path d="M3 12h4l3-8 4 16 3-8h4" /></Svg>);
 export const Lock = (p: P) => (<Svg {...p}><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></Svg>);
 export const Pencil = (p: P) => (<Svg {...p}><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="m13.5 6.5 4 4" /></Svg>);
+export const Sliders = (p: P) => (<Svg {...p}><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></Svg>);
+export const SortIcon = (p: P) => (<Svg {...p}><path d="M7 4v16M3 16l4 4 4-4M17 20V4M13 8l4-4 4 4" /></Svg>);
+export const Shuffle = (p: P) => (<Svg {...p}><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5" /></Svg>);
 export const Clock = (p: P) => (<Svg {...p}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></Svg>);

@@ -259,6 +259,8 @@ var sortColumns = map[string]string{
 	"year":    "i.year",
 	"rating":  "i.rating",
 	"release": "i.release_date",
+	"runtime": "i.runtime",
+	"random":  "random", // replaced by a seeded order in handleLibraryItems
 }
 
 // itemVisible reports whether the current user may see an item.
@@ -301,17 +303,11 @@ func (s *Server) handleLibraryItems(w http.ResponseWriter, r *http.Request) {
 	limit := queryInt(r, "limit", 100, 500)
 	offset := queryInt(r, "offset", 0, 0)
 
-	where := `WHERE i.library_id = ?2 AND i.kind IN ('movie', 'show')` + kidsCond(currentUser(r), "i")
-	args := []any{id}
-	if g := q.Get("genre"); g != "" {
-		where += fmt.Sprintf(` AND EXISTS (SELECT 1 FROM json_each(i.genres) WHERE value = ?%d)`, len(args)+2)
-		args = append(args, g)
-	}
-	switch q.Get("filter") {
-	case "unwatched":
-		where += ` AND COALESCE(w.watched, 0) = 0`
-	case "inprogress":
-		where += ` AND w.position > 0 AND COALESCE(w.watched, 0) = 0`
+	where, args := libraryWhere(r, id, q, "")
+	if col == "random" {
+		// A shuffle that stays put while you scroll: the same seed gives the same order.
+		seed := queryInt(r, "seed", 1, 1<<30)
+		col = fmt.Sprintf("((i.id * 2654435761 + %d) %% 4294967291)", seed)
 	}
 
 	var total int

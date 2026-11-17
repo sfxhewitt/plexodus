@@ -7,7 +7,7 @@ import { UserContext, useUser } from "../hooks";
 import { native, NativeEnded } from "../native";
 import { PlexPin, startPlexPin, waitForPlex } from "../plexAuth";
 import { Backdrop, BackdropCtx, Spinner, TvButton } from "./components";
-import { focusEl, focusInitial, focusables, installKeys, onBack } from "./focus";
+import { focusEl, focusInitial, focusables, installKeys, onBack, onBackLast } from "./focus";
 import { focusPage, setCurrentKey, ToastCtx, useLibraries, useToast } from "./hooks";
 import { lastPlayedItem, onPlayBusy, playItem } from "./play";
 import { openVoice, parseVoice, playVoice } from "./voice";
@@ -208,7 +208,7 @@ function Shell() {
   // Back: leave the page; on Home, go to the tab bar first, then exit.
   useEffect(
     () =>
-      onBack(() => {
+      onBackLast(() => {
         if (loc.pathname !== "/") {
           if ((window.history.state?.idx ?? 0) > 0) nav(-1);
           else nav("/", { replace: true });

@@ -139,6 +139,7 @@ func (s *Server) Handler() http.Handler {
 	user("PUT /api/me/libraries/{id}", s.handleLibraryPrefs)
 	user("GET /api/libraries/{id}/items", s.handleLibraryItems)
 	user("GET /api/libraries/{id}/genres", s.handleLibraryGenres)
+	user("GET /api/libraries/{id}/facets", s.handleLibraryFacets)
 	user("GET /api/items/{id}", s.handleItem)
 	user("POST /api/items/{id}/progress", s.handleProgress)
 	user("POST /api/items/{id}/watched", s.handleWatched)
