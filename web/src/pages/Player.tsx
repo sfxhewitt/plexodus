@@ -184,6 +184,12 @@ export default function Player() {
   const [hlsPlan, setHlsPlan] = useState<Extract<Plan, { mode: "hls" }>>();
   const [preparing, setPreparing] = useState(false);
   const pendingSeek = useRef<number>();
+  // Riding through a server restart (an automatic update): see recover().
+  const bootRef = useRef<string>();
+  const hasPlayed = useRef(false);
+  const recovering = useRef(false);
+  const resumeAt = useRef<{ pos: number; play: boolean }>();
+  const [reconnecting, setReconnecting] = useState(false);
   const [session, setSession] = useState<HlsSession>();
   const hlsRef = useRef<Hls>();
   const sessionRef = useRef<HlsSession>();
@@ -236,6 +242,8 @@ export default function Player() {
     setSubTrack(undefined);
     setSubLoaded(undefined);
     setSubState({});
+    hasPlayed.current = false;
+    resumeAt.current = undefined;
     audioOffsetRef.current = 0;
     setAudioOffsetState(0);
     (async () => {
@@ -330,7 +338,9 @@ export default function Player() {
       const h = new Hls({ startPosition: session.vod && session.start > 0 ? session.start : 0, maxBufferLength: 60, backBufferLength: 30 });
       hlsRef.current = h;
       h.on(Hls.Events.ERROR, (_e, data) => {
-        if (data.fatal) setUnsupported("The server couldn't convert this file for the browser");
+        if (!data.fatal) return;
+        if (hasPlayed.current) recoverRef.current();
+        else setUnsupported("The server couldn't convert this file for the browser");
       });
       h.loadSource(session.url);
       h.attachMedia(v);
@@ -525,6 +535,80 @@ export default function Player() {
     };
   }, [itemId]);
 
+  // ---- riding through a server restart ----
+  // The server updates itself as soon as a release is out, even mid-film.
+  // The restart takes a couple of seconds; when the stream drops, wait for
+  // the server to come back and carry on from the same spot (a converted
+  // stream starts a new conversion there, since the old one went with it).
+  useEffect(() => {
+    fetch("/api/status", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((st: { boot?: string }) => (bootRef.current = st.boot))
+      .catch(() => {});
+  }, []);
+
+  const recover = async () => {
+    if (recovering.current || !item) return;
+    recovering.current = true;
+    const v = video.current;
+    const pos = absTime();
+    const wasPlaying = playing || (v ? !v.paused : true);
+    setWaiting(true);
+    setReconnecting(true);
+    let up = false;
+    for (let i = 0; i < 90 && !up; i++) {
+      try {
+        const r = await fetch("/api/status", { cache: "no-store" });
+        if (r.ok) {
+          const st = (await r.json()) as { boot?: string };
+          bootRef.current = st.boot;
+          up = true;
+          break;
+        }
+      } catch {
+        /* still restarting */
+      }
+      await new Promise((res) => setTimeout(res, 2000));
+    }
+    recovering.current = false;
+    setReconnecting(false);
+    if (!up) {
+      setError("Lost the connection to the server. Try again in a minute.");
+      return;
+    }
+    if (hlsPlan) {
+      startSession(hlsPlan, item.files[0].id, pos).catch((e) => setError((e as Error).message));
+    } else if (v && info) {
+      resumeAt.current = { pos, play: wasPlaying };
+      v.src = info.streamUrl;
+      v.load();
+    }
+  };
+  const recoverRef = useRef(recover);
+  recoverRef.current = recover;
+
+  // A direct-play stream often just stalls when the server goes away.
+  // After a few seconds of waiting mid-film, ask whether the server
+  // restarted (or is down); only then reconnect, so a slow network or a
+  // slow cloud read isn't interrupted.
+  useEffect(() => {
+    if (!waiting || !hasPlayed.current || recovering.current) return;
+    const t = setTimeout(async () => {
+      const v = video.current;
+      if (!v || v.paused || recovering.current) return;
+      let restarted = false;
+      try {
+        const r = await fetch("/api/status", { cache: "no-store" });
+        const st = r.ok ? ((await r.json()) as { boot?: string }) : undefined;
+        restarted = !st || (!!bootRef.current && st.boot !== bootRef.current);
+      } catch {
+        restarted = true;
+      }
+      if (restarted) recoverRef.current();
+    }, 6000);
+    return () => clearTimeout(t);
+  }, [waiting]);
+
   // Start position: resume unless ?from=0.
   const onLoaded = () => {
     const v = video.current!;
@@ -544,6 +628,14 @@ export default function Player() {
       return;
     }
     setDur(v.duration);
+    if (resumeAt.current) {
+      // Back after a server restart: carry on from the same spot.
+      const r = resumeAt.current;
+      resumeAt.current = undefined;
+      v.currentTime = r.pos;
+      if (r.play) v.play().catch(() => setPlaying(false));
+      return;
+    }
     if (audioOffsetRef.current > 0) delayDirect(audioOffsetRef.current);
     const from = params.get("from");
     const start = from != null ? Number(from) : info?.position || 0;
@@ -890,7 +982,10 @@ export default function Player() {
             report(true);
           }}
           onWaiting={() => setWaiting(true)}
-          onPlaying={() => setWaiting(false)}
+          onPlaying={() => {
+            hasPlayed.current = true;
+            setWaiting(false);
+          }}
           onCanPlay={() => setWaiting(false)}
           onTimeUpdate={(e) => {
             const v = e.currentTarget;
@@ -903,6 +998,12 @@ export default function Player() {
           }}
           onEnded={onEnded}
           onError={() => {
+            // Mid-film errors are almost always the server restarting
+            // (an update) or the network dropping: reconnect and resume.
+            if (hasPlayed.current) {
+              recover();
+              return;
+            }
             const code = video.current?.error?.code;
             if (inHls) setUnsupported("The server couldn't convert this file for the browser");
             else setUnsupported(code === 4 ? "This browser can't play this file's format" : "Couldn't load the file from storage");
@@ -916,7 +1017,8 @@ export default function Player() {
       {(!info || waiting) && !unsupported && (
         <div className="player-spinner">
           <div className="spinner" />
-          {preparing && <div className="muted small">Preparing the stream, reading the file from storage…</div>}
+          {preparing && !reconnecting && <div className="muted small">Preparing the stream, reading the file from storage…</div>}
+          {reconnecting && <div className="muted small">Reconnecting to the server…</div>}
         </div>
       )}
 

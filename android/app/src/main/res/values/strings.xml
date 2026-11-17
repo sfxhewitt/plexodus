@@ -30,6 +30,7 @@
     <string name="retry">Try again</string>
     <string name="change_server">Change server</string>
     <string name="player_error">Couldn\'t play this file.</string>
+    <string name="player_reconnecting">Reconnecting to the server…</string>
     <string name="ends_at">Ends at %1$s</string>
     <string name="skip_intro">Skip intro</string>
     <string name="skip_recap">Skip recap</string>

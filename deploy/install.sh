@@ -61,7 +61,7 @@ ENV
 fi
 if ! grep -q 'PLEXODUS_AUTO_UPDATE' /etc/plexodus.env; then
   cat >> /etc/plexodus.env <<'ENV'
-# Plexodus updates itself when nobody is watching. To stop that, uncomment:
+# Plexodus updates itself as soon as a new version is out. To stop that, uncomment:
 # PLEXODUS_AUTO_UPDATE=off
 ENV
 fi
@@ -73,7 +73,7 @@ if ! command -v ffprobe >/dev/null 2>&1; then
   echo "Note: ffmpeg/ffprobe not found. Install them so web browsers can play MKV files: sudo apt install ffmpeg"
 fi
 
-# The automatic updater: a timer every 15 minutes, plus a path unit for
+# The automatic updater: a timer every 2 minutes, plus a path unit for
 # Settings > Updates > "Update now". Files are replaced, never rewritten in
 # place, because the updater may be the one running this script.
 install -m 0755 "$TMP/update.sh" /usr/local/sbin/.plexodus-update.new
@@ -102,13 +102,13 @@ echo "Plexodus $(/usr/local/bin/plexodus -version) is running as $SERVICE_USER o
 echo "Settings: /etc/plexodus.env   Data: /var/lib/plexodus   Logs: journalctl -u plexodus -f"
 if [ -z "${PLEXODUS_UPDATER:-}" ]; then
   # Tells Settings > Updates the updater is installed.
-  printf '{"state":"installed","message":"Installed. Plexodus checks for updates every 15 minutes.","checkedAt":%s,"updatedAt":%s,"version":"%s"}\n' \
+  printf '{"state":"installed","message":"Installed. Plexodus checks for updates every 2 minutes.","checkedAt":%s,"updatedAt":%s,"version":"%s"}\n' \
     "$(date +%s)" "$(date +%s)" "$(/usr/local/bin/plexodus -version)" > /var/lib/plexodus/update-result.json
   chmod 644 /var/lib/plexodus/update-result.json
   if grep -Eiq '^PLEXODUS_AUTO_UPDATE=(off|0|false|no)' /etc/plexodus.env; then
     echo "Automatic updates are off (PLEXODUS_AUTO_UPDATE in /etc/plexodus.env)."
   else
-    echo "Automatic updates are on: Plexodus installs new releases by itself when nobody is watching."
+    echo "Automatic updates are on: Plexodus installs new releases by itself; players carry on from the same spot."
     echo "Turn them off in Settings > Updates. Update log: journalctl -u plexodus-update"
   fi
 fi

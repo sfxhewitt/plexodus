@@ -611,7 +611,7 @@ function Updates() {
         <p className="muted small" style={{ margin: 0 }}>
           Running version <b>{u.version}</b>.
           {u.installed
-            ? " Plexodus checks for a new release every 15 minutes and installs it by itself, waiting until nobody is watching so no film gets cut off."
+            ? " Plexodus checks for a new release every 2 minutes and installs it straight away. Anyone watching sees a short pause, and their player carries on from the same spot."
             : " This server was installed without the automatic updater. Run the install command once more on the server to add it:"}
         </p>
         {!u.installed && <pre className="code">curl -fsSL https://github.com/sfxhewitt/plexodus/releases/download/latest/install.sh | sudo bash</pre>}

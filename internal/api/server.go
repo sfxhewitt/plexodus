@@ -367,8 +367,13 @@ func queryInt(r *http.Request, name string, def, max int) int {
 
 // ---- auth handlers ----
 
+// bootID changes every time the server starts. Players compare it to tell
+// a restart (an update) from a slow network, and pick up where they were.
+var bootID = randomHex(8)
+
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
+		"boot":          bootID,
 		"name":          "Plexodus",
 		"setupRequired": !s.auth.HasUsers(r.Context()),
 		"plexSignIn":    s.plexSignInEnabled(r.Context()),

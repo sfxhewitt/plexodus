@@ -1,5 +1,5 @@
 [Unit]
-Description=Install the latest Plexodus release when nobody is watching
+Description=Install the latest Plexodus release
 Documentation=https://github.com/sfxhewitt/plexodus#updates
 After=network-online.target
 Wants=network-online.target

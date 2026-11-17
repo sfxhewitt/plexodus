@@ -1,12 +1,12 @@
 [Unit]
-Description=Check for a new Plexodus release every 15 minutes
+Description=Check for a new Plexodus release every 2 minutes
 
 [Timer]
 # Wall-clock times, so the schedule never depends on when the updater last
-# ran (or whether it ever has).
-OnCalendar=*:0/15
-OnBootSec=5min
-RandomizedDelaySec=1min
+# ran (or whether it ever has). Each check fetches one small file.
+OnCalendar=*:0/2
+OnBootSec=2min
+RandomizedDelaySec=20s
 
 [Install]
 WantedBy=timers.target
