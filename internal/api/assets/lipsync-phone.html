@@ -72,7 +72,7 @@
 
   <section id="again" hidden>
     <label class="btn">Check again<input id="rec2" type="file" accept="video/*" capture="environment"></label>
-    <p class="dim">Film it once more: it should come back as in sync.</p>
+    <p class="dim">Film it once more to check: it should come back within a few ms of 0.</p>
   </section>
 </main>
 <script>
@@ -164,13 +164,14 @@
 
   function render(s) {
     const off = s.result.offsetMs, a = Math.abs(off);
-    const inSync = a <= 20;
-    $("resHead").textContent = inSync ? "Result" : "The sound was";
-    $("resBig").className = "big" + (inSync ? " ok" : "");
-    $("resBig").textContent = inSync ? "In sync" : a + " ms " + (off > 0 ? "late" : "early");
-    $("resText").textContent = inSync
-      ? (a ? "Only " + a + " ms out, which nobody can see. " : "") + "Measured from " + s.result.pairs + " beeps."
-      : "So the TV now plays its sound " + a + " ms " + (off > 0 ? "earlier" : "later") + ". Measured from " + s.result.pairs + " beeps.";
+    // Every measured gap is corrected, however small, so the TV lands on 0 ms.
+    const spotOn = a === 0;
+    $("resHead").textContent = spotOn ? "Result" : "The sound was";
+    $("resBig").className = "big" + (spotOn ? " ok" : "");
+    $("resBig").textContent = spotOn ? "Spot on: 0 ms" : a + " ms " + (off > 0 ? "late" : "early");
+    $("resText").textContent = spotOn
+      ? "Nothing to change. Measured from " + s.result.pairs + " beeps."
+      : "Corrected: the TV now plays its sound " + a + " ms " + (off > 0 ? "earlier" : "later") + ", so it lands on 0 ms. Measured from " + s.result.pairs + " beeps.";
     if (s.appliedMs != null) {
       $("resSaved").innerHTML = '<span class="ok">✓ Saved on the TV.</span> Every film on it now uses this. Press OK on the remote to finish.';
     } else {
