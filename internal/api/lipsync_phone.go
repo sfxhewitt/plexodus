@@ -48,9 +48,17 @@ type phoneSession struct {
 	NewDeviceMs int  `json:"newDeviceMs"`
 	AppliedMs   *int `json:"appliedMs,omitempty"`
 	Round       int  `json:"round"` // counts uploads, so the TV applies each once
+	// Content: filming a film instead of the test clip (the player's
+	// "Check with my phone"); then the file and where playback is.
+	Content bool                  `json:"content"`
+	Check   *avsync.ContentResult `json:"check,omitempty"`
 
 	created time.Time
 	tvMs    int // latest offset the TV reported
+	fileID  int64
+	fileMs  int     // the file's own saved fix, already in what's heard
+	posSec  float64 // playback position the TV last reported
+	posAt   time.Time
 	busy    bool
 }
 
@@ -90,9 +98,21 @@ func newCode() string {
 // POST /api/lipsync/sessions {deviceMs}: the TV starts a session.
 func (s *Server) handleLipsyncStart(w http.ResponseWriter, r *http.Request) {
 	var b struct {
-		DeviceMs int `json:"deviceMs"`
+		DeviceMs   int   `json:"deviceMs"`
+		FileID     int64 `json:"fileId"`
+		FileMs     int   `json:"fileMs"`
+		PositionMs int64 `json:"positionMs"`
 	}
 	readJSON(r, &b)
+	if b.FileID > 0 {
+		var libID int64
+		var itemID int64
+		err := s.db.R.QueryRowContext(r.Context(), `SELECT item_id, library_id FROM media_files WHERE id = ?`, b.FileID).Scan(&itemID, &libID)
+		if err != nil || !currentUser(r).CanSee(libID) || !s.itemVisible(r, itemID) {
+			writeErr(w, 404, "file not found")
+			return
+		}
+	}
 	p := &s.phone
 	p.mu.Lock()
 	if p.m == nil {
@@ -108,7 +128,8 @@ func (s *Server) handleLipsyncStart(w http.ResponseWriter, r *http.Request) {
 	for p.m[code] != nil {
 		code = newCode()
 	}
-	sess := &phoneSession{Code: code, State: "waiting", created: time.Now(), tvMs: b.DeviceMs, DeviceMs: b.DeviceMs}
+	sess := &phoneSession{Code: code, State: "waiting", created: time.Now(), tvMs: b.DeviceMs, DeviceMs: b.DeviceMs,
+		Content: b.FileID > 0, fileID: b.FileID, fileMs: b.FileMs, posSec: float64(b.PositionMs) / 1000, posAt: time.Now()}
 	p.m[code] = sess
 	p.mu.Unlock()
 	writeJSON(w, map[string]string{"code": code, "url": phoneURL(r, code)})
@@ -130,11 +151,15 @@ func (s *Server) handleLipsyncPoll(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "session expired")
 		return
 	}
-	if v, err := strconv.Atoi(r.URL.Query().Get("deviceMs")); err == nil {
-		s.phone.mu.Lock()
+	q := r.URL.Query()
+	s.phone.mu.Lock()
+	if v, err := strconv.Atoi(q.Get("deviceMs")); err == nil {
 		sess.tvMs = v
-		s.phone.mu.Unlock()
 	}
+	if v, err := strconv.ParseInt(q.Get("positionMs"), 10, 64); err == nil && v > 0 {
+		sess.posSec, sess.posAt = float64(v)/1000, time.Now()
+	}
+	s.phone.mu.Unlock()
 	writeJSON(w, s.phone.snapshot(sess))
 }
 
@@ -202,8 +227,11 @@ func (s *Server) handleLipsyncUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess.busy = true
-	sess.State, sess.Error, sess.Result = "uploading", "", nil
+	sess.State, sess.Error, sess.Result, sess.Check = "uploading", "", nil, nil
 	deviceMs := sess.tvMs
+	// The recording ended before the upload began; playback has moved on
+	// since the TV last said where it was.
+	endSec := sess.posSec + time.Since(sess.posAt).Seconds()
 	s.phone.mu.Unlock()
 
 	fail := func(code int, msg string) {
@@ -236,16 +264,32 @@ func (s *Server) handleLipsyncUpload(w http.ResponseWriter, r *http.Request) {
 	s.phone.mu.Lock()
 	sess.State = "analysing"
 	s.phone.mu.Unlock()
-	go s.measurePhoneVideo(sess, path, deviceMs)
+	go s.measurePhoneVideo(sess, path, deviceMs, endSec)
 	w.WriteHeader(http.StatusAccepted)
 	writeJSON(w, map[string]string{"state": "analysing"})
 }
 
-func (s *Server) measurePhoneVideo(sess *phoneSession, path string, deviceMs int) {
+func (s *Server) measurePhoneVideo(sess *phoneSession, path string, deviceMs int, endSec float64) {
 	ctx, cancel := context.WithTimeout(s.baseCtx, 3*time.Minute)
 	defer cancel()
 	start := time.Now()
-	res, err := avsync.Measure(ctx, s.cfg.FFmpeg, path)
+	var res avsync.Result
+	var check *avsync.ContentResult
+	var err error
+	if sess.Content {
+		var src string
+		if err = s.db.R.QueryRowContext(ctx, `SELECT path FROM media_files WHERE id = ?`, sess.fileID).Scan(&src); err == nil {
+			var c avsync.ContentResult
+			if c, err = avsync.MeasureContent(ctx, s.cfg.FFmpeg, path, src, endSec); err == nil {
+				check = &c
+				// What's heard already includes the file's own saved fix; only
+				// the rest is the TV's, and that's what the device offset is for.
+				res = avsync.Result{OffsetMs: c.OffsetMs - sess.fileMs, Pairs: 1}
+			}
+		}
+	} else {
+		res, err = avsync.Measure(ctx, s.cfg.FFmpeg, path)
+	}
 	os.Remove(path)
 	s.phone.mu.Lock()
 	defer s.phone.mu.Unlock()
@@ -255,8 +299,14 @@ func (s *Server) measurePhoneVideo(sess *phoneSession, path string, deviceMs int
 		sess.State, sess.Error = "failed", phoneError(err)
 		return
 	}
-	log.Printf("lipsync phone: %s: sound %+d ms vs picture (%d flashes, spread %d ms, %v)", sess.Code, res.OffsetMs, res.Pairs, res.SpreadMs, time.Since(start).Round(time.Millisecond))
+	if check != nil {
+		log.Printf("lipsync phone: %s: film %d at %.1fs: sound %+d ms vs picture (file fix %+d, sound match %.0f, picture %.2f, %v)",
+			sess.Code, sess.fileID, check.At, check.OffsetMs, sess.fileMs, check.Sound, check.Picture, time.Since(start).Round(time.Millisecond))
+	} else {
+		log.Printf("lipsync phone: %s: sound %+d ms vs picture (%d flashes, spread %d ms, %v)", sess.Code, res.OffsetMs, res.Pairs, res.SpreadMs, time.Since(start).Round(time.Millisecond))
+	}
 	sess.Result = &res
+	sess.Check = check
 	sess.DeviceMs = deviceMs
 	// Sound late by X: play it X earlier than it was when filmed.
 	sess.NewDeviceMs = clampDevice(deviceMs - res.OffsetMs)
@@ -285,6 +335,10 @@ func phoneError(err error) string {
 		return "I couldn't hear the beeps. Turn the TV up a bit, keep the room quiet, and try again."
 	case errors.Is(err, avsync.ErrShort):
 		return "That video is too short. Film for about 10 seconds (five beeps)."
+	case errors.Is(err, avsync.ErrNoSoundMatch):
+		return "I couldn't match the sound you filmed to the film. Film it again with the sound clearly audible, within a minute or two of sending it."
+	case errors.Is(err, avsync.ErrNoPictureMatch):
+		return "I couldn't match the picture to the film. Keep the whole TV in the shot and hold the phone still; a scene with some movement or a cut works best."
 	case errors.Is(err, avsync.ErrUnclear):
 		return "The beeps and flashes didn't line up the same way each time. Hold the phone still, keep it quiet, and try again."
 	}

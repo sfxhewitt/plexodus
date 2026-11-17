@@ -44,10 +44,15 @@
   </section>
 
   <section id="ready" hidden>
-    <ol>
+    <ol id="stepsTest">
       <li>Sit where you normally watch, with the TV showing the flashing test.</li>
       <li>Tap <b>Record the TV</b> and film the whole screen for about 10 seconds (five beeps). Hold still.</li>
       <li>Tap <b>Use Video</b>. The TV fixes itself.</li>
+    </ol>
+    <ol id="stepsFilm" hidden>
+      <li>Let the film play on, with the sound at a normal level. A scene with talking, cuts or movement works best.</li>
+      <li>Tap <b>Record the TV</b> and film the whole screen for about 10 seconds from where you sit. Hold still.</li>
+      <li>Tap <b>Use Video</b> straight away. The TV checks it against the film and fixes itself.</li>
     </ol>
     <label class="btn" id="recordBtn">Record the TV<input id="rec" type="file" accept="video/*" capture="environment"></label>
     <label class="btn ghost">Upload a video I already filmed<input id="pick" type="file" accept="video/*"></label>
@@ -99,6 +104,8 @@
     try {
       const s = await state();
       round = s.round;
+      $("stepsTest").hidden = !!s.content;
+      $("stepsFilm").hidden = !s.content;
       if (s.state === "done" && s.result) { render(s); show("result", "again"); }
       else show("ready");
     } catch (e) { fail(e.message); }
@@ -162,16 +169,24 @@
     }, 1000);
   }
 
+  const fmtTime = (sec) => {
+    const t = Math.floor(sec), h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, x = String(t % 60).padStart(2, "0");
+    return h ? h + ":" + String(m).padStart(2, "0") + ":" + x : m + ":" + x;
+  };
+
   function render(s) {
     const off = s.result.offsetMs, a = Math.abs(off);
     // Every measured gap is corrected, however small, so the TV lands on 0 ms.
     const spotOn = a === 0;
+    const how = s.content
+      ? "Matched against the film" + (s.check ? " at " + fmtTime(s.check.at) : "") + "."
+      : "Measured from " + s.result.pairs + " beeps.";
     $("resHead").textContent = spotOn ? "Result" : "The sound was";
     $("resBig").className = "big" + (spotOn ? " ok" : "");
     $("resBig").textContent = spotOn ? "Spot on: 0 ms" : a + " ms " + (off > 0 ? "late" : "early");
     $("resText").textContent = spotOn
-      ? "Nothing to change. Measured from " + s.result.pairs + " beeps."
-      : "Corrected: the TV now plays its sound " + a + " ms " + (off > 0 ? "earlier" : "later") + ", so it lands on 0 ms. Measured from " + s.result.pairs + " beeps.";
+      ? "Nothing to change. " + how
+      : "Corrected: the TV now plays its sound " + a + " ms " + (off > 0 ? "earlier" : "later") + ", so it lands on 0 ms. " + how;
     if (s.appliedMs != null) {
       $("resSaved").innerHTML = '<span class="ok">✓ Saved on the TV.</span> Every film on it now uses this. Press OK on the remote to finish.';
     } else {
