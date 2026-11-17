@@ -6,6 +6,7 @@ import { Check, Eye, Play, Refresh, Search, Share, Wand, X } from "../components
 import { useApi, useDebounced, useUser } from "../hooks";
 import { initials } from "../people";
 import { countLabel, episodeStatus, fmtAirDate, Guide, GuideEpisode, mergeEpisodes, mergeSeasons, seasonCard, seasonSub } from "../guide";
+import { hasRT, RTScores } from "../rt";
 
 function MatchModal({ item, onClose, onDone }: { item: Detail; onClose: () => void; onDone: () => void }) {
   const [q, setQ] = useState(item.title);
@@ -252,7 +253,7 @@ export default function Item() {
             <h1>{d.kind === "episode" && <span className="ep-label">{episodeLabel(d)}</span>}{d.title}</h1>
           )}
           <div className="meta-line">
-            {d.rating ? <span className="pill">★ {d.rating.toFixed(1)}</span> : null}
+            {hasRT(d) ? <RTScores c={d} labels /> : d.rating ? <span className="pill">★ {d.rating.toFixed(1)}</span> : null}
             {d.year ? <span>{d.year}</span> : null}
             {d.runtime ? <span>{fmtRuntime(d.runtime)}</span> : null}
             {d.kind === "show" && d.leafCount ? <span>{seasonCount} season{seasonCount === 1 ? "" : "s"} · {episodeCount || `${d.leafCount} episodes`}</span> : null}

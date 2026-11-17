@@ -105,6 +105,10 @@ func migrate(w *sql.DB) error {
 		{"plex_links", "plex_guid", "TEXT"},
 		// 1 when an admin fixed the match in Plexodus.
 		{"items", "match_manual", "INTEGER NOT NULL DEFAULT 0"},
+		// Rotten Tomatoes scores (0–100) copied from Plex: the critics'
+		// Tomatometer and the audience score. NULL = not known.
+		{"items", "rt_critic", "INTEGER"},
+		{"items", "rt_audience", "INTEGER"},
 	}
 	for _, c := range columns {
 		var n int

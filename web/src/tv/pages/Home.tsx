@@ -10,6 +10,7 @@ import { onPlayBusy, playCard, playItem } from "../play";
 import { TrailerVideo } from "../Trailer";
 import { focusInitial } from "../focus";
 import { hiddenOnHome } from "../homeHidden";
+import { hasRT, RTScores } from "../../rt";
 
 /**
  * Full-screen featured carousel, like the top of the Apple TV app. Left on
@@ -116,7 +117,7 @@ function Hero({ items, onPlay }: { items: Card[]; onPlay: (c: Card) => void }) {
             <h1 className="tv-hero-title">{c.title}</h1>
           )}
           <div className="tv-meta">
-            {c.rating ? <span className="tv-rating">★ {c.rating.toFixed(1)}</span> : null}
+            {hasRT(c) ? <RTScores c={c} className="tv-rt" /> : c.rating ? <span className="tv-rating">★ {c.rating.toFixed(1)}</span> : null}
             {meta.map((m) => <span key={m}>{m}</span>)}
           </div>
           {c.overview && <p className="tv-hero-overview">{c.overview}</p>}

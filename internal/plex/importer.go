@@ -266,6 +266,9 @@ func applyMetadata(tx *sql.Tx, id int64, m *Metadata, still bool) error {
 	if err != nil {
 		return err
 	}
+	if _, err := SetRT(tx, id, m.RT()); err != nil {
+		return err
+	}
 	return SetContentRating(tx, id, m.ContentRating)
 }
 

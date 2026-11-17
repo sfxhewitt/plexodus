@@ -20,6 +20,7 @@ import (
 //	decade  2020, 2010, ... 1950, or 0 for anything older
 //	res     4k | 1080 | 720 | sd (films; from the file's width/height)
 //	rating  minimum TMDB rating: 5, 6, 7 or 8
+//	rt      Rotten Tomatoes: 90 | fresh | rotten (critics) | audience (80%+)
 //	age     kids | 13 | 16 | adult (content rating, see internal/rating)
 //	length  short (under 90 min) | medium (90–120) | long (over 2 h)
 //	added   added in the last N days: 7, 30 or 90
@@ -70,6 +71,12 @@ var facetDefs = []facetDef{
 		{"7", "7+ Great", "t.rating >= 7"},
 		{"6", "6+ Good", "t.rating >= 6"},
 		{"5", "5+", "t.rating >= 5"},
+	}},
+	{Key: "rt", Label: "Rotten Tomatoes", opts: []facetOpt{
+		{"90", "Critics 90%+", "t.rt_critic >= 90"},
+		{"fresh", "Fresh · critics 60%+", "t.rt_critic >= 60"},
+		{"rotten", "Rotten · critics under 60%", "t.rt_critic < 60"},
+		{"audience", "Audience 80%+", "t.rt_audience >= 80"},
 	}},
 	{Key: "res", Label: "Quality", Movies: true, opts: []facetOpt{
 		{"4k", "4K", "t.res = '4k'"},
@@ -178,7 +185,7 @@ func (s *Server) handleLibraryFacets(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		sums = append(sums, "COUNT(*)")
-		rows, err := s.db.R.QueryContext(r.Context(), `SELECT `+strings.Join(sums, ", ")+` FROM (SELECT i.year, i.rating, i.age, i.runtime, i.added_at,
+		rows, err := s.db.R.QueryContext(r.Context(), `SELECT `+strings.Join(sums, ", ")+` FROM (SELECT i.year, i.rating, i.rt_critic, i.rt_audience, i.age, i.runtime, i.added_at,
 			COALESCE(w.watched, 0) watched, COALESCE(w.position, 0) position, `+res+` res
 			FROM items i LEFT JOIN watch_state w ON w.item_id = i.id AND w.user_id = ?1 `+where+`) t`, append([]any{uid}, args...)...)
 		if err != nil {

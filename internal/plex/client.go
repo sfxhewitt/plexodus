@@ -150,17 +150,21 @@ type Metadata struct {
 	Rating               float64 `json:"rating"`
 	// Newer servers also send a "Rating" array; declared so it doesn't
 	// case-insensitively land in the float above.
-	Ratings               []json.RawMessage `json:"Rating"`
-	AudienceRating        float64           `json:"audienceRating"`
-	Duration              int64             `json:"duration"`
-	OriginallyAvailableAt string            `json:"originallyAvailableAt"`
-	AddedAt               int64             `json:"addedAt"`
-	UpdatedAt             int64             `json:"updatedAt"`
-	Thumb                 string            `json:"thumb"`
-	Art                   string            `json:"art"`
-	ViewCount             int               `json:"viewCount"`
-	ViewOffset            int64             `json:"viewOffset"`
-	LastViewedAt          int64             `json:"lastViewedAt"`
+	Ratings        []json.RawMessage `json:"Rating"`
+	AudienceRating float64           `json:"audienceRating"`
+	// Where rating/audienceRating come from, e.g.
+	// rottentomatoes://image.rating.ripe or themoviedb://image.rating.
+	RatingImage           string `json:"ratingImage"`
+	AudienceRatingImage   string `json:"audienceRatingImage"`
+	Duration              int64  `json:"duration"`
+	OriginallyAvailableAt string `json:"originallyAvailableAt"`
+	AddedAt               int64  `json:"addedAt"`
+	UpdatedAt             int64  `json:"updatedAt"`
+	Thumb                 string `json:"thumb"`
+	Art                   string `json:"art"`
+	ViewCount             int    `json:"viewCount"`
+	ViewOffset            int64  `json:"viewOffset"`
+	LastViewedAt          int64  `json:"lastViewedAt"`
 	// PlexGUID is the lowercase "guid" string. It must be declared so that
 	// encoding/json's case-insensitive matching doesn't try to decode it into
 	// the Guid array below.

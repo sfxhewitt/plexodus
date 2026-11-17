@@ -26,6 +26,8 @@ const SORTS: { v: string; l: string; asc: string; desc: string; def: "asc" | "de
   { v: "added", l: "Recently added", asc: "Oldest first", desc: "Newest first", def: "desc" },
   { v: "release", l: "Release date", asc: "Oldest first", desc: "Newest first", def: "desc" },
   { v: "rating", l: "Rating", asc: "Lowest first", desc: "Highest first", def: "desc" },
+  { v: "critics", l: "Tomatometer", asc: "Lowest first", desc: "Highest first", def: "desc" },
+  { v: "audience", l: "Audience score", asc: "Lowest first", desc: "Highest first", def: "desc" },
   { v: "runtime", l: "Length", asc: "Shortest first", desc: "Longest first", def: "asc" },
   { v: "random", l: "Shuffle", asc: "Pick again to reshuffle", desc: "Pick again to reshuffle", def: "asc" },
 ];
@@ -33,12 +35,13 @@ const sortInfo = (v: string) => SORTS.find((x) => x.v === v) || (v === "year" ? 
 
 // Every filter the server understands (internal/api/libfilter.go), with labels
 // for the chips that show what's on. Counts come from /facets.
-const FILTER_KEYS = ["filter", "genre", "added", "decade", "rating", "res", "length", "age"] as const;
+const FILTER_KEYS = ["filter", "genre", "added", "decade", "rating", "rt", "res", "length", "age"] as const;
 type FilterKey = (typeof FILTER_KEYS)[number];
 const LABELS: Record<string, Record<string, string>> = {
   filter: { unwatched: "Unwatched", inprogress: "In progress", watched: "Watched" },
   added: { "7": "Added this week", "30": "New this month", "90": "Added in 3 months" },
   rating: { "8": "Rated 8+", "7": "Rated 7+", "6": "Rated 6+", "5": "Rated 5+" },
+  rt: { "90": "Critics 90%+", fresh: "Fresh", rotten: "Rotten", audience: "Audience 80%+" },
   res: { "4k": "4K", "1080": "1080p", "720": "720p", sd: "SD" },
   length: { short: "Under 90 min", medium: "90 min – 2 h", long: "Over 2 h" },
   age: { kids: "Kids", "13": "Up to 13", "16": "Up to 16", adult: "Adults" },
@@ -55,6 +58,7 @@ const QUICK: { k: FilterKey; v: string; l: string; movies?: boolean }[] = [
   { k: "filter", v: "inprogress", l: "In progress" },
   { k: "added", v: "30", l: "New this month" },
   { k: "rating", v: "7", l: "Highly rated" },
+  { k: "rt", v: "fresh", l: "Fresh" },
   { k: "res", v: "4k", l: "4K", movies: true },
   { k: "length", v: "short", l: "Under 90 min", movies: true },
 ];
@@ -98,9 +102,9 @@ function FilterPanel({ libId, movies, params, startAt, onSet, onClear, onClose }
   const order = params.get("order") || si.def;
   const cats: { key: string; label: string; value: string }[] = [
     { key: "sort", label: "Sort by", value: si.v === "random" ? "Shuffle" : `${si.l} · ${order === "asc" ? si.asc : si.desc}` },
-    ...(["genre", ...(facets?.facets.map((f) => f.key) || ["filter", "added", "decade", "rating", ...(movies ? ["res", "length"] : []), "age"])]).map((k) => ({
+    ...(["genre", ...(facets?.facets.map((f) => f.key) || ["filter", "added", "decade", "rating", "rt", ...(movies ? ["res", "length"] : []), "age"])]).map((k) => ({
       key: k,
-      label: k === "genre" ? "Genre" : facets?.facets.find((f) => f.key === k)?.label || { filter: "Watched", added: "Recently added", decade: "Decade", rating: "Rating", res: "Quality", length: "Length", age: "Age rating" }[k] || k,
+      label: k === "genre" ? "Genre" : facets?.facets.find((f) => f.key === k)?.label || { filter: "Watched", added: "Recently added", decade: "Decade", rating: "Rating", rt: "Rotten Tomatoes", res: "Quality", length: "Length", age: "Age rating" }[k] || k,
       value: params.get(k) ? filterLabel(k, params.get(k)!) : "Any",
     })),
   ];

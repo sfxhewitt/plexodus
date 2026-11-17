@@ -95,6 +95,8 @@ export default function Library() {
             <option value="added">Recently added</option>
             <option value="release">Release date</option>
             <option value="rating">Rating</option>
+            <option value="critics">Tomatometer</option>
+            <option value="audience">Audience score</option>
             <option value="year">Year</option>
           </select>
           <button className="btn glass sm" onClick={() => set("order", order === "asc" ? "desc" : "asc")}

@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { art, Card, episodeLabel } from "../api";
 import { Check, ChevronLeft, ChevronRight, Play } from "./Icons";
+import { RTBadge } from "../rt";
 
 function hue(s: string) {
   let h = 0;
@@ -60,6 +61,7 @@ export function PosterCard({ c, subtitle, to, missing }: { c: Card; subtitle?: s
         <Img src={art(c.poster || c.showPoster, "w342")} alt={c.title} title={c.title} />
         <Badge c={c} />
         <Progress c={c} />
+        {!missing && <RTBadge c={c} />}
         {!missing && <div className="poster-hover"><span className="play-dot"><Play size={20} /></span></div>}
       </div>
       <div className="poster-meta">
