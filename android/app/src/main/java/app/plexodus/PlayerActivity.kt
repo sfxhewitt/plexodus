@@ -10,6 +10,7 @@ import android.media.AudioManager
 import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.hardware.display.DisplayManager
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
@@ -441,7 +442,7 @@ class PlayerActivity : Activity() {
      */
     private fun restartPlayer() {
         val at = timeMs
-        val audio = player.audioTrack
+        val audio = currentAudio()
         val spu = player.spuTrack
         player.setEventListener(null)
         player.stop()
@@ -1399,8 +1400,57 @@ class PlayerActivity : Activity() {
         android.util.Log.i(TAG, "refresh rate: film %.3f fps (%s), display %.3f Hz, picked %s".format(
             fps, source, current.refreshRate, best?.let { "%.3f Hz".format(it.refreshRate) } ?: "none"))
         if (best == null || best.modeId == current.modeId) return
+        // A new HDMI mode makes the TV set its sound up again too: about 1 s after
+        // the switch Android drops the HDMI output and adds it back ~70 ms later.
+        // An AudioTrack open across that dies, libVLC fails to make a new one in
+        // the gap, and its audio thread then calls the missing track and aborts
+        // the whole app (the SHIELD, 13 and 18 Nov 2026: 1.6-2.5 s after switching
+        // to 23.976 Hz, coming back on "Who's watching?"). So let go of the sound
+        // first and pick the same track up again once the TV's sound has settled.
+        val audio = player.audioTrack
+        if (audio >= 0) {
+            soundAfterSwitch = audio
+            player.setAudioTrack(-1)
+            waitForMode(best.modeId)
+        }
         window.attributes = window.attributes.also { it.preferredDisplayModeId = best.modeId }
     }
+
+    /** The audio track to bring back once the TV has switched mode, or -1. */
+    private var soundAfterSwitch = -1
+    private val modeWait = Any()
+    private var modeListener: DisplayManager.DisplayListener? = null
+
+    private fun waitForMode(modeId: Int) {
+        val dm = getSystemService(DisplayManager::class.java)
+        val l = object : DisplayManager.DisplayListener {
+            override fun onDisplayAdded(displayId: Int) {}
+            override fun onDisplayRemoved(displayId: Int) {}
+            override fun onDisplayChanged(displayId: Int) {
+                @Suppress("DEPRECATION")
+                if (windowManager.defaultDisplay.mode.modeId != modeId) return
+                ui.removeCallbacksAndMessages(modeWait)
+                ui.postAtTime({ soundBack() }, modeWait, SystemClock.uptimeMillis() + SOUND_SETTLE_MS)
+            }
+        }
+        modeListener = l
+        dm.registerDisplayListener(l, ui)
+        // Bring the sound back anyway if the TV never says it switched.
+        ui.postAtTime({ soundBack() }, modeWait, SystemClock.uptimeMillis() + MODE_WAIT_MS)
+    }
+
+    private fun soundBack() {
+        ui.removeCallbacksAndMessages(modeWait)
+        modeListener?.let { getSystemService(DisplayManager::class.java).unregisterDisplayListener(it) }
+        modeListener = null
+        val audio = soundAfterSwitch
+        soundAfterSwitch = -1
+        // Unless a track was picked meanwhile.
+        if (audio >= 0 && !finished && player.audioTrack < 0) player.setAudioTrack(audio)
+    }
+
+    /** The film's audio track, counting one set aside during a mode change. */
+    private fun currentAudio() = if (soundAfterSwitch >= 0) soundAfterSwitch else player.audioTrack
 
     // ---- audio passthrough ----
 
@@ -1700,7 +1750,7 @@ class PlayerActivity : Activity() {
         if (reconnecting || finished || server.isEmpty()) return
         reconnecting = true
         val at = timeMs
-        val tracks = Pair(player.audioTrack, player.spuTrack)
+        val tracks = Pair(currentAudio(), player.spuTrack)
         ui.removeCallbacksAndMessages(stallCheck)
         spinner.visibility = View.VISIBLE
         errorText.text = getString(R.string.player_reconnecting)
@@ -2403,6 +2453,7 @@ class PlayerActivity : Activity() {
 
     override fun onDestroy() {
         ui.removeCallbacksAndMessages(null)
+        modeListener?.let { getSystemService(DisplayManager::class.java).unregisterDisplayListener(it) }
         if (hdmiSurround) (getSystemService(Context.AUDIO_SERVICE) as AudioManager).unregisterAudioDeviceCallback(deviceWatch)
         if (::player.isInitialized) {
             player.setEventListener(null)
@@ -2504,6 +2555,10 @@ class PlayerActivity : Activity() {
         private const val EXTRA_CALIBRATE = "calibrate"
         private const val EXTRA_PHONE = "phone"
         private const val RELEASE_DELAY_MS = 3000L
+        /** After the TV reports the new mode: its HDMI sound was back after about 1.1 s on the SHIELD. */
+        private const val SOUND_SETTLE_MS = 2_000L
+        /** Longest wait for the TV to report the new mode before the sound comes back regardless. */
+        private const val MODE_WAIT_MS = 5_000L
         private const val PHONE_POLL_MS = 1500L
 
         /** The stream URL names the file: /api/stream/{fileId}/{name}. */
