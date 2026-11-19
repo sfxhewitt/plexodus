@@ -44,6 +44,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Prefs.migrateDisplayLag(this, PlayerActivity.lagForRate(60f))
         val saved = Prefs.server(this)
         if (saved == null) {
             startActivity(Intent(this, ConnectActivity::class.java))

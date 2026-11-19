@@ -244,6 +244,7 @@ class PlayerActivity : Activity() {
         startItemId = itemId
         calibrating = intent.getBooleanExtra(EXTRA_CALIBRATE, false)
         phoneMode = calibrating && intent.getBooleanExtra(EXTRA_PHONE, false)
+        Prefs.migrateDisplayLag(this, lagForRate(60f))
         deviceDelayMs = Prefs.audioDelay(this)
         fileDelayMs = intent.getIntExtra(EXTRA_AUDIO_OFFSET_MS, 0)
         kind = intent.getStringExtra(EXTRA_KIND) ?: ""
@@ -407,6 +408,8 @@ class PlayerActivity : Activity() {
         passthrough = PASSTHROUGH_CLOSES_CLEANLY && hdmiSurround && !headphonesConnected()
         createPlayer()
         if (hdmiSurround) (getSystemService(Context.AUDIO_SERVICE) as AudioManager).registerAudioDeviceCallback(deviceWatch, ui)
+        // The picture lag follows the refresh rate, which changes once the film's rate is matched.
+        (getSystemService(Context.DISPLAY_SERVICE) as android.hardware.display.DisplayManager).registerDisplayListener(displayWatch, ui)
 
         requestAudioFocus()
         timeMs = if (startMs > 5_000) startMs else 0L
@@ -1481,6 +1484,8 @@ class PlayerActivity : Activity() {
         val mode = windowManager.defaultDisplay.mode
         sb.append("DISPLAY  ").append(mode.physicalWidth).append('x').append(mode.physicalHeight)
             .append(String.format(Locale.US, " @ %.3f Hz", mode.refreshRate)).append('\n')
+        sb.append("SYNC     sound held ").append(displayLagMs()).append(" ms for the picture, device ")
+            .append(deviceDelayMs).append(" ms, film ").append(fileDelayMs).append(" ms\n")
         val audioName = player.audioTracks?.firstOrNull { it.id == player.audioTrack }?.name
         sb.append("AUDIO    ").append(audioName ?: "-").append('\n')
         sb.append("OUTPUT   ").append(if (passthrough) "Passthrough to HDMI (when the format allows)" else "Decoded to PCM").append('\n')
@@ -1814,10 +1819,37 @@ class PlayerActivity : Activity() {
 
     // ---- lip sync ----
 
-    /** Device offset plus the file's own fix, in libVLC's microseconds. */
+    /**
+     * How much later than libVLC intends each frame actually reaches the TV,
+     * at a given refresh rate.
+     *
+     * libVLC hands a frame to Android at the moment it should be seen, and the
+     * compositor then puts it out on the next refresh but one: on the Fire TV
+     * Cube at 50 Hz, SurfaceFlinger's own record (dumpsys SurfaceFlinger
+     * --latency) shows every frame reaching HDMI 25.3 ms after its intended
+     * time, one 20 ms refresh plus about 5 ms. Players built on ExoPlayer
+     * (Plex among them) avoid this by queueing each frame ahead, timed to the
+     * display's refresh, so the picture lands on time and they need no offset.
+     * libVLC can't queue ahead, so the sound waits the same amount instead.
+     * It depends on the refresh rate, which is why an offset measured on the
+     * 60 Hz menus was off for 24 Hz films.
+     */
+    @Suppress("DEPRECATION")
+    private fun displayLagMs(): Int = lagForRate(windowManager.defaultDisplay.mode.refreshRate)
+
+    private val displayWatch = object : android.hardware.display.DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) {}
+        override fun onDisplayRemoved(displayId: Int) {}
+        override fun onDisplayChanged(displayId: Int) {
+            if (displayId == Display.DEFAULT_DISPLAY) applyAudioDelay()
+        }
+    }
+
+    /** Picture lag, device offset and the file's own fix, in libVLC's microseconds. */
     private fun applyAudioDelay() {
         if (!::player.isInitialized) return
-        val ms = (deviceDelayMs + if (calibrating) 0 else fileDelayMs).coerceIn(-Prefs.MAX_DELAY * 2, Prefs.MAX_DELAY * 2)
+        val ms = (displayLagMs() + deviceDelayMs + if (calibrating) 0 else fileDelayMs)
+            .coerceIn(-Prefs.MAX_DELAY * 2, Prefs.MAX_DELAY * 2)
         player.setAudioDelay(ms * 1000L)
         // Subtitles are timed to the dialogue: the file's own fix moves them
         // with the sound. The device offset doesn't, since it only makes up
@@ -2407,6 +2439,7 @@ class PlayerActivity : Activity() {
 
     override fun onDestroy() {
         ui.removeCallbacksAndMessages(null)
+        (getSystemService(Context.DISPLAY_SERVICE) as android.hardware.display.DisplayManager).unregisterDisplayListener(displayWatch)
         if (hdmiSurround) (getSystemService(Context.AUDIO_SERVICE) as AudioManager).unregisterAudioDeviceCallback(deviceWatch)
         if (::player.isInitialized) {
             player.setEventListener(null)
@@ -2502,6 +2535,12 @@ class PlayerActivity : Activity() {
         /** What films and shows are made at; 23.976 wins a near-24 count (most films). */
         private val STANDARD_RATES = listOf(23.976f, 25f, 29.97f, 50f, 59.94f)
         private const val SYNC_STEP_MS = 25
+        /** Measured on top of one refresh: see displayLagMs. */
+        private const val COMPOSITOR_EXTRA_MS = 5f
+
+        /** The picture lag at a refresh rate: see displayLagMs. */
+        fun lagForRate(hz: Float): Int =
+            if (hz <= 1f) 0 else Math.round(1000f / hz + COMPOSITOR_EXTRA_MS)
         private const val CALIBRATION_STEP_MS = 10
         private const val EXTRA_FILE_ID = "fileId"
         private const val EXTRA_AUDIO_OFFSET_MS = "audioOffsetMs"
