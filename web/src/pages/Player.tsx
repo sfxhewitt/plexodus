@@ -429,7 +429,7 @@ export default function Player() {
     const c = document.createElement("canvas");
     c.className = "sub-canvas";
     layer.appendChild(c);
-    const r = new SubRenderer(v, c, subTrack, subLoaded, subPrefs, offset - subDelay);
+    const r = new SubRenderer(v, c, subTrack, subLoaded, subPrefs, offset - subDelay - audioOffset / 1000);
     subRenderer.current = r;
     r.ready.catch((e: Error) => setSubState({ error: `Couldn't start the subtitle renderer: ${e.message}` }));
     return () => {
@@ -439,8 +439,10 @@ export default function Player() {
     };
   }, [subKey]);
   useEffect(() => {
-    subRenderer.current?.setOffset(offset - subDelay);
-  }, [offset, subDelay]);
+    // Subtitles are timed to the dialogue, so they move with the file's
+    // Audio sync fix (a later sound means later subtitles too).
+    subRenderer.current?.setOffset(offset - subDelay - audioOffset / 1000);
+  }, [offset, subDelay, audioOffset]);
   useEffect(() => {
     subRenderer.current?.setStyle(subPrefs).catch(() => {});
   }, [subPrefs]);

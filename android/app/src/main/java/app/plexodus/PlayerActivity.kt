@@ -1819,6 +1819,10 @@ class PlayerActivity : Activity() {
         if (!::player.isInitialized) return
         val ms = (deviceDelayMs + if (calibrating) 0 else fileDelayMs).coerceIn(-Prefs.MAX_DELAY * 2, Prefs.MAX_DELAY * 2)
         player.setAudioDelay(ms * 1000L)
+        // Subtitles are timed to the dialogue: the file's own fix moves them
+        // with the sound. The device offset doesn't, since it only makes up
+        // for the TV showing the picture (and the subtitles in it) late.
+        player.setSpuDelay((if (calibrating) 0 else fileDelayMs) * 1000L)
     }
 
     private fun describe(ms: Int): String = when {
