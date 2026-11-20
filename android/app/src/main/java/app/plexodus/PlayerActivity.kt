@@ -86,6 +86,10 @@ class PlayerActivity : Activity() {
     private var modeSwitched = false
     private lateinit var overviewText: TextView
     private val modeRetry = Any()
+    /** Paused while the TV changes refresh rate; see holdForModeSwitch. */
+    private var modeHold = false
+    private var modeHoldTarget = -1
+    private val modeHoldToken = Any()
 
     private val ui = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
@@ -530,6 +534,7 @@ class PlayerActivity : Activity() {
             }
             MediaPlayer.Event.Paused -> {
                 playing = false
+                if (modeHold) return // our own pause for a refresh-rate change
                 // Apple TV style: pausing brings up what you're watching.
                 if (!calibrating && overviewText.text.isNotEmpty()) overviewText.visibility = View.VISIBLE
                 playPause.setImageResource(R.drawable.ic_play)
@@ -1402,7 +1407,44 @@ class PlayerActivity : Activity() {
         android.util.Log.i(TAG, "refresh rate: film %.3f fps (%s), display %.3f Hz, picked %s".format(
             fps, source, current.refreshRate, best?.let { "%.3f Hz".format(it.refreshRate) } ?: "none"))
         if (best == null || best.modeId == current.modeId) return
+        holdForModeSwitch(best.modeId)
         window.attributes = window.attributes.also { it.preferredDisplayModeId = best.modeId }
+    }
+
+    /**
+     * A refresh-rate change makes the TV re-sync HDMI: the screen goes black for
+     * a second or two and the sound drops out for a couple of seconds more
+     * (Cube logs: hdmi_audio off, then back, then the audio formats re-read).
+     * Playing on through that loses the picture and then the sound. Pause
+     * instead, as players that switch before the film starts effectively do,
+     * and carry on once the TV has settled, so picture and sound come back
+     * together with nothing missed.
+     */
+    private fun holdForModeSwitch(target: Int) {
+        if (!::player.isInitialized || !player.isPlaying) return
+        modeHold = true
+        modeHoldTarget = target
+        player.pause()
+        spinner.visibility = View.VISIBLE
+        // If the TV never reports the change, don't stay paused.
+        ui.postAtTime({ endModeHold() }, modeHoldToken, SystemClock.uptimeMillis() + MODE_HOLD_MAX_MS)
+    }
+
+    private fun onModeChanged() {
+        if (!modeHold) return
+        @Suppress("DEPRECATION")
+        if (windowManager.defaultDisplay.mode.modeId != modeHoldTarget) return
+        ui.removeCallbacksAndMessages(modeHoldToken)
+        ui.postAtTime({ endModeHold() }, modeHoldToken, SystemClock.uptimeMillis() + MODE_SETTLE_MS)
+    }
+
+    private fun endModeHold() {
+        ui.removeCallbacksAndMessages(modeHoldToken)
+        if (!modeHold) return
+        modeHold = false
+        if (isFinishing || !::player.isInitialized) return
+        spinner.visibility = View.GONE
+        player.play()
     }
 
     // ---- audio passthrough ----
@@ -1841,7 +1883,9 @@ class PlayerActivity : Activity() {
         override fun onDisplayAdded(displayId: Int) {}
         override fun onDisplayRemoved(displayId: Int) {}
         override fun onDisplayChanged(displayId: Int) {
-            if (displayId == Display.DEFAULT_DISPLAY) applyAudioDelay()
+            if (displayId != Display.DEFAULT_DISPLAY) return
+            applyAudioDelay()
+            onModeChanged()
         }
     }
 
@@ -2537,6 +2581,9 @@ class PlayerActivity : Activity() {
         private const val SYNC_STEP_MS = 25
         /** Measured on top of one refresh: see displayLagMs. */
         private const val COMPOSITOR_EXTRA_MS = 5f
+        /** After the TV takes the new refresh rate, how long its HDMI sound takes to return. */
+        private const val MODE_SETTLE_MS = 2_500L
+        private const val MODE_HOLD_MAX_MS = 8_000L
 
         /** The picture lag at a refresh rate: see displayLagMs. */
         fun lagForRate(hz: Float): Int =
