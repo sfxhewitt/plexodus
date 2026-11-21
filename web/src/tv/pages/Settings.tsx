@@ -205,6 +205,44 @@ function LipSyncChoices() {
   );
 }
 
+/**
+ * Which engine the TV player uses. ExoPlayer is the one Plex's own TV app
+ * plays through: it times every frame to the screen and follows the sound
+ * card's clock. libVLC is the original engine, kept as a fallback.
+ */
+function EngineChoice() {
+  const read = () => {
+    try {
+      return native?.playerEngine?.() || "vlc";
+    } catch {
+      return "vlc";
+    }
+  };
+  const [engine, setEngine] = useState(read);
+  if (!native || !nativeHas("engine")) return null;
+  const pick = (e: string) => {
+    native?.setPlayerEngine?.(e);
+    setEngine(e);
+  };
+  return (
+    <section className="tv-lib-prefs">
+      <h2 className="tv-section-title">Player engine</h2>
+      <p className="tv-muted tv-section-note">
+        ExoPlayer is the engine Plex uses: picture and sound stay locked together on their own. libVLC is the original
+        engine; files ExoPlayer can't open play on it anyway. Takes effect from the next thing you play.
+      </p>
+      <div className="tv-pref-row" data-row data-group="engine">
+        <div className="tv-pref-name">
+          <span>This TV</span>
+          <span className="tv-muted">{engine === "exo" ? "ExoPlayer (like Plex)" : "libVLC"}</span>
+        </div>
+        <TvButton fk="engine-exo" className={"chip ambient" + (engine === "exo" ? " active" : "")} onClick={() => pick("exo")}>ExoPlayer (like Plex)</TvButton>
+        <TvButton fk="engine-vlc" className={"chip ambient" + (engine === "vlc" ? " active" : "")} onClick={() => pick("vlc")}>libVLC</TvButton>
+      </div>
+    </section>
+  );
+}
+
 export default function SettingsPage() {
   const { user, setUser, openProfiles } = useUser();
   useBackdrop(undefined);
@@ -276,6 +314,7 @@ export default function SettingsPage() {
       <AmbientChoices />
       <RatingChoices />
       {native && <LipSyncChoices />}
+      {native && <EngineChoice />}
       <p className="tv-muted tv-note">Adding libraries, users and the Plex import live in the Plexodus web page on a computer.</p>
       <div className="tv-page-tail" />
     </div>
