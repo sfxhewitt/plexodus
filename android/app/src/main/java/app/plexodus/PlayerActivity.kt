@@ -1377,6 +1377,9 @@ class PlayerActivity : Activity() {
      */
     private fun matchRefreshRate(attempt: Int = 0) {
         if (modeSwitched) return
+        // Off unless asked for in Settings: the switch blanks the TV for a
+        // second or two and Plex plays without it.
+        if (!Prefs.matchFrameRate(this)) return
         val track = player.videoInfo()
         if (track == null || track.fps <= 0f) {
             // libVLC often learns the frame rate a moment after the first
