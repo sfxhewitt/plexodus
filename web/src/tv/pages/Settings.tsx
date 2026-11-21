@@ -243,6 +243,40 @@ function EngineChoice() {
   );
 }
 
+/** Frame-rate matching: off by default, since the switch blanks the TV and Plex doesn't do it. */
+function FrameRateChoice() {
+  const read = () => {
+    try {
+      return !!native?.matchFrameRate?.();
+    } catch {
+      return false;
+    }
+  };
+  const [on, setOn] = useState(read);
+  if (!native || !nativeHas("framerate-option")) return null;
+  const pick = (v: boolean) => {
+    native?.setMatchFrameRate?.(v);
+    setOn(v);
+  };
+  return (
+    <section className="tv-lib-prefs">
+      <h2 className="tv-section-title">Match frame rate</h2>
+      <p className="tv-muted tv-section-note">
+        Switches the TV to the film's frame rate when it starts. Films pan a little smoother, but the screen goes black for a
+        moment while the TV switches. Plex doesn't do this.
+      </p>
+      <div className="tv-pref-row" data-row data-group="framerate">
+        <div className="tv-pref-name">
+          <span>This TV</span>
+          <span className="tv-muted">{on ? "On" : "Off"}</span>
+        </div>
+        <TvButton fk="framerate-off" className={"chip ambient" + (!on ? " active" : "")} onClick={() => pick(false)}>Off</TvButton>
+        <TvButton fk="framerate-on" className={"chip ambient" + (on ? " active" : "")} onClick={() => pick(true)}>On</TvButton>
+      </div>
+    </section>
+  );
+}
+
 export default function SettingsPage() {
   const { user, setUser, openProfiles } = useUser();
   useBackdrop(undefined);
@@ -315,6 +349,7 @@ export default function SettingsPage() {
       <RatingChoices />
       {native && <LipSyncChoices />}
       {native && <EngineChoice />}
+      {native && <FrameRateChoice />}
       <p className="tv-muted tv-note">Adding libraries, users and the Plex import live in the Plexodus web page on a computer.</p>
       <div className="tv-page-tail" />
     </div>

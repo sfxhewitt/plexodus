@@ -251,7 +251,7 @@ class MainActivity : Activity() {
 
         /** Player features the web UI can rely on (older apps lack this). */
         @JavascriptInterface
-        fun features(): String = if (BuildConfig.SELF_UPDATE) "recap,avsync,avsync-phone,engine,update" else "recap,avsync,avsync-phone,engine"
+        fun features(): String = if (BuildConfig.SELF_UPDATE) "recap,avsync,avsync-phone,engine,framerate-option,update" else "recap,avsync,avsync-phone,engine,framerate-option"
 
         /** The TV player's engine on this device: "exo" (as Plex) or "vlc". */
         @JavascriptInterface
@@ -260,6 +260,15 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun setPlayerEngine(engine: String) {
             Prefs.setEngine(this@MainActivity, engine)
+        }
+
+        /** Whether the player switches the TV to the film's frame rate (off by default). */
+        @JavascriptInterface
+        fun matchFrameRate(): Boolean = Prefs.matchFrameRate(this@MainActivity)
+
+        @JavascriptInterface
+        fun setMatchFrameRate(on: Boolean) {
+            Prefs.setMatchFrameRate(this@MainActivity, on)
         }
 
         /** "Check for updates" in Settings: the app shows its own dialogs. */

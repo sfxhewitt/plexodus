@@ -40,6 +40,9 @@ interface Bridge {
   /** Apps with "engine": the TV player's engine, "exo" (ExoPlayer, as Plex) or "vlc". */
   playerEngine?(): string;
   setPlayerEngine?(engine: string): void;
+  /** Apps with "framerate-option": switch the TV to the film's frame rate (off by default). */
+  matchFrameRate?(): boolean;
+  setMatchFrameRate?(on: boolean): void;
   /** Opens the flash-and-beep calibration in the app's player. */
   calibrateAudio?(): void;
   /** Apps with "avsync-phone": the player shows a QR code, a phone films the TV and the fix applies itself. */

@@ -58,6 +58,19 @@ object Prefs {
             .putString(KEY_ENGINE, if (engine == ENGINE_VLC) ENGINE_VLC else ENGINE_EXO).apply()
     }
 
+    private const val KEY_MATCH_FRAME_RATE = "matchFrameRate"
+
+    /**
+     * Switch the TV to the film's frame rate when playback starts. Off by
+     * default: Plex doesn't do it, and the switch blanks the TV for a moment.
+     */
+    fun matchFrameRate(ctx: Context): Boolean =
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean(KEY_MATCH_FRAME_RATE, false)
+
+    fun setMatchFrameRate(ctx: Context, on: Boolean) {
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putBoolean(KEY_MATCH_FRAME_RATE, on).apply()
+    }
+
     private const val KEY_DISPLAY_LAG_MIGRATED = "displayLagMigrated"
 
     /**
