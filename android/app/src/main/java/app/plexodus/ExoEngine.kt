@@ -128,7 +128,8 @@ class ExoEngine(
 
     private val tick = object : Runnable {
         override fun run() {
-            listener?.onTime(player.currentPosition)
+            // Like libVLC's TimeChanged: only while the film moves.
+            if (player.isPlaying) listener?.onTime(player.currentPosition)
             val d = player.duration
             if (d != C.TIME_UNSET && d > 0 && d != lastLength) {
                 lastLength = d
