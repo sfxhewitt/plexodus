@@ -40,6 +40,41 @@ object Prefs {
 
     const val MAX_DELAY = 5000
 
+    private const val KEY_ENGINE = "playerEngine"
+    const val ENGINE_EXO = "exo"
+    const val ENGINE_VLC = "vlc"
+
+    /**
+     * The TV player's engine on this device: ExoPlayer (as Plex) or libVLC.
+     * Test builds start on ExoPlayer while it's being proven; releases stay on
+     * libVLC until it is.
+     */
+    fun engine(ctx: Context): String =
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString(KEY_ENGINE, null)
+            ?: if (BuildConfig.DEBUG) ENGINE_EXO else ENGINE_VLC
+
+    fun setEngine(ctx: Context, engine: String) {
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+            .putString(KEY_ENGINE, if (engine == ENGINE_VLC) ENGINE_VLC else ENGINE_EXO).apply()
+    }
+
+    private const val KEY_DISPLAY_LAG_MIGRATED = "displayLagMigrated"
+
+    /**
+     * The player now makes up for the picture reaching the screen a refresh
+     * later than libVLC thinks (see PlayerActivity.displayLagMs). Offsets set
+     * before that, by calibration at the 60 Hz menu rate, already held that
+     * part, so take it out once to keep them where they were.
+     */
+    fun migrateDisplayLag(ctx: Context, lagAt60Ms: Int) {
+        val p = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+        if (p.getBoolean(KEY_DISPLAY_LAG_MIGRATED, false)) return
+        val old = p.getInt(KEY_AUDIO_DELAY, 0)
+        val e = p.edit().putBoolean(KEY_DISPLAY_LAG_MIGRATED, true)
+        if (old != 0) e.putInt(KEY_AUDIO_DELAY, (old - lagAt60Ms).coerceIn(-MAX_DELAY, MAX_DELAY))
+        e.apply()
+    }
+
     /** The audio or subtitle track name last picked for a show's episodes, if any. */
     fun showTrack(ctx: Context, show: String, audio: Boolean): String? =
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString(showTrackKey(show, audio), null)

@@ -10,7 +10,6 @@ import android.media.AudioManager
 import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.hardware.display.DisplayManager
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
@@ -36,10 +35,6 @@ import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
-import org.videolan.libvlc.LibVLC
-import org.videolan.libvlc.Media
-import org.videolan.libvlc.MediaPlayer
-import org.videolan.libvlc.util.VLCVideoLayout
 import java.net.URLEncoder
 import java.text.DateFormat
 import java.util.Date
@@ -64,9 +59,8 @@ class PlayerActivity : Activity() {
         val art: Bitmap?,
     )
 
-    private lateinit var libVlc: LibVLC
-    private lateinit var player: MediaPlayer
-    private lateinit var videoLayout: VLCVideoLayout
+    private lateinit var player: Engine
+    private lateinit var videoLayout: android.widget.FrameLayout
     private lateinit var overlay: View
     private lateinit var spinner: View
     private lateinit var errorText: TextView
@@ -80,13 +74,17 @@ class PlayerActivity : Activity() {
     private lateinit var subsButton: Button
     private lateinit var statsText: TextView
     private var statsVisible = false
-    private var lastReadBytes = -1
+    private var lastReadBytes = -1L
     private var passthrough = false
     /** The HDMI sink takes Dolby/DTS, so passthrough is on whenever headphones aren't. */
     private var hdmiSurround = false
     private var modeSwitched = false
     private lateinit var overviewText: TextView
     private val modeRetry = Any()
+    /** Paused while the TV changes refresh rate; see holdForModeSwitch. */
+    private var modeHold = false
+    private var modeHoldTarget = -1
+    private val modeHoldToken = Any()
 
     private val ui = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
@@ -147,6 +145,7 @@ class PlayerActivity : Activity() {
     private var timeMs = 0L
     private var playing = false
     private var seeking = false
+    private var bufferingNow = false
     /** A finger is dragging the seek bar (touch screens). */
     private var touchSeeking = false
     /** Where the remote has moved the seek bar to, before the jump is made; -1 when idle. */
@@ -245,6 +244,7 @@ class PlayerActivity : Activity() {
         startItemId = itemId
         calibrating = intent.getBooleanExtra(EXTRA_CALIBRATE, false)
         phoneMode = calibrating && intent.getBooleanExtra(EXTRA_PHONE, false)
+        Prefs.migrateDisplayLag(this, lagForRate(60f))
         deviceDelayMs = Prefs.audioDelay(this)
         fileDelayMs = intent.getIntExtra(EXTRA_AUDIO_OFFSET_MS, 0)
         kind = intent.getStringExtra(EXTRA_KIND) ?: ""
@@ -408,6 +408,8 @@ class PlayerActivity : Activity() {
         passthrough = PASSTHROUGH_CLOSES_CLEANLY && hdmiSurround && !headphonesConnected()
         createPlayer()
         if (hdmiSurround) (getSystemService(Context.AUDIO_SERVICE) as AudioManager).registerAudioDeviceCallback(deviceWatch, ui)
+        // The picture lag follows the refresh rate, which changes once the film's rate is matched.
+        (getSystemService(Context.DISPLAY_SERVICE) as android.hardware.display.DisplayManager).registerDisplayListener(displayWatch, ui)
 
         requestAudioFocus()
         timeMs = if (startMs > 5_000) startMs else 0L
@@ -422,16 +424,25 @@ class PlayerActivity : Activity() {
         }
     }
 
+    /** Set once ExoPlayer couldn't open this film, so it plays on libVLC instead. */
+    private var vlcFallback = false
+
     private fun createPlayer() {
         val opts = arrayListOf("--network-caching=4000", "--http-reconnect", "--audio-time-stretch")
         // Subtitle look (size, font, edge, box, position): see SubtitleStyle.
         opts += SubtitleStyle.load(this).vlcOptions(resources.displayMetrics.heightPixels)
         if (hdmiSurround) opts += "--aout=audiotrack"
         opts += if (passthrough) "--spdif" else "--no-spdif"
-        libVlc = LibVLC(this, opts)
-        player = MediaPlayer(libVlc)
-        player.attachViews(videoLayout, null, true, false)
-        player.setEventListener { onEvent(it) }
+        // ExoPlayer (Plex's engine) unless this device was set back to libVLC.
+        // The calibration clip stays on the engine the offset will be used with.
+        player = if (Prefs.engine(this) == Prefs.ENGINE_EXO && !vlcFallback) {
+            ExoEngine(this, decodeSurround = !PASSTHROUGH_CLOSES_CLEANLY, subtitleStyle = SubtitleStyle.load(this))
+        } else {
+            VlcEngine(this, opts)
+        }
+        android.util.Log.i(TAG, "engine: ${player.name}")
+        player.attach(videoLayout)
+        player.listener = events
         subPos = SubtitlePosition.load(this)
         applySubtitlePosition()
     }
@@ -442,13 +453,9 @@ class PlayerActivity : Activity() {
      */
     private fun restartPlayer() {
         val at = timeMs
-        val audio = currentAudio()
+        val audio = player.audioTrack
         val spu = player.spuTrack
-        player.setEventListener(null)
-        player.stop()
-        player.detachViews()
-        player.release()
-        libVlc.release()
+        player.release { it.run() }
         playing = false
         modeSwitched = true // the display already runs at the film's rate
         createPlayer()
@@ -461,18 +468,12 @@ class PlayerActivity : Activity() {
 
     private fun load(url: String, startMs: Long) {
         mediaUrl = url
-        val media = Media(libVlc, Uri.parse(url))
-        media.setHWDecoderEnabled(true, false)
-        media.addOption(":network-caching=4000")
-        if (startMs > 5_000) media.addOption(":start-time=${startMs / 1000}")
         started = false
         pendingStartMs = if (startMs > 5_000 && !calibrating) startMs else 0L
         lastReport = 0L
         // The calibration clip is 10 s; it's restarted at its end (EndReached)
         // rather than with :input-repeat, after which the Cube showed no picture.
-        player.setMedia(media)
-        media.release()
-        player.play()
+        player.load(url, startMs)
         updateTime()
         // The server looks for recaps (and intros Plex didn't mark) once
         // playback starts; pick up what it finds in the first minutes.
@@ -506,17 +507,34 @@ class PlayerActivity : Activity() {
 
     // ---- libVLC events (delivered on the main thread) ----
 
-    private fun onEvent(e: MediaPlayer.Event) {
-        when (e.type) {
-            MediaPlayer.Event.Playing -> {
+    private val events = object : Engine.Listener {
+        override fun onPlaying() = onEvent(Ev.PLAYING)
+        override fun onPaused() = onEvent(Ev.PAUSED)
+        override fun onBuffering(percent: Float) = onEvent(Ev.BUFFERING, buffering = percent)
+        override fun onTime(ms: Long) = onEvent(Ev.TIME, value = ms)
+        override fun onLength(ms: Long) = onEvent(Ev.LENGTH, value = ms)
+        override fun onTracksChanged() = onEvent(Ev.TRACKS)
+        override fun onVideoOut() = onEvent(Ev.VOUT)
+        override fun onEnded() = onEvent(Ev.END)
+        override fun onError(message: String) {
+            android.util.Log.w(TAG, "${player.name}: $message")
+            onEvent(Ev.ERROR)
+        }
+    }
+
+    private enum class Ev { PLAYING, PAUSED, BUFFERING, TIME, LENGTH, TRACKS, VOUT, END, ERROR }
+
+    private fun onEvent(type: Ev, value: Long = 0L, buffering: Float = 0f) {
+        when (type) {
+            Ev.PLAYING -> {
                 playing = true
                 started = true
                 overviewText.visibility = View.GONE
                 spinner.visibility = View.GONE
                 restoreTracks?.let { (a, sp) ->
                     restoreTracks = null
-                    if (a >= 0) player.setAudioTrack(a)
-                    player.setSpuTrack(sp)
+                    if (a >= 0) player.audioTrack = a
+                    player.spuTrack = sp
                 } ?: applyShowTracks()
                 showAudioBadge()
                 applyAudioDelay()
@@ -525,27 +543,30 @@ class PlayerActivity : Activity() {
                 scheduleHide()
                 lookUpNext()
                 matchRefreshRate()
+                startPaceWatch()
             }
-            MediaPlayer.Event.Paused -> {
+            Ev.PAUSED -> {
                 playing = false
+                if (modeHold) return // our own pause for a refresh-rate change
                 // Apple TV style: pausing brings up what you're watching.
                 if (!calibrating && overviewText.text.isNotEmpty()) overviewText.visibility = View.VISIBLE
                 playPause.setImageResource(R.drawable.ic_play)
                 report(force = true)
                 if (!upNextVisible && !calibrating && !syncMode && !subMoveMode) setControls(true)
             }
-            MediaPlayer.Event.Buffering -> {
-                spinner.visibility = if (e.buffering < 100f || reconnecting) View.VISIBLE else View.GONE
+            Ev.BUFFERING -> {
+                bufferingNow = buffering < 100f
+                spinner.visibility = if (buffering < 100f || reconnecting) View.VISIBLE else View.GONE
                 ui.removeCallbacksAndMessages(stallCheck)
-                if (e.buffering < 100f && started && !calibrating && !finished) {
+                if (buffering < 100f && started && !calibrating && !finished) {
                     ui.postAtTime({ checkStall() }, stallCheck, SystemClock.uptimeMillis() + 6_000)
                 }
             }
-            MediaPlayer.Event.TimeChanged -> {
+            Ev.TIME -> {
                 if (pendingStartMs > 0) {
                     val want = pendingStartMs
                     pendingStartMs = 0L
-                    if (e.timeChanged < want - 10_000) {
+                    if (value < want - 10_000) {
                         // The resume point didn't take (some streams ignore
                         // start-time): jump there now, and don't report the start.
                         player.setTime(want)
@@ -554,29 +575,41 @@ class PlayerActivity : Activity() {
                         return
                     }
                 }
-                timeMs = e.timeChanged
+                timeMs = value
                 if (calibrating) return
                 updateTime()
                 updateSkip()
                 updateUpNext()
                 report()
             }
-            MediaPlayer.Event.LengthChanged -> {
-                if (e.lengthChanged > 0) lengthMs = e.lengthChanged
+            Ev.LENGTH -> {
+                if (value > 0) lengthMs = value
                 updateTime()
             }
-            MediaPlayer.Event.ESAdded, MediaPlayer.Event.ESSelected -> updateTrackButtons()
+            Ev.TRACKS -> updateTrackButtons()
             // Not for the calibration clip: switching the TV to 50 Hz for it blanked
             // the picture on the Fire TV Cube while the beeps carried on.
-            MediaPlayer.Event.Vout -> if (e.voutCount > 0 && !calibrating) matchRefreshRate()
-            MediaPlayer.Event.EndReached -> when {
+            Ev.VOUT -> if (!calibrating) matchRefreshRate()
+            Ev.END -> when {
                 calibrating -> ui.post { if (!finished) load(mediaUrl, 0) }
                 // The stream stopped well before the end: the server went away
                 // (an update restarts it), not the film ending.
                 started && lengthMs > 0 && timeMs < lengthMs - 60_000 -> reconnect()
                 else -> onEnd()
             }
-            MediaPlayer.Event.EncounteredError -> {
+            Ev.ERROR -> {
+                if (!started && !finished && !vlcFallback && player is ExoEngine) {
+                    // A file ExoPlayer can't open (an odd codec or container):
+                    // play it on libVLC rather than show an error.
+                    android.util.Log.w(TAG, "ExoPlayer couldn't play this file: falling back to libVLC")
+                    vlcFallback = true
+                    val at = pendingStartMs
+                    player.release { it.run() }
+                    createPlayer()
+                    applyAudioDelay()
+                    load(mediaUrl, at)
+                    return
+                }
                 if (started && !calibrating && !finished) {
                     reconnect()
                     return
@@ -799,8 +832,8 @@ class PlayerActivity : Activity() {
     }
 
     private fun updateTrackButtons() {
-        audioButton.visibility = if (player.audioTracksCount > 1) View.VISIBLE else View.GONE
-        subsButton.visibility = if (player.spuTracksCount > 0) View.VISIBLE else View.GONE
+        audioButton.visibility = if (player.audioTracks.size > 1) View.VISIBLE else View.GONE
+        subsButton.visibility = if (player.spuTracks.isNotEmpty()) View.VISIBLE else View.GONE
         // Down from the progress line lands on the first chip, not wherever the thumb is.
         seek.nextFocusDownId = listOf(subsButton, audioButton, syncButton).firstOrNull { it.visibility == View.VISIBLE }?.id ?: View.NO_ID
     }
@@ -855,8 +888,8 @@ class PlayerActivity : Activity() {
 
     private fun showTracksPage(dialog: Dialog, frame: android.widget.FrameLayout, focusSubs: Boolean) {
         frame.removeAllViews()
-        val audioTracks = player.audioTracks ?: emptyArray()
-        val spuTracks = player.spuTracks ?: emptyArray()
+        val audioTracks = player.audioTracks
+        val spuTracks = player.spuTracks
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundResource(R.drawable.bg_glass_panel)
@@ -882,7 +915,7 @@ class PlayerActivity : Activity() {
                 for (t in audioTracks) {
                     if (t.id == -1) continue
                     val r = choiceRow(t.name, t.id == current) {
-                        player.setAudioTrack(t.id)
+                        player.audioTrack = t.id
                         rememberTrack(true, t.name)
                         dialog.dismiss()
                     }
@@ -909,7 +942,7 @@ class PlayerActivity : Activity() {
                 for (t in spuTracks) {
                     val name = if (t.id == -1) getString(R.string.subs_off) else t.name
                     val r = choiceRow(name, t.id == current) {
-                        player.setSpuTrack(t.id)
+                        player.spuTrack = t.id
                         rememberTrack(false, t.name)
                         dialog.dismiss()
                     }
@@ -1285,7 +1318,7 @@ class PlayerActivity : Activity() {
     private fun showAudioBadge() {
         if (badgeFor == itemId || calibrating) return
         badgeFor = itemId
-        val name = player.audioTracks?.firstOrNull { it.id == player.audioTrack }?.name ?: return
+        val name = player.audioTracks.firstOrNull { it.id == player.audioTrack }?.name ?: return
         val n = name.uppercase(Locale.US)
         val format = when {
             "ATMOS" in n -> "Dolby Atmos"
@@ -1325,17 +1358,14 @@ class PlayerActivity : Activity() {
         val show = showKey() ?: return
         for (audio in listOf(true, false)) {
             val want = Prefs.showTrack(this, show, audio) ?: continue
-            val tracks = (if (audio) player.audioTracks else player.spuTracks) ?: continue
+            val tracks = if (audio) player.audioTracks else player.spuTracks
             val t = tracks.firstOrNull { it.name == want } ?: continue
-            if (audio) player.setAudioTrack(t.id) else player.setSpuTrack(t.id)
+            if (audio) player.audioTrack = t.id else player.spuTrack = t.id
         }
     }
 
     private fun cycleAspect() {
-        val types = MediaPlayer.ScaleType.getMainScaleTypes()
-        scaleIndex = (scaleIndex + 1) % types.size
-        player.videoScale = types[scaleIndex]
-        Toast.makeText(this, types[scaleIndex].name.removePrefix("SURFACE_").replace('_', ' ').lowercase(), Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, player.cycleScale(), Toast.LENGTH_SHORT).show()
     }
 
     // ---- refresh rate matching ----
@@ -1347,8 +1377,8 @@ class PlayerActivity : Activity() {
      */
     private fun matchRefreshRate(attempt: Int = 0) {
         if (modeSwitched) return
-        val track = player.currentVideoTrack
-        if (track == null || track.frameRateNum <= 0 || track.frameRateDen <= 0) {
+        val track = player.videoInfo()
+        if (track == null || track.fps <= 0f) {
             // libVLC often learns the frame rate a moment after the first
             // frame is shown, so keep asking for a few seconds. Some files
             // never say (no frame rate in the MKV header): then count frames.
@@ -1357,7 +1387,7 @@ class PlayerActivity : Activity() {
             else measureFrameRate()
             return
         }
-        switchDisplayTo(track.frameRateNum.toFloat() / track.frameRateDen, "file")
+        switchDisplayTo(track.fps, "file")
     }
 
     /**
@@ -1367,11 +1397,11 @@ class PlayerActivity : Activity() {
      */
     private fun measureFrameRate(tries: Int = 0) {
         if (modeSwitched || isFinishing) return
-        val start = player.media?.stats?.displayedPictures ?: -1
+        val start = player.stats()?.shownPictures ?: -1
         val t0 = SystemClock.elapsedRealtime()
         ui.postAtTime({
             if (modeSwitched || isFinishing) return@postAtTime
-            val end = player.media?.stats?.displayedPictures ?: -1
+            val end = player.stats()?.shownPictures ?: -1
             val secs = (SystemClock.elapsedRealtime() - t0) / 1000f
             val fps = if (start >= 0 && end > start && player.isPlaying && !seeking) (end - start) / secs else 0f
             val snapped = STANDARD_RATES.minByOrNull { Math.abs(it - fps) }!!
@@ -1400,57 +1430,45 @@ class PlayerActivity : Activity() {
         android.util.Log.i(TAG, "refresh rate: film %.3f fps (%s), display %.3f Hz, picked %s".format(
             fps, source, current.refreshRate, best?.let { "%.3f Hz".format(it.refreshRate) } ?: "none"))
         if (best == null || best.modeId == current.modeId) return
-        // A new HDMI mode makes the TV set its sound up again too: about 1 s after
-        // the switch Android drops the HDMI output and adds it back ~70 ms later.
-        // An AudioTrack open across that dies, libVLC fails to make a new one in
-        // the gap, and its audio thread then calls the missing track and aborts
-        // the whole app (the SHIELD, 13 and 18 Nov 2026: 1.6-2.5 s after switching
-        // to 23.976 Hz, coming back on "Who's watching?"). So let go of the sound
-        // first and pick the same track up again once the TV's sound has settled.
-        val audio = player.audioTrack
-        if (audio >= 0) {
-            soundAfterSwitch = audio
-            player.setAudioTrack(-1)
-            waitForMode(best.modeId)
-        }
+        holdForModeSwitch(best.modeId)
         window.attributes = window.attributes.also { it.preferredDisplayModeId = best.modeId }
     }
 
-    /** The audio track to bring back once the TV has switched mode, or -1. */
-    private var soundAfterSwitch = -1
-    private val modeWait = Any()
-    private var modeListener: DisplayManager.DisplayListener? = null
-
-    private fun waitForMode(modeId: Int) {
-        val dm = getSystemService(DisplayManager::class.java)
-        val l = object : DisplayManager.DisplayListener {
-            override fun onDisplayAdded(displayId: Int) {}
-            override fun onDisplayRemoved(displayId: Int) {}
-            override fun onDisplayChanged(displayId: Int) {
-                @Suppress("DEPRECATION")
-                if (windowManager.defaultDisplay.mode.modeId != modeId) return
-                ui.removeCallbacksAndMessages(modeWait)
-                ui.postAtTime({ soundBack() }, modeWait, SystemClock.uptimeMillis() + SOUND_SETTLE_MS)
-            }
-        }
-        modeListener = l
-        dm.registerDisplayListener(l, ui)
-        // Bring the sound back anyway if the TV never says it switched.
-        ui.postAtTime({ soundBack() }, modeWait, SystemClock.uptimeMillis() + MODE_WAIT_MS)
+    /**
+     * A refresh-rate change makes the TV re-sync HDMI: the screen goes black for
+     * a second or two and the sound drops out for a couple of seconds more
+     * (Cube logs: hdmi_audio off, then back, then the audio formats re-read).
+     * Playing on through that loses the picture and then the sound. Pause
+     * instead, as players that switch before the film starts effectively do,
+     * and carry on once the TV has settled, so picture and sound come back
+     * together with nothing missed.
+     */
+    private fun holdForModeSwitch(target: Int) {
+        if (!::player.isInitialized || !player.isPlaying) return
+        modeHold = true
+        modeHoldTarget = target
+        player.pause()
+        spinner.visibility = View.VISIBLE
+        // If the TV never reports the change, don't stay paused.
+        ui.postAtTime({ endModeHold() }, modeHoldToken, SystemClock.uptimeMillis() + MODE_HOLD_MAX_MS)
     }
 
-    private fun soundBack() {
-        ui.removeCallbacksAndMessages(modeWait)
-        modeListener?.let { getSystemService(DisplayManager::class.java).unregisterDisplayListener(it) }
-        modeListener = null
-        val audio = soundAfterSwitch
-        soundAfterSwitch = -1
-        // Unless a track was picked meanwhile.
-        if (audio >= 0 && !finished && player.audioTrack < 0) player.setAudioTrack(audio)
+    private fun onModeChanged() {
+        if (!modeHold) return
+        @Suppress("DEPRECATION")
+        if (windowManager.defaultDisplay.mode.modeId != modeHoldTarget) return
+        ui.removeCallbacksAndMessages(modeHoldToken)
+        ui.postAtTime({ endModeHold() }, modeHoldToken, SystemClock.uptimeMillis() + MODE_SETTLE_MS)
     }
 
-    /** The film's audio track, counting one set aside during a mode change. */
-    private fun currentAudio() = if (soundAfterSwitch >= 0) soundAfterSwitch else player.audioTrack
+    private fun endModeHold() {
+        ui.removeCallbacksAndMessages(modeHoldToken)
+        if (!modeHold) return
+        modeHold = false
+        if (isFinishing || !::player.isInitialized) return
+        spinner.visibility = View.GONE
+        player.play()
+    }
 
     // ---- audio passthrough ----
 
@@ -1476,7 +1494,7 @@ class PlayerActivity : Activity() {
             val want = PASSTHROUGH_CLOSES_CLEANLY && hdmiSurround && !headphonesConnected()
             if (want == passthrough) return
             passthrough = want
-            player.setAudioDigitalOutputEnabled(want)
+            player.setDigitalOutput(want)
         }
     }
 
@@ -1513,16 +1531,17 @@ class PlayerActivity : Activity() {
         statsVisible = !statsVisible
         statsText.visibility = if (statsVisible) View.VISIBLE else View.GONE
         ui.removeCallbacks(statsTick)
-        lastReadBytes = -1
+        lastReadBytes = -1L
         if (statsVisible) statsTick.run()
     }
 
     private fun updateStats() {
         val sb = StringBuilder()
-        val v = player.currentVideoTrack
+        sb.append("ENGINE   ").append(player.name).append('\n')
+        val v = player.videoInfo()
         if (v != null) {
-            val fps = if (v.frameRateDen > 0) v.frameRateNum.toFloat() / v.frameRateDen else 0f
-            sb.append("VIDEO    ").append(v.codec?.trim()?.uppercase(Locale.US) ?: "?")
+            val fps = v.fps
+            sb.append("VIDEO    ").append(v.codec.uppercase(Locale.US))
                 .append("  ").append(v.width).append('x').append(v.height)
             if (fps > 0) sb.append(String.format(Locale.US, "  %.3f fps", fps))
             sb.append('\n')
@@ -1531,21 +1550,18 @@ class PlayerActivity : Activity() {
         val mode = windowManager.defaultDisplay.mode
         sb.append("DISPLAY  ").append(mode.physicalWidth).append('x').append(mode.physicalHeight)
             .append(String.format(Locale.US, " @ %.3f Hz", mode.refreshRate)).append('\n')
-        val audioName = player.audioTracks?.firstOrNull { it.id == player.audioTrack }?.name
+        sb.append("SYNC     sound held ").append(displayLagMs()).append(" ms for the picture, device ")
+            .append(deviceDelayMs).append(" ms, film ").append(fileDelayMs).append(" ms\n")
+        val audioName = player.audioTracks.firstOrNull { it.id == player.audioTrack }?.name
         sb.append("AUDIO    ").append(audioName ?: "-").append('\n')
         sb.append("OUTPUT   ").append(if (passthrough) "Passthrough to HDMI (when the format allows)" else "Decoded to PCM").append('\n')
-        val media = player.media
-        try {
-            val st = media?.stats
-            if (st != null) {
-                val rate = if (lastReadBytes >= 0) ((st.readBytes - lastReadBytes).toLong() and 0xffffffffL) * 8 / 1e6 else 0.0
-                lastReadBytes = st.readBytes
-                sb.append(String.format(Locale.US, "NETWORK  %.1f Mbps now · %.1f Mbps stream\n", rate, st.demuxBitrate * 8))
-                sb.append("FRAMES   ").append(st.displayedPictures).append(" shown · ").append(st.lostPictures).append(" dropped\n")
-                sb.append("AUDIO BUF ").append(st.playedAbuffers).append(" played · ").append(st.lostAbuffers).append(" lost\n")
-            }
-        } finally {
-            media?.release()
+        val st = player.stats()
+        if (st != null) {
+            val rate = if (lastReadBytes >= 0) (st.readBytes - lastReadBytes).coerceAtLeast(0) * 8 / 1e6 else 0.0
+            lastReadBytes = st.readBytes
+            sb.append(String.format(Locale.US, "NETWORK  %.1f Mbps now · %.1f Mbps stream\n", rate, st.bitrateMbps))
+            sb.append("FRAMES   ").append(st.shownPictures).append(" shown · ").append(st.lostPictures).append(" dropped\n")
+            sb.append("AUDIO BUF ").append(st.playedAudio).append(" played · ").append(st.lostAudio).append(" lost\n")
         }
         sb.append("POSITION ").append(fmt(timeMs)).append(" / ").append(fmt(lengthMs))
         statsText.text = sb.toString()
@@ -1750,7 +1766,7 @@ class PlayerActivity : Activity() {
         if (reconnecting || finished || server.isEmpty()) return
         reconnecting = true
         val at = timeMs
-        val tracks = Pair(currentAudio(), player.spuTrack)
+        val tracks = Pair(player.audioTrack, player.spuTrack)
         ui.removeCallbacksAndMessages(stallCheck)
         spinner.visibility = View.VISIBLE
         errorText.text = getString(R.string.player_reconnecting)
@@ -1862,13 +1878,134 @@ class PlayerActivity : Activity() {
         }
     }
 
+    // ---- slow-motion watchdog ----
+
+    private val paceToken = Any()
+    private var paceWallMs = 0L
+    private var paceMediaMs = 0L
+    private var lastPaceFix = 0L
+
+    /**
+     * Now and then libVLC's clock falls behind real time mid-film: the picture
+     * and sound carry on in slow motion, without skipping, until a seek (back
+     * 10 s) restarts it. Check every few seconds that the film moves at real
+     * speed, and if it has crawled for a while, do that seek ourselves at the
+     * current moment and log what the player saw, to find the cause.
+     */
+    private fun startPaceWatch() {
+        ui.removeCallbacksAndMessages(paceToken)
+        paceWallMs = 0L
+        ui.postAtTime({ checkPace() }, paceToken, SystemClock.uptimeMillis() + PACE_CHECK_MS)
+    }
+
+    private fun checkPace() {
+        if (isFinishing || !::player.isInitialized) return
+        val now = SystemClock.elapsedRealtime()
+        val at = player.time
+        val steady = player.isPlaying && !bufferingNow && !seeking && !modeHold && !calibrating && player.rate == 1f
+        if (!steady || at <= 0) {
+            paceWallMs = 0L
+        } else if (paceWallMs == 0L) {
+            paceWallMs = now
+            paceMediaMs = at
+        } else {
+            val wall = now - paceWallMs
+            val media = at - paceMediaMs
+            if (media < 0 || media > wall * 2) {
+                // A jump (seek, chapter): start measuring again.
+                paceWallMs = now
+                paceMediaMs = at
+            } else if (wall >= PACE_WINDOW_MS) {
+                val speed = media.toFloat() / wall
+                if (speed < PACE_SLOW && now - lastPaceFix > PACE_COOLDOWN_MS) {
+                    lastPaceFix = now
+                    logSlowMotion(speed, wall, at)
+                    player.setTime(at)
+                    paceWallMs = 0L
+                } else {
+                    paceWallMs = now
+                    paceMediaMs = at
+                }
+            }
+        }
+        ui.postAtTime({ checkPace() }, paceToken, SystemClock.uptimeMillis() + PACE_CHECK_MS)
+    }
+
+    private fun logSlowMotion(speed: Float, wall: Long, at: Long) {
+        val st = player.stats()
+        @Suppress("DEPRECATION")
+        val hz = windowManager.defaultDisplay.mode.refreshRate
+        android.util.Log.w(TAG, String.format(Locale.US,
+            "slow motion: %.2fx over %d ms at %d ms; delay %d ms; pictures shown %d lost %d; audio played %d lost %d; display %.3f Hz; restarting",
+            speed, wall, at, player.audioDelayUs / 1000,
+            st?.shownPictures ?: -1, st?.lostPictures ?: -1,
+            st?.playedAudio ?: -1, st?.lostAudio ?: -1, hz))
+    }
+
     // ---- lip sync ----
 
-    /** Device offset plus the file's own fix, in libVLC's microseconds. */
+    /**
+     * How much later than libVLC intends each frame actually reaches the TV,
+     * at a given refresh rate.
+     *
+     * libVLC hands a frame to Android at the moment it should be seen, and the
+     * compositor then puts it out on the next refresh but one: on the Fire TV
+     * Cube at 50 Hz, SurfaceFlinger's own record (dumpsys SurfaceFlinger
+     * --latency) shows every frame reaching HDMI 25.3 ms after its intended
+     * time, one 20 ms refresh plus about 5 ms. Players built on ExoPlayer
+     * (Plex among them) avoid this by queueing each frame ahead, timed to the
+     * display's refresh, so the picture lands on time and they need no offset.
+     * libVLC can't queue ahead, so the sound waits the same amount instead.
+     * It depends on the refresh rate, which is why an offset measured on the
+     * 60 Hz menus was off for 24 Hz films.
+     */
+    @Suppress("DEPRECATION")
+    private fun displayLagMs(): Int =
+        if (::player.isInitialized && player.framesOnTime) 0 else lagForRate(windowManager.defaultDisplay.mode.refreshRate)
+
+    private val displayWatch = object : android.hardware.display.DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) {}
+        override fun onDisplayRemoved(displayId: Int) {}
+        override fun onDisplayChanged(displayId: Int) {
+            if (displayId != Display.DEFAULT_DISPLAY) return
+            applyAudioDelay()
+            onModeChanged()
+        }
+    }
+
+    /** Picture lag, device offset and the file's own fix, in libVLC's microseconds. */
     private fun applyAudioDelay() {
         if (!::player.isInitialized) return
-        val ms = (deviceDelayMs + if (calibrating) 0 else fileDelayMs).coerceIn(-Prefs.MAX_DELAY * 2, Prefs.MAX_DELAY * 2)
-        player.setAudioDelay(ms * 1000L)
+        val ms = (displayLagMs() + deviceDelayMs + if (calibrating) 0 else fileDelayMs)
+            .coerceIn(-Prefs.MAX_DELAY * 2, Prefs.MAX_DELAY * 2)
+        // Every call reaches each decoder, so only send real changes (the
+        // display listener fires for more than refresh-rate switches).
+        if (player.audioDelayUs != ms * 1000L) {
+            android.util.Log.i(TAG, "audio delay ${player.audioDelayUs / 1000} -> $ms ms (picture ${displayLagMs()}, device $deviceDelayMs, file $fileDelayMs)")
+            player.audioDelayUs = ms * 1000L
+        }
+        // Subtitles are timed to the dialogue: the file's own fix moves them
+        // with the sound. The device offset doesn't, since it only makes up
+        // for the TV showing the picture (and the subtitles in it) late.
+        player.spuDelayUs = (if (calibrating) 0 else fileDelayMs) * 1000L
+    }
+
+    private val resyncToken = Any()
+
+    /**
+     * libVLC takes a new audio delay only for sound it hasn't queued yet, and
+     * then eases small changes in so slowly that a 25 ms step can't be heard
+     * while watching. Seeking to the current moment flushes what's queued and
+     * restarts the sound with the new delay at once. Done once presses pause
+     * for a moment, so holding the button doesn't seek over and over.
+     */
+    private fun resyncAudioSoon() {
+        ui.removeCallbacksAndMessages(resyncToken)
+        ui.postAtTime({
+            if (isFinishing || !::player.isInitialized || modeHold || !player.delayNeedsResync) return@postAtTime
+            val at = player.time
+            if (at > 0) player.setTime(at)
+        }, resyncToken, SystemClock.uptimeMillis() + RESYNC_AFTER_MS)
     }
 
     private fun describe(ms: Int): String = when {
@@ -1880,6 +2017,7 @@ class PlayerActivity : Activity() {
     private fun nudgeCalibration(by: Int) {
         deviceDelayMs = (deviceDelayMs + by).coerceIn(-Prefs.MAX_DELAY, Prefs.MAX_DELAY)
         applyAudioDelay()
+        resyncAudioSoon()
         updateCalibration()
     }
 
@@ -2058,6 +2196,7 @@ class PlayerActivity : Activity() {
     private fun nudgeSync(by: Int) {
         fileDelayMs = (fileDelayMs + by).coerceIn(-Prefs.MAX_DELAY, Prefs.MAX_DELAY)
         applyAudioDelay()
+        resyncAudioSoon()
         updateSyncBar()
     }
 
@@ -2074,8 +2213,11 @@ class PlayerActivity : Activity() {
         syncBar.visibility = View.GONE
         adjustButtons.visibility = View.GONE
         if (!keep) {
-            fileDelayMs = syncStart
-            applyAudioDelay()
+            if (fileDelayMs != syncStart) {
+                fileDelayMs = syncStart
+                applyAudioDelay()
+                resyncAudioSoon()
+            }
         } else if (fileDelayMs != syncStart) {
             saveFileDelay(fileId, fileDelayMs)
         }
@@ -2101,7 +2243,7 @@ class PlayerActivity : Activity() {
     // ---- subtitle position ----
 
     /** libVLC's subtitle layer (it draws subtitles on their own surface above the picture). */
-    private fun subtitleSurface(): View? = videoLayout.findViewById(org.videolan.R.id.surface_subtitles)
+    private fun subtitleSurface(): View? = if (::player.isInitialized) player.subtitleView() else null
 
     /** Moves the subtitle layer to [subPos]; live, with no player restart. */
     private fun applySubtitlePosition() {
@@ -2453,22 +2595,11 @@ class PlayerActivity : Activity() {
 
     override fun onDestroy() {
         ui.removeCallbacksAndMessages(null)
-        modeListener?.let { getSystemService(DisplayManager::class.java).unregisterDisplayListener(it) }
+        (getSystemService(Context.DISPLAY_SERVICE) as android.hardware.display.DisplayManager).unregisterDisplayListener(displayWatch)
         if (hdmiSurround) (getSystemService(Context.AUDIO_SERVICE) as AudioManager).unregisterAudioDeviceCallback(deviceWatch)
         if (::player.isInitialized) {
-            player.setEventListener(null)
-            player.stop()
-            player.detachViews()
-            // Stopping closes the audio output, and Android then reports the
-            // device change to libVLC on the main thread; if the player is
-            // already released by then, libVLC throws and the app crashes
-            // ("can't get VLCObject instance"). Release once that has passed.
-            val p = player
-            val vlc = libVlc
-            Handler(Looper.getMainLooper()).postDelayed({
-                p.release()
-                vlc.release()
-            }, RELEASE_DELAY_MS)
+            // libVLC releases a little later: see VlcEngine.release.
+            player.release { Handler(Looper.getMainLooper()).postDelayed(it, RELEASE_DELAY_MS) }
         }
         abandonAudioFocus()
         // Let the last progress POST go out before the executor dies.
@@ -2549,16 +2680,28 @@ class PlayerActivity : Activity() {
         /** What films and shows are made at; 23.976 wins a near-24 count (most films). */
         private val STANDARD_RATES = listOf(23.976f, 25f, 29.97f, 50f, 59.94f)
         private const val SYNC_STEP_MS = 25
+        /** Measured on top of one refresh: see displayLagMs. */
+        private const val COMPOSITOR_EXTRA_MS = 5f
+        /** After the TV takes the new refresh rate, how long its HDMI sound takes to return. */
+        private const val MODE_SETTLE_MS = 2_500L
+        private const val MODE_HOLD_MAX_MS = 8_000L
+        /** Quiet time after the last sync press before the sound is restarted with it. */
+        private const val RESYNC_AFTER_MS = 400L
+        private const val PACE_CHECK_MS = 2_000L
+        /** Long enough that a brief hiccup doesn't count. */
+        private const val PACE_WINDOW_MS = 8_000L
+        private const val PACE_SLOW = 0.85f
+        private const val PACE_COOLDOWN_MS = 30_000L
+
+        /** The picture lag at a refresh rate: see displayLagMs. */
+        fun lagForRate(hz: Float): Int =
+            if (hz <= 1f) 0 else Math.round(1000f / hz + COMPOSITOR_EXTRA_MS)
         private const val CALIBRATION_STEP_MS = 10
         private const val EXTRA_FILE_ID = "fileId"
         private const val EXTRA_AUDIO_OFFSET_MS = "audioOffsetMs"
         private const val EXTRA_CALIBRATE = "calibrate"
         private const val EXTRA_PHONE = "phone"
         private const val RELEASE_DELAY_MS = 3000L
-        /** After the TV reports the new mode: its HDMI sound was back after about 1.1 s on the SHIELD. */
-        private const val SOUND_SETTLE_MS = 2_000L
-        /** Longest wait for the TV to report the new mode before the sound comes back regardless. */
-        private const val MODE_WAIT_MS = 5_000L
         private const val PHONE_POLL_MS = 1500L
 
         /** The stream URL names the file: /api/stream/{fileId}/{name}. */

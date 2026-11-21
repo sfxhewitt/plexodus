@@ -37,6 +37,9 @@ interface Bridge {
   /** Apps with "avsync": this device's lip sync offset in ms. */
   audioDelay?(): number;
   setAudioDelay?(ms: number): void;
+  /** Apps with "engine": the TV player's engine, "exo" (ExoPlayer, as Plex) or "vlc". */
+  playerEngine?(): string;
+  setPlayerEngine?(engine: string): void;
   /** Opens the flash-and-beep calibration in the app's player. */
   calibrateAudio?(): void;
   /** Apps with "avsync-phone": the player shows a QR code, a phone films the TV and the fix applies itself. */
