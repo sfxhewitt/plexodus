@@ -1901,6 +1901,24 @@ class PlayerActivity : Activity() {
         player.setSpuDelay((if (calibrating) 0 else fileDelayMs) * 1000L)
     }
 
+    private val resyncToken = Any()
+
+    /**
+     * libVLC takes a new audio delay only for sound it hasn't queued yet, and
+     * then eases small changes in so slowly that a 25 ms step can't be heard
+     * while watching. Seeking to the current moment flushes what's queued and
+     * restarts the sound with the new delay at once. Done once presses pause
+     * for a moment, so holding the button doesn't seek over and over.
+     */
+    private fun resyncAudioSoon() {
+        ui.removeCallbacksAndMessages(resyncToken)
+        ui.postAtTime({
+            if (isFinishing || !::player.isInitialized || modeHold) return@postAtTime
+            val at = player.time
+            if (at > 0) player.setTime(at)
+        }, resyncToken, SystemClock.uptimeMillis() + RESYNC_AFTER_MS)
+    }
+
     private fun describe(ms: Int): String = when {
         ms > 0 -> getString(R.string.audio_sync_later, ms)
         ms < 0 -> getString(R.string.audio_sync_earlier, -ms)
@@ -1910,6 +1928,7 @@ class PlayerActivity : Activity() {
     private fun nudgeCalibration(by: Int) {
         deviceDelayMs = (deviceDelayMs + by).coerceIn(-Prefs.MAX_DELAY, Prefs.MAX_DELAY)
         applyAudioDelay()
+        resyncAudioSoon()
         updateCalibration()
     }
 
@@ -2088,6 +2107,7 @@ class PlayerActivity : Activity() {
     private fun nudgeSync(by: Int) {
         fileDelayMs = (fileDelayMs + by).coerceIn(-Prefs.MAX_DELAY, Prefs.MAX_DELAY)
         applyAudioDelay()
+        resyncAudioSoon()
         updateSyncBar()
     }
 
@@ -2104,8 +2124,11 @@ class PlayerActivity : Activity() {
         syncBar.visibility = View.GONE
         adjustButtons.visibility = View.GONE
         if (!keep) {
-            fileDelayMs = syncStart
-            applyAudioDelay()
+            if (fileDelayMs != syncStart) {
+                fileDelayMs = syncStart
+                applyAudioDelay()
+                resyncAudioSoon()
+            }
         } else if (fileDelayMs != syncStart) {
             saveFileDelay(fileId, fileDelayMs)
         }
@@ -2584,6 +2607,8 @@ class PlayerActivity : Activity() {
         /** After the TV takes the new refresh rate, how long its HDMI sound takes to return. */
         private const val MODE_SETTLE_MS = 2_500L
         private const val MODE_HOLD_MAX_MS = 8_000L
+        /** Quiet time after the last sync press before the sound is restarted with it. */
+        private const val RESYNC_AFTER_MS = 400L
 
         /** The picture lag at a refresh rate: see displayLagMs. */
         fun lagForRate(hz: Float): Int =
