@@ -150,6 +150,7 @@ class PlayerActivity : Activity() {
     private var timeMs = 0L
     private var playing = false
     private var seeking = false
+    private var bufferingNow = false
     /** A finger is dragging the seek bar (touch screens). */
     private var touchSeeking = false
     /** Where the remote has moved the seek bar to, before the jump is made; -1 when idle. */
@@ -531,6 +532,7 @@ class PlayerActivity : Activity() {
                 scheduleHide()
                 lookUpNext()
                 matchRefreshRate()
+                startPaceWatch()
             }
             MediaPlayer.Event.Paused -> {
                 playing = false
@@ -542,6 +544,7 @@ class PlayerActivity : Activity() {
                 if (!upNextVisible && !calibrating && !syncMode && !subMoveMode) setControls(true)
             }
             MediaPlayer.Event.Buffering -> {
+                bufferingNow = e.buffering < 100f
                 spinner.visibility = if (e.buffering < 100f || reconnecting) View.VISIBLE else View.GONE
                 ui.removeCallbacksAndMessages(stallCheck)
                 if (e.buffering < 100f && started && !calibrating && !finished) {
@@ -1859,6 +1862,70 @@ class PlayerActivity : Activity() {
         }
     }
 
+    // ---- slow-motion watchdog ----
+
+    private val paceToken = Any()
+    private var paceWallMs = 0L
+    private var paceMediaMs = 0L
+    private var lastPaceFix = 0L
+
+    /**
+     * Now and then libVLC's clock falls behind real time mid-film: the picture
+     * and sound carry on in slow motion, without skipping, until a seek (back
+     * 10 s) restarts it. Check every few seconds that the film moves at real
+     * speed, and if it has crawled for a while, do that seek ourselves at the
+     * current moment and log what the player saw, to find the cause.
+     */
+    private fun startPaceWatch() {
+        ui.removeCallbacksAndMessages(paceToken)
+        paceWallMs = 0L
+        ui.postAtTime({ checkPace() }, paceToken, SystemClock.uptimeMillis() + PACE_CHECK_MS)
+    }
+
+    private fun checkPace() {
+        if (isFinishing || !::player.isInitialized) return
+        val now = SystemClock.elapsedRealtime()
+        val at = player.time
+        val steady = player.isPlaying && !bufferingNow && !seeking && !modeHold && !calibrating && player.rate == 1f
+        if (!steady || at <= 0) {
+            paceWallMs = 0L
+        } else if (paceWallMs == 0L) {
+            paceWallMs = now
+            paceMediaMs = at
+        } else {
+            val wall = now - paceWallMs
+            val media = at - paceMediaMs
+            if (media < 0 || media > wall * 2) {
+                // A jump (seek, chapter): start measuring again.
+                paceWallMs = now
+                paceMediaMs = at
+            } else if (wall >= PACE_WINDOW_MS) {
+                val speed = media.toFloat() / wall
+                if (speed < PACE_SLOW && now - lastPaceFix > PACE_COOLDOWN_MS) {
+                    lastPaceFix = now
+                    logSlowMotion(speed, wall, at)
+                    player.setTime(at)
+                    paceWallMs = 0L
+                } else {
+                    paceWallMs = now
+                    paceMediaMs = at
+                }
+            }
+        }
+        ui.postAtTime({ checkPace() }, paceToken, SystemClock.uptimeMillis() + PACE_CHECK_MS)
+    }
+
+    private fun logSlowMotion(speed: Float, wall: Long, at: Long) {
+        val st = try { player.media?.stats } catch (_: Exception) { null }
+        @Suppress("DEPRECATION")
+        val hz = windowManager.defaultDisplay.mode.refreshRate
+        android.util.Log.w(TAG, String.format(Locale.US,
+            "slow motion: %.2fx over %d ms at %d ms; delay %d ms; pictures shown %d lost %d; audio played %d lost %d; display %.3f Hz; restarting",
+            speed, wall, at, player.audioDelay / 1000,
+            st?.displayedPictures ?: -1, st?.lostPictures ?: -1,
+            st?.playedAbuffers ?: -1, st?.lostAbuffers ?: -1, hz))
+    }
+
     // ---- lip sync ----
 
     /**
@@ -1894,7 +1961,12 @@ class PlayerActivity : Activity() {
         if (!::player.isInitialized) return
         val ms = (displayLagMs() + deviceDelayMs + if (calibrating) 0 else fileDelayMs)
             .coerceIn(-Prefs.MAX_DELAY * 2, Prefs.MAX_DELAY * 2)
-        player.setAudioDelay(ms * 1000L)
+        // Every call reaches each decoder, so only send real changes (the
+        // display listener fires for more than refresh-rate switches).
+        if (player.audioDelay != ms * 1000L) {
+            android.util.Log.i(TAG, "audio delay ${player.audioDelay / 1000} -> $ms ms (picture ${displayLagMs()}, device $deviceDelayMs, file $fileDelayMs)")
+            player.setAudioDelay(ms * 1000L)
+        }
         // Subtitles are timed to the dialogue: the file's own fix moves them
         // with the sound. The device offset doesn't, since it only makes up
         // for the TV showing the picture (and the subtitles in it) late.
@@ -2609,6 +2681,11 @@ class PlayerActivity : Activity() {
         private const val MODE_HOLD_MAX_MS = 8_000L
         /** Quiet time after the last sync press before the sound is restarted with it. */
         private const val RESYNC_AFTER_MS = 400L
+        private const val PACE_CHECK_MS = 2_000L
+        /** Long enough that a brief hiccup doesn't count. */
+        private const val PACE_WINDOW_MS = 8_000L
+        private const val PACE_SLOW = 0.85f
+        private const val PACE_COOLDOWN_MS = 30_000L
 
         /** The picture lag at a refresh rate: see displayLagMs. */
         fun lagForRate(hz: Float): Int =
