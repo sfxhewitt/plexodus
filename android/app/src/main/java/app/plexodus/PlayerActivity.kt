@@ -2588,6 +2588,22 @@ class PlayerActivity : Activity() {
         hideSystemBars()
     }
 
+    /**
+     * Let go of the sound as soon as the player is left, not at onStop. Once this
+     * window goes, the TV switches back from the film's refresh rate and Android
+     * drops HDMI audio about 1 s later. onStop and onDestroy wait for the screen
+     * behind to settle, which can take longer than that; libVLC still playing into
+     * the drop can't replace its dead AudioTrack and aborts the whole app (SHIELD,
+     * 21 Nov 2026: Back out of SpongeBob at 23.976 Hz, the same crash as on 18 Nov).
+     * Paused, it rides through the switch as it does at the start (holdForModeSwitch).
+     */
+    override fun onPause() {
+        if (::player.isInitialized) {
+            if (isFinishing) player.stop() else if (player.isPlaying) player.pause()
+        }
+        super.onPause()
+    }
+
     override fun onStop() {
         if (::player.isInitialized && player.isPlaying) player.pause()
         super.onStop()
