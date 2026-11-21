@@ -40,6 +40,24 @@ object Prefs {
 
     const val MAX_DELAY = 5000
 
+    private const val KEY_ENGINE = "playerEngine"
+    const val ENGINE_EXO = "exo"
+    const val ENGINE_VLC = "vlc"
+
+    /**
+     * The TV player's engine on this device: ExoPlayer (as Plex) or libVLC.
+     * Test builds start on ExoPlayer while it's being proven; releases stay on
+     * libVLC until it is.
+     */
+    fun engine(ctx: Context): String =
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString(KEY_ENGINE, null)
+            ?: if (BuildConfig.DEBUG) ENGINE_EXO else ENGINE_VLC
+
+    fun setEngine(ctx: Context, engine: String) {
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+            .putString(KEY_ENGINE, if (engine == ENGINE_VLC) ENGINE_VLC else ENGINE_EXO).apply()
+    }
+
     private const val KEY_DISPLAY_LAG_MIGRATED = "displayLagMigrated"
 
     /**

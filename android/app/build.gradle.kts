@@ -21,7 +21,9 @@ android {
         buildConfigField("String", "UPDATE_REPO", "\"${System.getenv("GITHUB_REPOSITORY") ?: "sfxhewitt/plexodus"}\"")
         ndk {
             // Phones and tablets (arm64), older phones and Fire TV sticks (armv7), emulators (x86_64).
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+            // A test build for one device can pass -Pabi=armeabi-v7a to stay small.
+            val only = project.findProperty("abi") as String?
+            abiFilters += if (only != null) listOf(only) else listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
     }
 
@@ -87,4 +89,12 @@ kotlin {
 dependencies {
     // VLC's engine: plays every container and codec directly, no transcoding.
     implementation("org.videolan.android:libvlc-all:3.7.7")
+    // ExoPlayer (media3), the engine Plex's TV app uses: frames timed to the
+    // display, the sound card as the clock. See Engine.kt.
+    val media3 = "1.9.0"
+    implementation("androidx.media3:media3-exoplayer:$media3")
+    implementation("androidx.media3:media3-ui:$media3")
+    // FFmpeg audio decoders (Dolby, DTS, TrueHD) for boxes that can't decode them,
+    // Jellyfin's published build of the media3 extension; its version follows media3's.
+    implementation("org.jellyfin.media3:media3-ffmpeg-decoder:$media3+1")
 }

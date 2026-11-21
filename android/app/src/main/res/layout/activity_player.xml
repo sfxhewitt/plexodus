@@ -6,7 +6,8 @@
     android:background="@android:color/black"
     android:keepScreenOn="true">
 
-    <org.videolan.libvlc.util.VLCVideoLayout
+    <!-- The engine (ExoPlayer or libVLC) puts its picture and subtitles in here. -->
+    <FrameLayout
         android:id="@+id/video"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />

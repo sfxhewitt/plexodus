@@ -251,7 +251,16 @@ class MainActivity : Activity() {
 
         /** Player features the web UI can rely on (older apps lack this). */
         @JavascriptInterface
-        fun features(): String = if (BuildConfig.SELF_UPDATE) "recap,avsync,avsync-phone,update" else "recap,avsync,avsync-phone"
+        fun features(): String = if (BuildConfig.SELF_UPDATE) "recap,avsync,avsync-phone,engine,update" else "recap,avsync,avsync-phone,engine"
+
+        /** The TV player's engine on this device: "exo" (as Plex) or "vlc". */
+        @JavascriptInterface
+        fun playerEngine(): String = Prefs.engine(this@MainActivity)
+
+        @JavascriptInterface
+        fun setPlayerEngine(engine: String) {
+            Prefs.setEngine(this@MainActivity, engine)
+        }
 
         /** "Check for updates" in Settings: the app shows its own dialogs. */
         @JavascriptInterface
