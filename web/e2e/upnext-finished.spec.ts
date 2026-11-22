@@ -75,3 +75,31 @@ test("a finished episode's card turns into the next episode", async ({ page, ope
   await expect(inUpNext(page, ids.episode)).toHaveCount(0, { timeout: 500 });
   await expect(inUpNext(page, nextId), "the next episode takes its place").toHaveCount(1);
 });
+
+test("Remove from Up Next sticks when the app reopens before the server catches up", async ({ page, openTv }) => {
+  await page.addInitScript(tvBox);
+  await openTv("/");
+  await waitForFocus(page);
+  const film = ids.movie + 3;
+  const stale = await page.evaluate(() => fetch("/api/home").then((r) => r.json()));
+  await inUpNext(page, film).focus();
+  await page.keyboard.down("Enter");
+  await page.waitForTimeout(900);
+  await page.keyboard.up("Enter");
+  await page.locator(".tv-menu .tv-menu-item", { hasText: "Remove from Up Next" }).click();
+  await expect(inUpNext(page, film)).toHaveCount(0);
+  // The app reopens (Android closed it) and the server hands back its old Home.
+  let calls = 0;
+  await page.route("**/api/home", (route) => {
+    calls++;
+    return calls === 1
+      ? route.fulfill({ json: stale, headers: { "X-Home-Stale": "1" } })
+      : route.fallback();
+  });
+  await page.reload();
+  await waitForFocus(page);
+  await expect(inUpNext(page, ids.episode)).toHaveCount(1);
+  await expect(inUpNext(page, film), "still removed").toHaveCount(0);
+  // Told it was the old Home, the page asks again.
+  await expect.poll(() => calls, { timeout: 6000 }).toBeGreaterThan(1);
+});

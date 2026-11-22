@@ -43,6 +43,10 @@ type homeEntry struct {
 	// progress report racing the Home refetch) isn't lost.
 	gen      int
 	building chan struct{} // closed when the current build finishes
+	// saved: the body came from <data>/home-cache (the server restarted) and
+	// hasn't been rebuilt yet, so it may predate the last change made
+	// before the restart (Remove from Up Next, 22 Nov: Silent Hill came back).
+	saved bool
 }
 
 type homeCache struct {
@@ -70,14 +74,15 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	if e == nil {
 		e = &homeEntry{}
 		e.body, e.at = s.loadSavedHome(key)
+		e.saved = e.body != nil
 		c.m[key] = e
 	}
-	stale := e.body == nil || e.dirty || time.Since(e.at) > homeFresh || e.at.YearDay() != time.Now().YearDay()
+	stale := e.body == nil || e.dirty || e.saved || time.Since(e.at) > homeFresh || e.at.YearDay() != time.Now().YearDay()
 	if stale && e.building == nil {
 		e.building = make(chan struct{})
 		go s.buildHomeFor(key, e, r, e.gen)
 	}
-	body, building, dirty := e.body, e.building, e.dirty
+	body, building, dirty, saved := e.body, e.building, e.dirty, e.saved
 	c.mu.Unlock()
 
 	if body != nil && !stale {
@@ -85,7 +90,12 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body != nil && !dirty {
-		writeHomeBody(w, body) // the fresh one is on its way for next time
+		// The fresh one is on its way for next time. A Home saved before a
+		// restart may be missing the latest change, so the page asks again.
+		if saved {
+			w.Header().Set("X-Home-Stale", "1")
+		}
+		writeHomeBody(w, body)
 		return
 	}
 	var wait <-chan time.Time // nil: wait as long as the client does
@@ -116,6 +126,10 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case <-wait:
+			// Out of time: serve the previous Home and have the page ask
+			// again, or a change (Remove from Up Next, something finished)
+			// stays missing until another visit.
+			w.Header().Set("X-Home-Stale", "1")
 		case <-r.Context().Done():
 			return
 		}
@@ -138,6 +152,7 @@ func (s *Server) buildHomeFor(key string, e *homeEntry, r *http.Request, gen int
 	if rec.Code == http.StatusOK {
 		e.body, e.at = rec.Body.Bytes(), start
 		e.dirty = e.gen != gen
+		e.saved = false
 		go s.saveHome(key, e.body)
 	} else {
 		log.Printf("home: build failed after %s: %d %s", time.Since(start).Round(time.Millisecond), rec.Code, bytes.TrimSpace(rec.Body.Bytes()))

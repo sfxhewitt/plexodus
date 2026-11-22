@@ -251,7 +251,32 @@ class PlayerActivity : Activity() {
         val url = intent.getStringExtra(EXTRA_URL) ?: run { finish(); return }
         rememberBoot()
         fileId = intent.getLongExtra(EXTRA_FILE_ID, 0).takeIf { it > 0 } ?: fileIdFromUrl(url)
-        val startMs = intent.getLongExtra(EXTRA_START_MS, 0)
+        var startMs = intent.getLongExtra(EXTRA_START_MS, 0)
+        // Android closed the app while it was in the background (Home pressed
+        // mid-film) and is now bringing the player back from its original
+        // intent: carry on from where it was left, not from where it was
+        // started, which also kept overwriting the saved resume point (Cube,
+        // 22 Nov: Nocturne restarted from 0).
+        if (savedInstanceState != null && !calibrating) {
+            val savedItem = savedInstanceState.getLong(STATE_ITEM_ID, 0)
+            if (savedItem != 0L && savedItem != itemId) {
+                // It had gone on to a later episode, which the intent can't
+                // describe: close, and the page resumes that one from the server.
+                startItemId = savedInstanceState.getLong(STATE_START_ITEM_ID, itemId)
+                itemId = savedItem
+                finished = true
+                val result = JSONObject()
+                    .put("itemId", startItemId)
+                    .put("lastItemId", itemId)
+                    .put("position", savedInstanceState.getLong(STATE_POSITION_MS, 0) / 1000.0)
+                    .put("duration", 0)
+                    .put("ended", false)
+                setResult(RESULT_OK, Intent().putExtra(EXTRA_RESULT, result.toString()))
+                finish()
+                return
+            }
+            startMs = savedInstanceState.getLong(STATE_POSITION_MS, startMs)
+        }
         lengthMs = intent.getLongExtra(EXTRA_DURATION_MS, 0)
         markers = parseMarkers(intent.getStringExtra(EXTRA_MARKERS))
         loadShareTargets()
@@ -2607,8 +2632,18 @@ class PlayerActivity : Activity() {
         super.onPause()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putLong(STATE_ITEM_ID, itemId)
+        outState.putLong(STATE_START_ITEM_ID, startItemId)
+        outState.putLong(STATE_POSITION_MS, timeMs)
+    }
+
     override fun onStop() {
         if (::player.isInitialized && player.isPlaying) player.pause()
+        // Leaving for another app: save the resume point now, as Android may
+        // close this one in the background before it comes back.
+        if (!finished) report(force = true)
         super.onStop()
     }
 
@@ -2748,6 +2783,9 @@ class PlayerActivity : Activity() {
         private const val EXTRA_ITEM_ID = "itemId"
         private const val EXTRA_KIND = "kind"
         private const val EXTRA_START_MS = "startMs"
+        private const val STATE_ITEM_ID = "state.itemId"
+        private const val STATE_START_ITEM_ID = "state.startItemId"
+        private const val STATE_POSITION_MS = "state.positionMs"
         /** How long after the last press on the seek bar the player jumps. */
         private const val SCRUB_SETTLE_MS = 700L
         /** One press of fast forward / rewind. */
