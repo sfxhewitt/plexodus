@@ -4,6 +4,7 @@ import { art, Card, fmtRuntime, HomeData, Library } from "../api";
 import { Row } from "../components/Cards";
 import { Info, Play } from "../components/Icons";
 import { useApi, useUser } from "../hooks";
+import { homeRows, playerJustClosed } from "../homeHidden";
 import { hasRT, RTScores } from "../rt";
 
 function Hero({ items }: { items: Card[] }) {
@@ -64,9 +65,23 @@ function WrappedBanner({ year }: { year: number }) {
 }
 
 export default function Home() {
-  const { data, error } = useApi<HomeData>("/api/home");
+  const { data, error, reload } = useApi<HomeData>("/api/home");
   const { data: libs } = useApi<Library[]>("/api/libraries");
   const { user } = useUser();
+  // Back from the player: Home was likely fetched before the player's last
+  // progress report was saved, so look again once it has been.
+  useEffect(() => {
+    if (!playerJustClosed()) return;
+    const t = [2500, 7000].map((ms) => setTimeout(reload, ms));
+    return () => t.forEach(clearTimeout);
+  }, [reload]);
+  // Something finished or removed leaves Home at once.
+  const [, setHiddenTick] = useState(0);
+  useEffect(() => {
+    const on = () => setHiddenTick((t) => t + 1);
+    window.addEventListener("tv:home-hidden", on);
+    return () => window.removeEventListener("tv:home-hidden", on);
+  }, []);
 
   if (error) return <div className="page-msg">{error}</div>;
   if (!data) return <div className="page-loading"><div className="spinner" /></div>;
@@ -86,7 +101,7 @@ export default function Home() {
     <div className={`home ${data.hero.length ? "" : "no-hero"}`}>
       <Hero items={data.hero} />
       <div className="rows">
-        {data.rows.map((r, i) => (
+        {homeRows(data.rows).map((r, i) => (
           <Fragment key={r.title}>
             <Row {...r} />
             {/* Wrapped sits under the first row, so Up Next stays on top. */}

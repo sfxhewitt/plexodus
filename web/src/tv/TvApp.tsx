@@ -9,7 +9,8 @@ import { PlexPin, startPlexPin, waitForPlex } from "../plexAuth";
 import { Backdrop, BackdropCtx, Spinner, TvButton } from "./components";
 import { focusEl, focusInitial, focusables, installKeys, onBack, onBackLast } from "./focus";
 import { focusPage, setCurrentKey, ToastCtx, useLibraries, useToast } from "./hooks";
-import { lastPlayedItem, onPlayBusy, playItem } from "./play";
+import { lastPlayedCredits, lastPlayedItem, onPlayBusy, playItem } from "./play";
+import { finishedAt, finishedOnHome, replaceOnHome } from "../homeHidden";
 import { openVoice, parseVoice, playVoice } from "./voice";
 import Home from "./pages/Home";
 import Item from "./pages/Item";
@@ -224,22 +225,44 @@ function Shell() {
   );
 
   // The app's player closed: refresh what's on screen and offer the next episode.
-  const refreshAgain = useRef<ReturnType<typeof setTimeout>>();
+  const refreshAgain = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => {
     const onEnded = async (e: Event) => {
       const d = (e as CustomEvent<NativeEnded>).detail;
+      const it = lastPlayedItem();
+      // Something just finished leaves Home straight away, before the
+      // server has caught up: the title the player ended on, and the one it
+      // started with if it went on to the next episode by itself.
+      const lastId = d?.lastItemId || d?.itemId;
+      const finished: number[] = [];
+      if (d?.itemId && lastId && lastId !== d.itemId) finished.push(d.itemId);
+      if (lastId && (d.ended || finishedAt(d.position, d.duration, lastId === it?.id ? lastPlayedCredits() : undefined))) finished.push(lastId);
+      finished.forEach(finishedOnHome);
       // Pages refetch in place (keeping what's on screen and the focus).
       // The player's last progress report is still on its way when this
       // fires, so look again once it has landed: otherwise a film just
       // finished stays in Up Next with its old progress.
       window.dispatchEvent(new Event("tv:refresh"));
-      clearTimeout(refreshAgain.current);
-      refreshAgain.current = setTimeout(() => window.dispatchEvent(new Event("tv:refresh")), 2500);
-      const it = lastPlayedItem();
+      refreshAgain.current.forEach(clearTimeout);
+      refreshAgain.current = [2500, 7000].map((ms) => setTimeout(() => window.dispatchEvent(new Event("tv:refresh")), ms));
+      // A finished episode's Up Next card becomes the next episode.
+      const showId = it && it.kind === "episode" && it.showId && finished.length ? it.showId : 0;
+      // The server may not have saved the last report yet, so ask again
+      // while it still names the episode just finished.
+      let show: Detail | null = null;
+      for (let i = 0; showId && i < 4; i++) {
+        if (i) await new Promise((r) => setTimeout(r, 800));
+        show = await api.get<Detail>(`/api/items/${showId}`).catch(() => null);
+        if (show?.onDeck && !finished.includes(show.onDeck.id)) break;
+      }
+      if (show?.onDeck && !finished.includes(show.onDeck.id)) {
+        const next = { ...show.onDeck, showTitle: show.onDeck.showTitle || show.title, showBackdrop: show.onDeck.showBackdrop || show.backdrop };
+        finished.forEach((id) => replaceOnHome(id, next));
+      }
       if (!d?.ended || !it || it.id !== d.itemId || it.kind !== "episode" || !it.showId) return;
       await new Promise((r) => setTimeout(r, 400));
-      const show = await api.get<Detail>(`/api/items/${it.showId}`).catch(() => null);
-      if (show?.onDeck && show.onDeck.id !== it.id) setUpNext({ ...show.onDeck, showTitle: show.title, showBackdrop: show.backdrop });
+      const fresh = await api.get<Detail>(`/api/items/${it.showId}`).catch(() => null);
+      if (fresh?.onDeck && fresh.onDeck.id !== it.id) setUpNext({ ...fresh.onDeck, showTitle: fresh.title, showBackdrop: fresh.backdrop });
     };
     window.addEventListener("plexodus:native-ended", onEnded);
     return () => window.removeEventListener("plexodus:native-ended", onEnded);

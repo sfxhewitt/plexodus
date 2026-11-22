@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import Hls from "hls.js";
 import { api, Card, Detail, episodeLabel, fmtTime, Marker, MediaFile, PlayInfo } from "../api";
+import { creditsStart, finishedAt, finishedOnHome, playerClosed } from "../homeHidden";
 import { Back, Copy, External, Forward, Fullscreen, Mute, Pause, Play, Rewind, Subtitles, Volume } from "../components/Icons";
 import { native, NativeEnded, nativePlay } from "../native";
 import {
@@ -164,6 +165,8 @@ export default function Player() {
   const lastReport = useRef(0);
   const lastSent = useRef<{ id: number; position: number; duration: number }>();
   const [markers, setMarkers] = useState<Marker[]>([]);
+  const markersRef = useRef(markers);
+  markersRef.current = markers;
   const nativeMode = !!native;
 
   // Subtitles (see ../subtitles.ts).
@@ -518,6 +521,10 @@ export default function Player() {
     return () => {
       window.removeEventListener("pagehide", onHide);
       report(true);
+      // Finished: Home leaves it out at once, before the server catches up.
+      const last = lastSent.current;
+      if (last && finishedAt(last.position, last.duration, creditsStart(markersRef.current, last.duration))) finishedOnHome(last.id);
+      playerClosed();
       api.invalidate("/api/home");
       api.invalidate("/api/items");
     };
@@ -668,6 +675,10 @@ export default function Player() {
     const onNative = (e: Event) => {
       const d = (e as CustomEvent<NativeEnded>).detail;
       if (!item || d.itemId !== item.id) return;
+      const lastId = d.lastItemId || d.itemId;
+      if (lastId !== d.itemId) finishedOnHome(d.itemId);
+      if (d.ended || finishedAt(d.position, d.duration, lastId === item.id ? creditsStart(markersRef.current, d.duration) : undefined)) finishedOnHome(lastId);
+      playerClosed();
       api.invalidate("/api/home");
       api.invalidate("/api/items");
       if (d.ended && item.kind === "episode" && item.showId) onEnded();

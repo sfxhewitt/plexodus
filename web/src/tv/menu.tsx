@@ -8,7 +8,7 @@ import { useApi } from "../hooks";
 import { focusables, focusEl, focusInitial, onBack, setFocusFallback, swallowSelectUntilRelease } from "./focus";
 import { useToast } from "./hooks";
 import { playCard, playItem } from "./play";
-import { hideOnHome, unhideOnHome } from "./homeHidden";
+import { hideOnHome, unhideOnHome } from "../homeHidden";
 
 export interface MenuAction {
   key: string;
