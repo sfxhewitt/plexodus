@@ -92,6 +92,23 @@ func TestHomeSurvivesRestart(t *testing.T) {
 	if rec.Code != 200 || !bytes.Equal(rec.Body.Bytes(), body) {
 		t.Fatalf("restarted home = %d, want the saved one", rec.Code)
 	}
+	// It may predate a change made just before the restart, so the page is
+	// told to ask again, and the next visit gets a freshly built Home.
+	if rec.Header().Get("X-Home-Stale") != "1" {
+		t.Fatal("saved home not marked stale")
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		rec = httptest.NewRecorder()
+		s2.handleHome(rec, r)
+		if rec.Header().Get("X-Home-Stale") == "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("home still stale after the rebuild")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // A change that lands while Home is being built (the TV player's last

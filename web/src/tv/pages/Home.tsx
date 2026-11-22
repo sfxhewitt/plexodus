@@ -9,7 +9,7 @@ import { ambientPrefs, trailersSupported } from "../ambient";
 import { onPlayBusy, playCard, playItem } from "../play";
 import { TrailerVideo } from "../Trailer";
 import { focusInitial } from "../focus";
-import { homeRows } from "../../homeHidden";
+import { homeRows, onHomeStale } from "../../homeHidden";
 import { hasRT, RTScores } from "../../rt";
 
 /**
@@ -170,6 +170,7 @@ function WrappedBanner({ year }: { year: number }) {
 export default function Home() {
   const { data, error, reload } = useApi<HomeData>("/api/home");
   useRefresh(reload);
+  useEffect(() => onHomeStale(reload), [reload]);
   // Remove from Up Next / Mark as watched: re-render without the card (filtered below) at once.
   const [, setHiddenTick] = useState(0);
   useEffect(() => {

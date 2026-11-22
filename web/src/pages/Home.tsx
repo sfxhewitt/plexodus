@@ -4,7 +4,7 @@ import { art, Card, fmtRuntime, HomeData, Library } from "../api";
 import { Row } from "../components/Cards";
 import { Info, Play } from "../components/Icons";
 import { useApi, useUser } from "../hooks";
-import { homeRows, playerJustClosed } from "../homeHidden";
+import { homeRows, onHomeStale, playerJustClosed } from "../homeHidden";
 import { hasRT, RTScores } from "../rt";
 
 function Hero({ items }: { items: Card[] }) {
@@ -75,6 +75,7 @@ export default function Home() {
     const t = [2500, 7000].map((ms) => setTimeout(reload, ms));
     return () => t.forEach(clearTimeout);
   }, [reload]);
+  useEffect(() => onHomeStale(reload), [reload]);
   // Something finished or removed leaves Home at once.
   const [, setHiddenTick] = useState(0);
   useEffect(() => {
