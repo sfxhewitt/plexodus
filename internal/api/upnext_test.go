@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/sfxhewitt/plexodus/internal/db"
@@ -163,5 +164,38 @@ func TestFinishSeasonSkipsUpNextShows(t *testing.T) {
 	got = withoutUpNextShows([]Row{season, because}, []Card{{ID: 101, ShowID: 1}, {ID: 2, Kind: "show"}})
 	if len(got) != 1 || got[0].Smart != "because" {
 		t.Fatalf("empty row kept: %+v", got)
+	}
+}
+
+// Pressing Back once the closing credits roll counts as watched, as in Plex,
+// so the title leaves Up Next even though it stopped short of 92%.
+func TestProgressIntoCreditsIsWatched(t *testing.T) {
+	s, u := testServer(t)
+	if _, err := s.db.W.Exec(`INSERT INTO markers(item_id, type, start, "end", source) VALUES
+		(10, 'intro', 60, 120, 'plex'), (10, 'credits', 5400, 6000, 'plex')`); err != nil {
+		t.Fatal(err)
+	}
+	post := func(id string, pos float64) bool {
+		t.Helper()
+		var out struct {
+			Watched bool `json:"watched"`
+		}
+		if code := call(t, s, u, s.handleProgress, "POST", "/api/items/"+id+"/progress",
+			fmt.Sprintf(`{"position": %v, "duration": 6000}`, pos), map[string]string{"id": id}, &out); code != 200 {
+			t.Fatalf("progress = %d", code)
+		}
+		return out.Watched
+	}
+	if post("10", 5300) {
+		t.Fatal("before the credits: not watched yet")
+	}
+	if !post("10", 5410) {
+		t.Fatal("into the credits: watched")
+	}
+	if post("20", 5410) {
+		t.Fatal("no credits marker: 90% isn't watched")
+	}
+	if !post("20", 5600) {
+		t.Fatal("past 92%: watched")
 	}
 }

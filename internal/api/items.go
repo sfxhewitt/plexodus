@@ -902,7 +902,7 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.nowPlaying.progress(r, currentUser(r).ID, id, body.Position, body.Duration, body.State)
-	watched := body.Duration > 0 && body.Position/body.Duration > 0.92
+	watched := s.finishedAt(r.Context(), id, body.Position, body.Duration)
 	pos := body.Position
 	if watched {
 		pos = 0
@@ -929,6 +929,24 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 		s.detector.OnNearEnd(s.baseCtx, id)
 	}
 	writeJSON(w, map[string]any{"watched": watched})
+}
+
+// finishedAt: past 92%, or into the closing credits (as Plex does), so
+// pressing Back once the credits roll counts as watched and the title
+// leaves Up Next. The TV and web UIs apply the same rule (homeHidden.ts).
+func (s *Server) finishedAt(ctx context.Context, id int64, pos, dur float64) bool {
+	if dur <= 0 {
+		return false
+	}
+	if pos/dur > 0.92 {
+		return true
+	}
+	if pos < dur*0.7 {
+		return false
+	}
+	var start sql.NullFloat64
+	s.db.R.QueryRowContext(ctx, `SELECT MIN(start) FROM markers WHERE item_id = ? AND type = 'credits' AND start >= ?`, id, dur*0.7).Scan(&start)
+	return start.Valid && pos >= start.Float64
 }
 
 func boolInt(b bool) int {

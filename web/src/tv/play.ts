@@ -1,5 +1,6 @@
 import { api, Card, Detail, episodeLabel, Marker, PlayInfo } from "../api";
 import { native, nativePlay } from "../native";
+import { creditsStart } from "../homeHidden";
 
 type Listener = (busy: string | null) => void;
 const listeners = new Set<Listener>();
@@ -10,7 +11,10 @@ export const onPlayBusy = (l: Listener) => {
 const setBusy = (b: string | null) => listeners.forEach((l) => l(b));
 
 let lastPlayed: Detail | null = null;
+let lastCredits: number | undefined;
 export const lastPlayedItem = () => lastPlayed;
+/** Where the last played title's closing credits start, if known. */
+export const lastPlayedCredits = () => lastCredits;
 
 /**
  * Hands an item to the app's built-in player (libVLC, plays every format
@@ -32,6 +36,7 @@ export async function playItem(id: number, opts: { fromStart?: boolean } = {}) {
       return;
     }
     lastPlayed = d;
+    lastCredits = creditsStart(m, p.file.duration || d.files[0].duration || 0);
     const title = d.kind === "episode" ? d.showTitle || d.show?.title || d.title : d.title;
     const subtitle = d.kind === "episode" ? `${episodeLabel(d)} · ${d.title}` : d.year ? String(d.year) : "";
     nativePlay({

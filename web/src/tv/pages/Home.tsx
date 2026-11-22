@@ -9,7 +9,7 @@ import { ambientPrefs, trailersSupported } from "../ambient";
 import { onPlayBusy, playCard, playItem } from "../play";
 import { TrailerVideo } from "../Trailer";
 import { focusInitial } from "../focus";
-import { hiddenOnHome } from "../homeHidden";
+import { homeRows } from "../../homeHidden";
 import { hasRT, RTScores } from "../../rt";
 
 /**
@@ -203,10 +203,7 @@ export default function Home() {
   if (!data) return <Spinner />;
 
   // The Watchlist has its own tab in the top bar, so Home leaves it out.
-  const rows = data.rows
-    .filter((r) => r.title !== "Watchlist")
-    .map((r) => ({ ...r, items: r.items.filter((c) => !hiddenOnHome(c.id)) }))
-    .filter((r) => r.items.length);
+  const rows = homeRows(data.rows.filter((r) => r.title !== "Watchlist"), (r) => r.kind === "landscape");
   if (!rows.length && !data.hero.length) {
     return (
       <div className="tv-center">

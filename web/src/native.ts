@@ -20,6 +20,8 @@ export interface NativePlayRequest {
 
 export interface NativeEnded {
   itemId: number;
+  /** Where the player ended up after playing on to later episodes (newer apps). */
+  lastItemId?: number;
   position: number;
   duration: number;
   ended: boolean;
