@@ -192,10 +192,10 @@ func TestProgressIntoCreditsIsWatched(t *testing.T) {
 	if !post("10", 5410) {
 		t.Fatal("into the credits: watched")
 	}
-	if post("20", 5410) {
-		t.Fatal("no credits marker: 90% isn't watched")
+	if post("20", 5350) {
+		t.Fatal("no credits marker: 89% isn't watched")
 	}
-	if !post("20", 5600) {
-		t.Fatal("past 92%: watched")
+	if !post("20", 5400) {
+		t.Fatal("90%, as in Plex: watched")
 	}
 }

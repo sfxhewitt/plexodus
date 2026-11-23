@@ -103,3 +103,20 @@ test("Remove from Up Next sticks when the app reopens before the server catches 
   // Told it was the old Home, the page asks again.
   await expect.poll(() => calls, { timeout: 6000 }).toBeGreaterThan(1);
 });
+
+test("an episode the server counts as watched (into its credits) leaves Up Next for the next one", async ({ page, openTv }) => {
+  await page.addInitScript(tvBox);
+  await openTv("/");
+  await waitForFocus(page);
+  const ep = await page.evaluate((id) => fetch(`/api/items/${id}`).then((r) => r.json()), ids.episode);
+  const show = await page.evaluate((id) => fetch(`/api/items/${id}`).then((r) => r.json()), ids.show);
+  await playFromUpNext(page, ids.episode);
+  // Back at 88%: short of 90%, but past the credits marker the server knows.
+  const nextId = ids.episode + 1;
+  await page.route(`**/api/items/${ids.episode}`, (route) => route.fulfill({ json: { ...ep, watched: true, position: 0 } }));
+  await page.route(`**/api/items/${ids.show}`, (route) =>
+    route.fulfill({ json: { ...show, onDeck: { id: nextId, libraryId: 2, kind: "episode", title: "Chapter 4", seasonNumber: 1, episodeNumber: 4, showId: ids.show, addedAt: 0 } } }));
+  await closePlayer(page, { itemId: ids.episode, lastItemId: ids.episode, position: 2376, duration: 2700, ended: false });
+  await expect(inUpNext(page, ids.episode), "gone once the server says it's watched").toHaveCount(0, { timeout: 3000 });
+  await expect(inUpNext(page, nextId), "the next episode takes its place").toHaveCount(1);
+});
