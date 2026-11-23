@@ -931,14 +931,14 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"watched": watched})
 }
 
-// finishedAt: past 92%, or into the closing credits (as Plex does), so
+// finishedAt: past 90% (Plex's default), or into the closing credits, so
 // pressing Back once the credits roll counts as watched and the title
 // leaves Up Next. The TV and web UIs apply the same rule (homeHidden.ts).
 func (s *Server) finishedAt(ctx context.Context, id int64, pos, dur float64) bool {
 	if dur <= 0 {
 		return false
 	}
-	if pos/dur > 0.92 {
+	if pos/dur >= 0.9 {
 		return true
 	}
 	if pos < dur*0.7 {

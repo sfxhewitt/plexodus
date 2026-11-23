@@ -10,7 +10,7 @@ import { Backdrop, BackdropCtx, Spinner, TvButton } from "./components";
 import { focusEl, focusInitial, focusables, installKeys, onBack, onBackLast } from "./focus";
 import { focusPage, setCurrentKey, ToastCtx, useLibraries, useToast } from "./hooks";
 import { lastPlayedCredits, lastPlayedItem, onPlayBusy, playItem } from "./play";
-import { finishedAt, finishedOnHome, replaceOnHome } from "../homeHidden";
+import { finishedAt, finishedOnHome, hideOnHome, replaceOnHome } from "../homeHidden";
 import { openVoice, parseVoice, playVoice } from "./voice";
 import Home from "./pages/Home";
 import Item from "./pages/Item";
@@ -235,9 +235,13 @@ function Shell() {
       // started with if it went on to the next episode by itself.
       const lastId = d?.lastItemId || d?.itemId;
       const finished: number[] = [];
-      if (d?.itemId && lastId && lastId !== d.itemId) finished.push(d.itemId);
-      if (lastId && (d.ended || finishedAt(d.position, d.duration, lastId === it?.id ? lastPlayedCredits() : undefined))) finished.push(lastId);
-      finished.forEach(finishedOnHome);
+      const finish = (id: number) => {
+        if (finished.includes(id)) return;
+        finished.push(id);
+        finishedOnHome(id);
+      };
+      if (d?.itemId && lastId && lastId !== d.itemId) finish(d.itemId);
+      if (lastId && (d.ended || finishedAt(d.position, d.duration, lastId === it?.id ? lastPlayedCredits() : undefined))) finish(lastId);
       // Pages refetch in place (keeping what's on screen and the focus).
       // The player's last progress report is still on its way when this
       // fires, so look again once it has landed: otherwise a film just
@@ -245,8 +249,23 @@ function Shell() {
       window.dispatchEvent(new Event("tv:refresh"));
       refreshAgain.current.forEach(clearTimeout);
       refreshAgain.current = [2500, 7000].map((ms) => setTimeout(() => window.dispatchEvent(new Event("tv:refresh")), ms));
+      if (!lastId) return;
+      // The server has the last word (it knows the credits of an episode the
+      // player went on to by itself, which this page doesn't): ask whether it
+      // counted the title as watched, once its last report has landed.
+      let last: Detail | null = null;
+      for (let i = 0; i < 4; i++) {
+        if (i || !finished.includes(lastId)) await new Promise((r) => setTimeout(r, i ? 900 : 600));
+        last = await api.get<Detail>(`/api/items/${lastId}`).catch(() => null);
+        if (last?.watched) {
+          finish(lastId);
+          hideOnHome(lastId); // confirmed: keep it out for the full 10 minutes
+          break;
+        }
+        if (finished.includes(lastId)) break;
+      }
       // A finished episode's Up Next card becomes the next episode.
-      const showId = it && it.kind === "episode" && it.showId && finished.length ? it.showId : 0;
+      const showId = finished.length ? (last?.kind === "episode" && last.showId) || (it?.kind === "episode" && it.showId) || 0 : 0;
       // The server may not have saved the last report yet, so ask again
       // while it still names the episode just finished.
       let show: Detail | null = null;
@@ -258,6 +277,8 @@ function Shell() {
       if (show?.onDeck && !finished.includes(show.onDeck.id)) {
         const next = { ...show.onDeck, showTitle: show.onDeck.showTitle || show.title, showBackdrop: show.onDeck.showBackdrop || show.backdrop };
         finished.forEach((id) => replaceOnHome(id, next));
+        // Pages showing Home pick the swap up from the event; refetch too.
+        window.dispatchEvent(new Event("tv:refresh"));
       }
       if (!d?.ended || !it || it.id !== d.itemId || it.kind !== "episode" || !it.showId) return;
       await new Promise((r) => setTimeout(r, 400));

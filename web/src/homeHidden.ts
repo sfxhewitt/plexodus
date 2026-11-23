@@ -57,10 +57,10 @@ export function hiddenOnHome(id: number): boolean {
   return true;
 }
 
-/** Same rule as the server: past 92%, or into the closing credits. */
+/** Same rule as the server: past 90% (as Plex), or into the closing credits. */
 export function finishedAt(position: number, duration: number, creditsStart?: number) {
   if (!(duration > 0)) return false;
-  if (position / duration > 0.92) return true;
+  if (position / duration >= 0.9) return true;
   return !!creditsStart && creditsStart >= duration * 0.7 && position >= creditsStart;
 }
 
@@ -126,7 +126,12 @@ export const playerJustClosed = () => Date.now() - playerClosedAt < 10_000;
 export function onHomeStale(reload: () => void) {
   let tries = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const on = () => {
+  const on = (e: Event) => {
+    // An up-to-date answer starts the count again for the next change.
+    if (!(e as CustomEvent<boolean>).detail) {
+      tries = 0;
+      return;
+    }
     if (tries >= 6 || timer) return;
     tries++;
     timer = setTimeout(() => {

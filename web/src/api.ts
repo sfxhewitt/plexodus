@@ -363,7 +363,9 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   const data = await res.json().catch(() => ({}));
   // The server gave its previous Home while a fresh one is built (just
   // restarted, or a change is still being applied): Home asks again shortly.
-  if (res.ok && res.headers.get("X-Home-Stale")) window.dispatchEvent(new Event("plexodus:home-stale"));
+  if (res.ok && url.startsWith("/api/home")) {
+    window.dispatchEvent(new CustomEvent("plexodus:home-stale", { detail: !!res.headers.get("X-Home-Stale") }));
+  }
   if (!res.ok) {
     if (res.status === 401 && !url.startsWith("/api/login")) window.dispatchEvent(new Event("plexodus:unauthorized"));
     throw new ApiError(res.status, friendly(res.status, (data as { error?: string }).error || res.statusText));
