@@ -501,10 +501,13 @@ class PlayerActivity : Activity() {
         player.load(url, startMs)
         updateTime()
         // The server looks for recaps (and intros Plex didn't mark) once
-        // playback starts; pick up what it finds in the first minutes.
+        // playback starts; pick up what it finds in the first minutes. The
+        // first read of an episode from a cloud drive can take a few
+        // minutes, and many intros come after a cold open, so keep asking
+        // for the first ten.
         ui.removeCallbacksAndMessages(markerRefresh)
         val id = itemId
-        for (after in longArrayOf(15_000, 40_000, 90_000)) {
+        for (after in longArrayOf(15_000, 40_000, 90_000, 150_000, 240_000, 360_000, 480_000, 600_000)) {
             ui.postAtTime({ refreshMarkers(id) }, markerRefresh, SystemClock.uptimeMillis() + after)
         }
     }

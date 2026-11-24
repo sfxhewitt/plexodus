@@ -3,11 +3,13 @@ package plex
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"math"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sfxhewitt/plexodus/internal/db"
@@ -269,4 +271,191 @@ func ReplaceMarkers(tx *sql.Tx, itemID int64, ms []Marker) error {
 		}
 	}
 	return nil
+}
+
+// showMarkersEvery is how often ShowMarkers will look at the same show.
+const showMarkersEvery = 6 * time.Hour
+
+// ItemsWithMarkers fetches several items by rating key with their markers.
+func (c *Client) ItemsWithMarkers(ctx context.Context, keys []string) ([]Metadata, error) {
+	var out struct {
+		MediaContainer struct {
+			Metadata []Metadata `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+	err := c.get(ctx, "/library/metadata/"+strings.Join(keys, ","), url.Values{"includeMarkers": {"1"}}, &out)
+	return out.MediaContainer.Metadata, err
+}
+
+// ShowMarkers brings Plex's intro and credits markers over for every episode
+// of the played episode's show that is missing them. It covers what the
+// import and the hourly pass can't: episodes that were never linked to Plex
+// (added or upgraded after the import and more than markerWindow before
+// Plex analysed them), and links whose Plex rating key went stale when Plex
+// re-added a file. Episodes are matched to Plex by path. It looks at each
+// show at most every showMarkersEvery and reports how many episodes gained
+// markers.
+func (s *Syncer) ShowMarkers(ctx context.Context, c *Client, pm PathMap, episodeID int64) (int, error) {
+	var showID int64
+	err := s.db.R.QueryRowContext(ctx, `SELECT se.parent_id FROM items e JOIN items se ON se.id = e.parent_id
+		WHERE e.id = ? AND e.kind = 'episode'`, episodeID).Scan(&showID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	s.showsMu.Lock()
+	if s.showsChecked == nil {
+		s.showsChecked = map[int64]time.Time{}
+	}
+	if t, ok := s.showsChecked[showID]; ok && time.Since(t) < showMarkersEvery {
+		s.showsMu.Unlock()
+		return 0, nil
+	}
+	s.showsChecked[showID] = time.Now()
+	s.showsMu.Unlock()
+
+	leaves, err := s.showLeaves(ctx, c, showID)
+	if err != nil || len(leaves) == 0 {
+		return 0, err
+	}
+
+	// Our episodes by Plex rating key, found by path.
+	type ep struct {
+		id      int64
+		key     string
+		relink  bool // no link, or a link to another rating key
+		markers bool // already has Plex markers
+	}
+	var eps []ep
+	seen := map[int64]bool{}
+	for _, m := range leaves {
+		for _, media := range m.Media {
+			for _, part := range media.Part {
+				if part.File == "" {
+					continue
+				}
+				ids, err := readIDs(ctx, s.db.R, `SELECT f.item_id FROM media_files f JOIN items i ON i.id = f.item_id
+					WHERE f.path = ? AND i.kind = 'episode'`, pm.Apply(part.File))
+				if err != nil {
+					return 0, err
+				}
+				for _, id := range ids {
+					if seen[id] {
+						continue
+					}
+					seen[id] = true
+					var key string
+					s.db.R.QueryRowContext(ctx, `SELECT rating_key FROM plex_links WHERE item_id = ?`, id).Scan(&key)
+					var have bool
+					s.db.R.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM markers WHERE item_id = ? AND source = 'plex')`, id).Scan(&have)
+					eps = append(eps, ep{id: id, key: m.RatingKey, relink: key != m.RatingKey, markers: have})
+				}
+			}
+		}
+	}
+
+	// Ask Plex for the markers of those that have none yet, 50 at a time.
+	var keys []string
+	wanted := map[string]bool{}
+	for _, e := range eps {
+		if !e.markers && !wanted[e.key] {
+			wanted[e.key] = true
+			keys = append(keys, e.key)
+		}
+	}
+	got := map[string][]Marker{}
+	for start := 0; start < len(keys); start += 50 {
+		items, err := c.ItemsWithMarkers(ctx, keys[start:min(start+50, len(keys))])
+		if err != nil {
+			return 0, err
+		}
+		for _, m := range items {
+			got[m.RatingKey] = plexMarkers(m.Marker)
+		}
+	}
+
+	n := 0
+	now := db.Now()
+	err = s.db.Tx(ctx, func(tx *sql.Tx) error {
+		for _, e := range eps {
+			ms, asked := got[e.key]
+			if !e.relink && !asked {
+				continue
+			}
+			if e.relink {
+				if _, err := tx.Exec(`INSERT INTO plex_links(item_id, rating_key) VALUES(?, ?)
+					ON CONFLICT(item_id) DO UPDATE SET rating_key = excluded.rating_key`, e.id, e.key); err != nil {
+					return err
+				}
+			}
+			if !asked {
+				continue
+			}
+			if len(ms) > 0 {
+				if err := ReplaceMarkers(tx, e.id, ms); err != nil {
+					return err
+				}
+				n++
+			}
+			if _, err := tx.Exec(`UPDATE plex_links SET markers_at = ? WHERE item_id = ?`, now, e.id); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	if n > 0 {
+		log.Printf("plex markers: show %d: intro/credits markers brought over for %d episodes", showID, n)
+	}
+	return n, nil
+}
+
+// showLeaves lists a show's episodes in Plex, finding the show by its own
+// link or, failing that, through any of its linked episodes.
+func (s *Syncer) showLeaves(ctx context.Context, c *Client, showID int64) ([]Metadata, error) {
+	var key string
+	if err := s.db.R.QueryRowContext(ctx, `SELECT rating_key FROM plex_links WHERE item_id = ?`, showID).Scan(&key); err == nil && key != "" {
+		if leaves, err := c.Leaves(ctx, key); err == nil && len(leaves) > 0 {
+			return leaves, nil
+		} else if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+	}
+	// The show's own key is missing or stale: ask Plex about a few of its
+	// linked episodes for their show's key.
+	rows, err := s.db.R.QueryContext(ctx, `SELECT l.rating_key FROM items se JOIN items e ON e.parent_id = se.id
+		JOIN plex_links l ON l.item_id = e.id WHERE se.parent_id = ? AND e.kind = 'episode' ORDER BY e.id DESC LIMIT 3`, showID)
+	if err != nil {
+		return nil, err
+	}
+	var eks []string
+	for rows.Next() {
+		var k string
+		rows.Scan(&k)
+		eks = append(eks, k)
+	}
+	rows.Close()
+	for _, k := range eks {
+		m, err := c.Item(ctx, k)
+		if err != nil || m.GrandparentRatingKey == "" || m.GrandparentRatingKey == key {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			continue
+		}
+		leaves, err := c.Leaves(ctx, m.GrandparentRatingKey)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := s.db.W.ExecContext(ctx, `INSERT INTO plex_links(item_id, rating_key) VALUES(?, ?)
+			ON CONFLICT(item_id) DO UPDATE SET rating_key = excluded.rating_key`, showID, m.GrandparentRatingKey); err != nil {
+			return nil, err
+		}
+		return leaves, nil
+	}
+	return nil, nil
 }

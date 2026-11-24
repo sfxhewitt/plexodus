@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sfxhewitt/plexodus/internal/db"
 )
@@ -126,5 +127,33 @@ func TestDetectEpisodes(t *testing.T) {
 	d.R.QueryRow(`SELECT COUNT(*) FROM fingerprints WHERE part = 'full'`).Scan(&n)
 	if n == 0 {
 		t.Error("no full fingerprint cached")
+	}
+}
+
+// A run that failed is retried after an hour, not after a week.
+func TestNeededRetriesErrors(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	d.W.Exec(`INSERT INTO libraries(id, name, kind, paths, created_at) VALUES(1, 'TV', 'shows', '[]', 0)`)
+	for id := 1; id <= 3; id++ {
+		d.W.Exec(`INSERT INTO items(id, library_id, kind, guid, title, sort_title, added_at, updated_at) VALUES(?, 1, 'episode', ?, 't', 't', 0, 0)`, id, id)
+	}
+	now := time.Now().Unix()
+	d.W.Exec(`INSERT INTO detect_runs(item_id, version, done_at, note) VALUES
+		(1, ?, ?, 'error: ffmpeg: signal: killed'), (2, ?, ?, 'error: ffmpeg: signal: killed'), (3, ?, ?, 'nothing new')`,
+		Version, now-2*3600, Version, now-60, Version, now-2*3600)
+	det := New(d, "ffmpeg", "ffprobe")
+	ctx := context.Background()
+	if !det.needed(ctx, 1) {
+		t.Error("failed two hours ago: should retry")
+	}
+	if det.needed(ctx, 2) {
+		t.Error("failed a minute ago: should wait")
+	}
+	if det.needed(ctx, 3) {
+		t.Error("finished two hours ago: should wait a week")
 	}
 }

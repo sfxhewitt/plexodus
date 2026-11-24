@@ -257,8 +257,9 @@ export default function Player() {
         setMarkers([]);
         api.get<Marker[]>(`/api/items/${d.id}/markers?recap=1`).then((m) => !cancelled && setMarkers(m), () => {});
         // The server looks for recaps (and intros Plex didn't mark) when
-        // playback starts; pick up what it finds in the first minutes.
-        for (const after of [15, 40, 90]) {
+        // playback starts; pick up what it finds in the first minutes (the
+        // first read from a cloud drive can take a few).
+        for (const after of [15, 40, 90, 150, 240, 360, 480, 600]) {
           markerTimers.push(
             window.setTimeout(() => {
               if (!cancelled) api.get<Marker[]>(`/api/items/${d.id}/markers?recap=1`).then((m) => !cancelled && setMarkers(m), () => {});

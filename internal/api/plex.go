@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -314,11 +315,15 @@ func (s *Server) handleMarkers(w http.ResponseWriter, r *http.Request) {
 		FROM plex_links WHERE item_id = ?`, id).Scan(&key, &fetched, &havePlex)
 	// Ask Plex if we never have, or (at most daily) if it had nothing last
 	// time: Plex finds intros in a background task that can run days later.
+	// An episode Plex was never linked to (added after the import) or whose
+	// Plex key went stale is matched up by path across its whole show.
+	relink := errors.Is(err, sql.ErrNoRows)
 	if err == nil && (!fetched.Valid || (!havePlex && fetched.Int64 < time.Now().Unix()-86400)) {
 		if c, _ := s.plexClient(r.Context()); c.Configured() {
 			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 			m, err := c.Item(ctx, key)
 			cancel()
+			relink = err != nil && r.Context().Err() == nil
 			if err == nil {
 				s.db.Tx(r.Context(), func(tx *sql.Tx) error {
 					if len(m.Marker) > 0 {
@@ -330,6 +335,15 @@ func (s *Server) handleMarkers(w http.ResponseWriter, r *http.Request) {
 					return err
 				})
 			}
+		}
+	}
+	if relink {
+		if c, pm := s.plexClient(r.Context()); c.Configured() {
+			ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+			if _, err := s.plexSync.ShowMarkers(ctx, c, pm, id); err != nil {
+				log.Printf("plex markers: item %d: %v", id, err)
+			}
+			cancel()
 		}
 	}
 	// Look for anything Plex didn't supply (recaps, and intros/credits on
