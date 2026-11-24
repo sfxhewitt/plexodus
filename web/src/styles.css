@@ -712,3 +712,6 @@ a.cast-card:hover .cast-photo, a.cast-card:focus-visible .cast-photo { transform
 .cmp-q { font-weight: 600; margin-top: 2px; }
 .cmp-foot { text-align: center; }
 .cmp-stale { color: #fbbf24; }
+.cmp-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.cmp-title h1 { margin: 0; }
+.cmp-awake { flex: none; font-size: 13px; }
