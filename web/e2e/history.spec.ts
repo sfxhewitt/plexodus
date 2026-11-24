@@ -64,7 +64,9 @@ test("History on the phone/web view: Resume links and remove", async ({ page }, 
   await expect(first.locator("a.btn")).toHaveAttribute("href", `/play/${ids.movie + 3}`);
   // A finished film plays again from the start.
   await expect(page.locator(".history-day").nth(1).locator("a.btn")).toHaveAttribute("href", `/play/${ids.movie}?from=0`);
-  await expect(page.locator('.nav-links a[href="/history"]')).toBeVisible();
+  // Phones get the sections in the bottom tab bar.
+  await expect(page.locator('.tabbar a[href="/history"]')).toBeVisible();
+  await expect(page.locator('.tabbar a[href="/history"]')).toHaveClass(/active/);
   await snap(page, info, "02 history phone");
   await first.getByRole("button", { name: /Remove .* from History/ }).click();
   await expect(page.locator(".history-row")).toHaveCount(3);
