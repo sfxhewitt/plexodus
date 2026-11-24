@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, art, type NowPlaying } from "../api";
 import { Sparkle } from "../components/Icons";
-import { KeepAwake } from "../keepAwake";
+import { canKeepAwake, KeepAwake } from "../keepAwake";
 
 const AWAKE_KEY = "plexodus.scene.keepAwake";
 function awakePref() {
@@ -200,11 +200,17 @@ export default function Companion() {
       <div className="cmp-head">
         <div className="cmp-title">
           <h1><Sparkle size={20} /> Scene notes</h1>
-          <button className={`btn sm ${awakeOn ? "primary" : "glass"} cmp-awake`} onClick={(e) => { e.stopPropagation(); toggleAwake(); }}
-            aria-pressed={awakeOn} title="Stop the phone's screen from turning off">
-            {awakeOn ? "Screen stays on" : "Keep screen on"}
-          </button>
+          {canKeepAwake() && (
+            <button className={`btn sm ${awakeOn ? "primary" : "glass"} cmp-awake`} onClick={(e) => { e.stopPropagation(); toggleAwake(); }}
+              aria-pressed={awakeOn} title="Stop the phone's screen from turning off">
+              {awakeOn ? "Screen stays on" : "Keep screen on"}
+            </button>
+          )}
         </div>
+        {!canKeepAwake() && (
+          // Phones only let a page keep the screen on over https.
+          <p className="muted small cmp-awake-tip">To stop your phone locking mid-film, turn Auto-Lock off while you watch (iPhone: Settings → Display &amp; Brightness → Auto-Lock → Never).</p>
+        )}
         {s ? (
           <div className="cmp-now">
             {s.poster && <img src={art(s.poster, "w185")} alt="" />}
