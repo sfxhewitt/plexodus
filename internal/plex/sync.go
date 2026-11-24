@@ -144,6 +144,9 @@ type Syncer struct {
 	extras      ExtrasStatus
 	extrasAfter time.Time // no extras before this (set after a failure)
 
+	showsMu      sync.Mutex
+	showsChecked map[int64]time.Time // shows ShowMarkers has looked at, and when
+
 	// Rematched is called after a title is re-matched from Plex, with its
 	// new TMDB id (0 if Plex has none), to fill in what Plex doesn't carry.
 	Rematched func(ctx context.Context, itemID int64, kind string, tmdbID int64)

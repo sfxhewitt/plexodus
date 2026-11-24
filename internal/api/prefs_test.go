@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/sfxhewitt/plexodus/internal/auth"
+	"github.com/sfxhewitt/plexodus/internal/config"
 	"github.com/sfxhewitt/plexodus/internal/db"
 )
 
@@ -23,7 +24,7 @@ func testServer(t *testing.T) (*Server, auth.User) {
 	}
 	t.Cleanup(func() { d.Close() })
 	ctx := context.Background()
-	s := &Server{db: d, auth: auth.New(d), baseCtx: ctx}
+	s := &Server{db: d, auth: auth.New(d), baseCtx: ctx, cfg: &config.Config{}}
 	u, err := s.auth.CreateUser(ctx, "daniel", "password123", true)
 	if err != nil {
 		t.Fatal(err)

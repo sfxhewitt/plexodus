@@ -105,12 +105,18 @@ func (d *Detector) request(ctx context.Context, itemID int64, front bool) {
 // arrived that it can be compared with).
 func (d *Detector) needed(ctx context.Context, itemID int64) bool {
 	var version, doneAt int64
-	err := d.db.R.QueryRowContext(ctx, `SELECT version, done_at FROM detect_runs WHERE item_id = ?`, itemID).Scan(&version, &doneAt)
+	var note string
+	err := d.db.R.QueryRowContext(ctx, `SELECT version, done_at, COALESCE(note, '') FROM detect_runs WHERE item_id = ?`, itemID).Scan(&version, &doneAt, &note)
 	if err != nil {
 		return true
 	}
 	if version < Version {
 		return true
+	}
+	// A run that failed (a slow read from the mount timing out, say) is
+	// tried again on the next play an hour on, not a week later.
+	if strings.HasPrefix(note, "error") {
+		return time.Since(time.Unix(doneAt, 0)) >= time.Hour
 	}
 	if time.Since(time.Unix(doneAt, 0)) < 7*24*time.Hour {
 		return false

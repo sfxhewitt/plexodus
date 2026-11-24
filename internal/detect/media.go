@@ -112,7 +112,10 @@ func ChapterMarkers(cs []Chapter, duration float64) map[string]Span {
 // Extract decodes the first audio track between start and start+length
 // seconds (length <= 0: to the end) and fingerprints it.
 func Extract(ctx context.Context, ffmpeg, path string, start, length float64) ([]uint32, error) {
-	timeout := 3 * time.Minute
+	// Detection runs in the background, and the first read of an episode
+	// from a cloud mount can be slow (ffmpeg has to pull the video it skips
+	// over too), so a part gets ten minutes before it's given up on.
+	timeout := 10 * time.Minute
 	if length <= 0 {
 		timeout = 30 * time.Minute
 	}
