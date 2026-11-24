@@ -59,43 +59,69 @@ export default function Companion() {
 
   useEffect(() => {
     let alive = true;
-    let timer = 0;
+    // iPhones freeze a page in the background and can drop a request that
+    // was in flight, so polling never waits on an old request: a fresh one
+    // starts every few seconds, each with its own short time limit, and the
+    // page also refreshes the moment it's shown again.
+    let busySince = 0;
     const load = () => {
-      api.get<CompanionData>("/api/companion").then((d) => {
-        if (!alive) return;
-        got.current = Date.now();
-        setError("");
-        setData(d);
-        const keys = d.notes.map((n) => `${n.at}:${n.title}`);
-        const added = keys.filter((k) => !seen.current.has(k));
-        keys.forEach((k) => seen.current.add(k));
-        if (!first.current && added.length) {
-          setFresh(new Set(added));
-          navigator.vibrate?.(30);
-        }
-        if (d.stream) first.current = false;
-      }, (e: Error) => alive && setError(e.message)).finally(() => {
-        if (alive) timer = window.setTimeout(load, document.hidden ? 15000 : 5000);
-      });
+      if (!alive || (busySince && Date.now() - busySince < 12000)) return;
+      const started = Date.now();
+      busySince = started;
+      const ctl = new AbortController();
+      const limit = window.setTimeout(() => ctl.abort(), 10000);
+      fetch("/api/companion", { credentials: "same-origin", cache: "no-store", signal: ctl.signal })
+        .then(async (res) => {
+          if (res.status === 401) window.dispatchEvent(new Event("plexodus:unauthorized"));
+          if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || res.statusText);
+          return res.json() as Promise<CompanionData>;
+        })
+        .then((d) => {
+          if (!alive) return;
+          got.current = Date.now();
+          setError("");
+          setData(d);
+          const keys = d.notes.map((n) => `${n.at}:${n.title}`);
+          const added = keys.filter((k) => !seen.current.has(k));
+          keys.forEach((k) => seen.current.add(k));
+          if (!first.current && added.length) {
+            setFresh(new Set(added));
+            navigator.vibrate?.(30);
+          }
+          if (d.stream) first.current = false;
+        }, (e: Error) => alive && setError(e.name === "AbortError" ? "The server is slow to answer" : e.message))
+        .finally(() => {
+          clearTimeout(limit);
+          if (busySince === started) busySince = 0;
+        });
     };
     load();
-    const onVis = () => {
-      if (!document.hidden) {
-        clearTimeout(timer);
-        load();
-      }
+    const poll = window.setInterval(() => !document.hidden && load(), 4000);
+    const wake = () => {
+      if (document.hidden) return;
+      busySince = 0;
+      load();
     };
-    document.addEventListener("visibilitychange", onVis);
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    window.addEventListener("pageshow", wake);
+    window.addEventListener("online", wake);
     const t = window.setInterval(() => setTick((n) => n + 1), 1000);
     // Keep the phone awake while the page is open, where supported.
     let lock: { release: () => Promise<void> } | null = null;
     const nav = navigator as Navigator & { wakeLock?: { request: (t: "screen") => Promise<{ release: () => Promise<void> }> } };
-    nav.wakeLock?.request("screen").then((l) => (lock = l), () => {});
+    const keepAwake = () => !document.hidden && nav.wakeLock?.request("screen").then((l) => (lock = l), () => {});
+    keepAwake();
+    document.addEventListener("visibilitychange", keepAwake);
     return () => {
       alive = false;
-      clearTimeout(timer);
+      clearInterval(poll);
       clearInterval(t);
-      document.removeEventListener("visibilitychange", onVis);
+      document.removeEventListener("visibilitychange", wake);
+      document.removeEventListener("visibilitychange", keepAwake);
+      window.removeEventListener("focus", wake);
+      window.removeEventListener("pageshow", wake);
+      window.removeEventListener("online", wake);
       lock?.release().catch(() => {});
     };
   }, []);
@@ -149,6 +175,7 @@ export default function Companion() {
               <div className="cmp-time">
                 <span className={`cmp-dot ${s.state}`} />
                 {s.state === "playing" ? "Playing" : "Paused"} · {clock(pos)}{s.duration ? ` / ${clock(s.duration)}` : ""}
+                {Date.now() - got.current > 20000 && <span className="cmp-stale"> · reconnecting…</span>}
               </div>
               <div className="progress cmp-progress"><div style={{ width: `${pct}%` }} /></div>
             </div>
