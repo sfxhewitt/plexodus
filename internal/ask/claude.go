@@ -192,3 +192,52 @@ var querySchema = map[string]any{
 		"summary": map[string]any{"type": "string"},
 	},
 }
+
+// Complete runs one structured-output request for other features (the scene
+// companion) with the same key, model and concurrency limit as search. The
+// answer is the raw JSON text matching schema.
+func (c *Claude) Complete(ctx context.Context, system, user string, schema map[string]any, effort anthropic.BetaOutputConfigEffort, maxTokens int64, timeout time.Duration) (string, error) {
+	c.mu.Lock()
+	client, enabled := c.client, c.key != ""
+	c.mu.Unlock()
+	if !enabled {
+		return "", errors.New("no Anthropic API key is set")
+	}
+	select {
+	case c.sem <- struct{}{}:
+		defer func() { <-c.sem }()
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	resp, err := client.Beta.Messages.New(ctx, anthropic.BetaMessageNewParams{
+		Model:     anthropic.Model(c.model),
+		MaxTokens: maxTokens,
+		System:    []anthropic.BetaTextBlockParam{{Text: system}},
+		Messages:  []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(user))},
+		OutputConfig: anthropic.BetaOutputConfigParam{
+			Effort: effort,
+			Format: anthropic.BetaJSONOutputFormatParam{Schema: schema},
+		},
+		Fallbacks: anthropic.BetaFallbacksParamUnion{OfDefault: "default"},
+		Betas:     []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01},
+	})
+	if err != nil {
+		var apiErr *anthropic.Error
+		if errors.As(err, &apiErr) {
+			return "", fmt.Errorf("Claude API error %d: %s", apiErr.StatusCode, apiMessage(apiErr))
+		}
+		return "", err
+	}
+	if resp.StopReason == anthropic.BetaStopReasonRefusal {
+		return "", ErrRefused
+	}
+	var out string
+	for _, b := range resp.Content {
+		if t, ok := b.AsAny().(anthropic.BetaTextBlock); ok {
+			out += t.Text
+		}
+	}
+	return out, nil
+}

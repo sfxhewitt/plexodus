@@ -267,3 +267,14 @@ CREATE TABLE IF NOT EXISTS tmdb_guides (
     data       TEXT NOT NULL,
     fetched_at INTEGER NOT NULL
 );
+
+-- Scene companion: notes Claude wrote for one stretch of a title
+-- (chunk = start second / 600). grounded = written with the subtitles.
+CREATE TABLE IF NOT EXISTS companion_notes (
+    item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    chunk      INTEGER NOT NULL,
+    grounded   INTEGER NOT NULL DEFAULT 0,
+    notes      TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (item_id, chunk)
+) WITHOUT ROWID;

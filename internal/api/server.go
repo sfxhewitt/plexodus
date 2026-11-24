@@ -64,12 +64,13 @@ type Server struct {
 	homes      homeCache
 	thumbs     *thumbs.Manager
 	phone      phoneSessions
+	comp       *companion
 }
 
 func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner, agent *metadata.Agent,
 	art *metadata.ArtCache, prober *probe.Worker, streams *stream.Manager, web fs.FS) *Server {
 	s := &Server{cfg: cfg, db: d, auth: auth.New(d), scanner: sc, agent: agent, art: art, prober: prober, streams: streams,
-		importer: plex.NewImporter(d), web: web, baseCtx: ctx, plexArtInflight: map[string]*artFetch{}, nowPlaying: newNowPlaying(), directory: newDirectory(),
+		importer: plex.NewImporter(d), web: web, baseCtx: ctx, plexArtInflight: map[string]*artFetch{}, nowPlaying: newNowPlaying(), comp: newCompanion(), directory: newDirectory(),
 		subs:   subs.New(cfg.FFmpeg, cfg.FFprobe, filepath.Join(cfg.DataDir, "subs")),
 		thumbs: thumbs.New(cfg.FFmpeg, filepath.Join(cfg.DataDir, "thumbs"))}
 	key := d.Setting(ctx, "stream_sign_key")
@@ -165,6 +166,8 @@ func (s *Server) Handler() http.Handler {
 	user("DELETE /api/history/{id}", s.handleHistoryRemove)
 	user("GET /api/share/targets", s.handleShareTargets)
 	user("GET /api/ask", s.handleAsk)
+	user("GET /api/companion", s.handleCompanion)
+	user("POST /api/companion/ask", s.handleCompanionAsk)
 	user("GET /api/scan/status", s.handleScanStatus)
 	user("GET /api/items/{id}/markers", s.handleMarkers)
 	user("GET /api/items/{id}/trailer", s.handleTrailer)
