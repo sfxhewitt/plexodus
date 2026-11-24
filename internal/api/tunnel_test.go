@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sfxhewitt/plexodus/internal/auth"
 )
@@ -28,6 +29,11 @@ func TestSecureLinkHandoff(t *testing.T) {
 	os.WriteFile(bin, []byte(fakeCloudflared), 0o755)
 	s.tunnel = newTunnel(t.TempDir())
 	s.tunnel.bin = func(context.Context) (string, error) { return bin, nil }
+	checks := 0
+	s.tunnel.check = func(_ context.Context, u string) bool {
+		checks++
+		return checks >= 3 // not in DNS yet for the first two tries
+	}
 
 	// Switch the account to a profile: the secure page should open on it too.
 	kids := "Kids"
@@ -45,12 +51,15 @@ func TestSecureLinkHandoff(t *testing.T) {
 		t.Fatalf("url = %q", out.URL)
 	}
 	code := strings.TrimPrefix(out.URL, base)
+	if checks != 3 {
+		t.Errorf("checks = %d, want the link handed out only once it answered", checks)
+	}
 
 	// The second ask reuses the running tunnel.
 	var again struct{ URL string }
 	call(t, s, u, s.handleSecureLink, "POST", "/api/companion/secure", "", nil, &again)
-	if !strings.HasPrefix(again.URL, base) || again.URL == out.URL {
-		t.Fatalf("again = %q", again.URL)
+	if !strings.HasPrefix(again.URL, base) || again.URL == out.URL || checks != 3 {
+		t.Fatalf("again = %q (checks %d)", again.URL, checks)
 	}
 
 	hand := func(code string) (int, string, string) {
@@ -99,5 +108,32 @@ func TestLocalTarget(t *testing.T) {
 		if got := localTarget(in); got != want {
 			t.Errorf("%q → %q", in, got)
 		}
+	}
+}
+
+// A tunnel whose address never answers is replaced by a new one.
+func TestSecureLinkRestartsDeadTunnel(t *testing.T) {
+	s, u := testServer(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	s.baseCtx = ctx
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "cloudflared")
+	// Each start prints a new address: one-, two-, ...trycloudflare.com.
+	os.WriteFile(bin, []byte(`#!/bin/sh
+n=$(cat `+dir+`/n 2>/dev/null || echo 0); n=$((n+1)); echo $n > `+dir+`/n
+echo "INF |  https://tunnel-$n.trycloudflare.com |" >&2
+exec sleep 30
+`), 0o755)
+	s.tunnel = newTunnel(dir)
+	s.tunnel.bin = func(context.Context) (string, error) { return bin, nil }
+	s.tunnel.check = func(_ context.Context, u string) bool { return strings.Contains(u, "tunnel-2.") }
+	defer func(w time.Duration) { tunnelCheckWait = w }(tunnelCheckWait)
+	tunnelCheckWait = 1500 * time.Millisecond
+
+	var out struct{ URL string }
+	call(t, s, u, s.handleSecureLink, "POST", "/api/companion/secure", "", nil, &out)
+	if !strings.HasPrefix(out.URL, "https://tunnel-2.trycloudflare.com/api/handoff/") {
+		t.Fatalf("url = %q", out.URL)
 	}
 }
