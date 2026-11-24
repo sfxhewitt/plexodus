@@ -715,3 +715,22 @@ a.cast-card:hover .cast-photo, a.cast-card:focus-visible .cast-photo { transform
 .cmp-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
 .cmp-title h1 { margin: 0; }
 .cmp-awake { flex: none; font-size: 13px; }
+
+/* Phone tab bar (Nav): Home, Libraries, History, Scene notes, Now watching. */
+.tabbar { display: none; }
+@media (max-width: 560px) {
+  .nav-links, .np-top { display: none; }
+  .nav { gap: 10px; }
+  .tabbar {
+    display: flex; position: fixed; inset: auto 0 0 0; z-index: 50;
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+    background: rgba(8, 9, 14, 0.82); backdrop-filter: blur(22px) saturate(1.4); -webkit-backdrop-filter: blur(22px) saturate(1.4);
+    box-shadow: 0 -1px 0 var(--border);
+  }
+  .tabbar a { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px 0; color: var(--muted); font-size: 10.5px; font-weight: 500; }
+  .tabbar a span:not(.np-badge) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .tabbar a.active { color: var(--text); }
+  .tabbar a.active svg { color: var(--teal); }
+  .tabbar .np-badge { top: 0; right: calc(50% - 20px); }
+  .main { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+}

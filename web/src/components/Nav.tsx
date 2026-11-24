@@ -17,7 +17,7 @@ export function Logo() {
 }
 
 /** Admins' link to Now watching, with how many streams are live. */
-function NowWatchingLink() {
+function NowWatchingLink({ tab = false }: { tab?: boolean }) {
   const [n, setN] = useState(0);
   useEffect(() => {
     let alive = true;
@@ -33,9 +33,10 @@ function NowWatchingLink() {
     };
   }, []);
   return (
-    <NavLink to="/activity" className="icon-btn np-link" aria-label={`Now watching${n ? `: ${n}` : ""}`} title="Now watching">
-      <Pulse />
+    <NavLink to="/activity" className={tab ? "np-link" : "icon-btn np-link"} aria-label={`Now watching${n ? `: ${n}` : ""}`} title="Now watching">
+      <Pulse size={tab ? 22 : undefined} />
       {n > 0 && <span className="np-badge">{n}</span>}
+      {tab && <span>Watching</span>}
     </NavLink>
   );
 }
@@ -126,6 +127,7 @@ export function Nav() {
   };
 
   return (
+    <>
     <header className={`nav ${scrolled ? "scrolled" : ""}`}>
       <Logo />
       <nav className="nav-links">
@@ -156,7 +158,7 @@ export function Nav() {
             }} />
           <kbd>/</kbd>
         </label>
-        {user?.isAdmin && !user.isProfile && <NowWatchingLink />}
+        {user?.isAdmin && !user.isProfile && <span className="np-top"><NowWatchingLink /></span>}
         {(user?.isAdmin || deviceLipSync()) && <NavLink to="/settings" className="icon-btn" aria-label="Settings"><Settings /></NavLink>}
         <div className="nav-profile">
           <button className="nav-avatar-btn" aria-label="Profile menu" title={user?.name || user?.username}
@@ -182,5 +184,15 @@ export function Nav() {
         </div>
       </div>
     </header>
+    {/* Phones: the main sections live in a tab bar at the bottom so the top
+        bar only holds search, settings and the profile. */}
+    <nav className="tabbar" aria-label="Sections">
+      <NavLink to="/" end><Home size={22} /><span>Home</span></NavLink>
+      <NavLink to="/libraries"><Grid size={22} /><span>Libraries</span></NavLink>
+      <NavLink to="/history" end><Clock size={22} /><span>History</span></NavLink>
+      <NavLink to="/scene" end><Sparkle size={22} /><span>Scene notes</span></NavLink>
+      {user?.isAdmin && !user.isProfile && <NowWatchingLink tab />}
+    </nav>
+    </>
   );
 }
