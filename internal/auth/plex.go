@@ -86,6 +86,20 @@ func (a *Auth) SignIn(ctx context.Context, userID int64) (string, User, error) {
 	return tok, u, err
 }
 
+// SignInAs starts a session for an account, already on one of its
+// profiles when profileID isn't 0 (the Scene notes secure-link handoff).
+func (a *Auth) SignInAs(ctx context.Context, accountID, profileID int64) (string, error) {
+	if _, err := a.viewer(ctx, accountID, profileID); err != nil {
+		return "", err
+	}
+	tok, err := a.newSession(ctx, accountID)
+	if err != nil || profileID == 0 {
+		return tok, err
+	}
+	_, err = a.db.W.ExecContext(ctx, `UPDATE sessions SET profile_id = ? WHERE token = ?`, profileID, tok)
+	return tok, err
+}
+
 // EndSessions signs an account out everywhere.
 func (a *Auth) EndSessions(ctx context.Context, userID int64) {
 	a.db.W.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, userID)

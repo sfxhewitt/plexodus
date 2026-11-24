@@ -3,7 +3,8 @@
  * Lock API. Browsers only allow it on secure (https) addresses. On plain
  * http there is no reliable way on an iPhone: the old silent-video trick
  * (NoSleep.js) no longer keeps iOS awake and puts a media player on the lock
- * screen, so it isn't used.
+ * screen, so it isn't used. Instead Scene notes offers a secure link (the
+ * server's built-in tunnel, internal/api/tunnel.go).
  */
 type Lock = { release: () => Promise<void> };
 type WakeNav = Navigator & { wakeLock?: { request: (t: "screen") => Promise<Lock> } };

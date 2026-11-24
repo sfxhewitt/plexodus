@@ -65,12 +65,13 @@ type Server struct {
 	thumbs     *thumbs.Manager
 	phone      phoneSessions
 	comp       *companion
+	tunnel     *tunnel
 }
 
 func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner, agent *metadata.Agent,
 	art *metadata.ArtCache, prober *probe.Worker, streams *stream.Manager, web fs.FS) *Server {
 	s := &Server{cfg: cfg, db: d, auth: auth.New(d), scanner: sc, agent: agent, art: art, prober: prober, streams: streams,
-		importer: plex.NewImporter(d), web: web, baseCtx: ctx, plexArtInflight: map[string]*artFetch{}, nowPlaying: newNowPlaying(), comp: newCompanion(), directory: newDirectory(),
+		importer: plex.NewImporter(d), web: web, baseCtx: ctx, plexArtInflight: map[string]*artFetch{}, nowPlaying: newNowPlaying(), comp: newCompanion(), tunnel: newTunnel(cfg.DataDir), directory: newDirectory(),
 		subs:   subs.New(cfg.FFmpeg, cfg.FFprobe, filepath.Join(cfg.DataDir, "subs")),
 		thumbs: thumbs.New(cfg.FFmpeg, filepath.Join(cfg.DataDir, "thumbs"))}
 	key := d.Setting(ctx, "stream_sign_key")
@@ -107,6 +108,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/auth/plex/pin/{id}", s.handlePlexPinCheck)
 	mux.HandleFunc("POST /api/auth/plex", s.handlePlexToken)
 	mux.HandleFunc("GET /identity", handlePlexIdentity)
+	mux.HandleFunc("GET /api/handoff/{code}", s.handleHandoff)
 	mux.HandleFunc("GET /api/invites/{token}", s.handleGetInvite)
 	mux.HandleFunc("POST /api/invites/{token}/accept", s.handleAcceptInvite)
 	mux.HandleFunc("GET /art/{size}/{file}", s.handleArt)
@@ -168,6 +170,7 @@ func (s *Server) Handler() http.Handler {
 	user("GET /api/ask", s.handleAsk)
 	user("GET /api/companion", s.handleCompanion)
 	user("POST /api/companion/ask", s.handleCompanionAsk)
+	user("POST /api/companion/secure", s.handleSecureLink)
 	user("GET /api/scan/status", s.handleScanStatus)
 	user("GET /api/items/{id}/markers", s.handleMarkers)
 	user("GET /api/items/{id}/trailer", s.handleTrailer)

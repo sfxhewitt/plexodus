@@ -504,6 +504,9 @@ func requestOrigin(r *http.Request) string {
 		host = hh
 	}
 	host = strings.Trim(host, "[]")
+	if isTunnelHost(host) { // the temporary Scene notes secure link
+		return ""
+	}
 	if strings.EqualFold(host, "localhost") || strings.HasSuffix(strings.ToLower(host), ".local") || !strings.Contains(host, ".") && net.ParseIP(host) == nil {
 		return ""
 	}
