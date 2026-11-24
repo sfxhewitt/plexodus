@@ -1,57 +1,35 @@
 /**
- * Keeps a phone's screen on while a page is open. The Wake Lock API only
- * works on https, and most Plexodus servers are plain http, so it falls back
- * to a tiny looping video with a silent sound track, which phones treat as
- * "something is playing" (the same trick NoSleep.js uses). iPhones ignore
- * muted or soundless videos for this, so it must have audio and must not be
- * muted. Start it from a tap.
+ * Keeps a phone's screen on while a page is open, using the Screen Wake
+ * Lock API. Browsers only allow it on secure (https) addresses. On plain
+ * http there is no reliable way on an iPhone: the old silent-video trick
+ * (NoSleep.js) no longer keeps iOS awake and puts a media player on the lock
+ * screen, so it isn't used.
  */
-const TINY_MP4 = "data:video/mp4;base64,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";
-
 type Lock = { release: () => Promise<void> };
 type WakeNav = Navigator & { wakeLock?: { request: (t: "screen") => Promise<Lock> } };
 
+/** True when this page can hold the screen on. */
+export function canKeepAwake() {
+  return window.isSecureContext && !!(navigator as WakeNav).wakeLock;
+}
+
 export class KeepAwake {
   private lock: Lock | null = null;
-  private video: HTMLVideoElement | null = null;
   on = false;
 
-  /** Call from a tap. Resolves true if the screen should now stay on. */
+  /** Resolves true if the screen should now stay on. */
   async enable(): Promise<boolean> {
     this.on = true;
-    const nav = navigator as WakeNav;
-    if (window.isSecureContext && nav.wakeLock) {
-      try {
-        this.lock = await nav.wakeLock.request("screen");
-        return true;
-      } catch {
-        // fall through to the video
-      }
-    }
-    if (!this.video) {
-      const v = document.createElement("video");
-      v.setAttribute("playsinline", "");
-      v.setAttribute("title", "Keep screen on");
-      v.loop = true;
-      // iOS pauses it when the page is hidden; carry on when it's back.
-      v.addEventListener("pause", () => {
-        if (this.on && !document.hidden) setTimeout(() => this.video?.play().catch(() => {}), 300);
-      });
-      v.src = TINY_MP4;
-      v.setAttribute("aria-hidden", "true");
-      Object.assign(v.style, { position: "fixed", left: "0", bottom: "0", width: "1px", height: "1px", opacity: "0.01", pointerEvents: "none", zIndex: "-1" });
-      document.body.appendChild(v);
-      this.video = v;
-    }
+    if (!canKeepAwake()) return false;
     try {
-      await this.video.play();
+      this.lock = await (navigator as WakeNav).wakeLock!.request("screen");
       return true;
     } catch {
       return false;
     }
   }
 
-  /** Re-take after the page comes back (locks and videos stop when hidden). */
+  /** Re-take after the page comes back (the lock is dropped when hidden). */
   resume() {
     if (this.on && !document.hidden) this.enable().catch(() => {});
   }
@@ -60,10 +38,5 @@ export class KeepAwake {
     this.on = false;
     this.lock?.release().catch(() => {});
     this.lock = null;
-    if (this.video) {
-      this.video.pause();
-      this.video.remove();
-      this.video = null;
-    }
   }
 }
