@@ -734,4 +734,5 @@ a.cast-card:hover .cast-photo, a.cast-card:focus-visible .cast-photo { transform
   .tabbar .np-badge { top: 0; right: calc(50% - 20px); }
   .main { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
 }
-.cmp-awake-tip { margin: -4px 0 14px; }
+.cmp-secure { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: -4px 0 14px; }
+.cmp-secure p { margin: 0; flex: 1 1 200px; }

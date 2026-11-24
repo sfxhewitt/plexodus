@@ -75,6 +75,22 @@ export default function Companion() {
   const [asking, setAsking] = useState(false);
   const awake = useRef(new KeepAwake());
   const [awakeOn, setAwakeOn] = useState(false);
+  const [linking, setLinking] = useState(false);
+  const [linkErr, setLinkErr] = useState("");
+  // Phones only let a page keep the screen on over https, so on plain http
+  // the server opens a temporary secure address and signs this phone in there.
+  const openSecure = async () => {
+    setLinking(true);
+    setLinkErr("");
+    try {
+      const r = await api.post<{ url: string }>("/api/companion/secure");
+      savePref(true);
+      window.location.href = r.url;
+    } catch (err) {
+      setLinkErr(err instanceof Error ? err.message : String(err));
+      setLinking(false);
+    }
+  };
   const toggleAwake = async () => {
     if (awake.current.on) {
       awake.current.disable();
@@ -143,6 +159,8 @@ export default function Companion() {
       if (awakePref()) awake.current.enable().then(setAwakeOn, () => {});
     };
     document.addEventListener("pointerdown", firstTap, { once: true, capture: true });
+    // Some browsers allow it straight away (no tap needed); try once.
+    if (awakePref() && canKeepAwake()) awake.current.enable().then(setAwakeOn, () => {});
     const reAwake = () => awake.current.resume();
     document.addEventListener("visibilitychange", reAwake);
     return () => {
@@ -207,9 +225,18 @@ export default function Companion() {
             </button>
           )}
         </div>
-        {!canKeepAwake() && (
-          // Phones only let a page keep the screen on over https.
-          <p className="muted small cmp-awake-tip">To stop your phone locking mid-film, turn Auto-Lock off while you watch (iPhone: Settings → Display &amp; Brightness → Auto-Lock → Never).</p>
+        {!window.isSecureContext && (
+          <div className="cmp-secure">
+            <button className="btn sm primary" onClick={openSecure} disabled={linking}>
+              {linking ? "Opening secure link…" : "Keep screen on"}
+            </button>
+            <p className="muted small">
+              {linking
+                ? "This takes a few seconds the first time."
+                : "Opens this page on a secure address, which phones need before a page may keep the screen on. You stay signed in."}
+            </p>
+            {linkErr && <p className="err small">{linkErr}</p>}
+          </div>
         )}
         {s ? (
           <div className="cmp-now">
