@@ -711,3 +711,4 @@ a.cast-card:hover .cast-photo, a.cast-card:focus-visible .cast-photo { transform
 .cmp-answer { border-color: rgba(129, 140, 248, 0.35); }
 .cmp-q { font-weight: 600; margin-top: 2px; }
 .cmp-foot { text-align: center; }
+.cmp-stale { color: #fbbf24; }
