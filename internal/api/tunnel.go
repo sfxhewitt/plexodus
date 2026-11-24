@@ -33,8 +33,14 @@ var tunnelURLRe = regexp.MustCompile(`https://[a-z0-9-]+\.trycloudflare\.com`)
 
 const (
 	tunnelStartWait = 45 * time.Second
-	handoffTTL      = 2 * time.Minute
+	// cloudflared prints the address before Cloudflare has published it in
+	// DNS; a phone sent there too early caches "not found". So the server
+	// opens the address itself (through public DNS) before handing it out.
+	handoffTTL = 10 * time.Minute
 )
+
+// tunnelCheckWait: how long a new address gets to start answering.
+var tunnelCheckWait = 45 * time.Second
 
 type handoff struct {
 	account, profile int64
@@ -48,13 +54,19 @@ type tunnel struct {
 	ready   chan struct{} // closed once url is known or the start failed
 	err     error
 	codes   map[string]handoff
+	stop    context.CancelFunc // ends the running cloudflared
+	checked time.Time          // when url last answered as this server
+
+	// check reports whether url answers as this server; swapped out in tests.
+	check func(ctx context.Context, url string) bool
 
 	// bin finds or fetches cloudflared; swapped out in tests.
 	bin func(ctx context.Context) (string, error)
 }
 
 func newTunnel(dataDir string) *tunnel {
-	return &tunnel{codes: map[string]handoff{}, bin: func(ctx context.Context) (string, error) { return cloudflaredPath(ctx, dataDir) }}
+	return &tunnel{codes: map[string]handoff{}, check: tunnelAnswers,
+		bin: func(ctx context.Context) (string, error) { return cloudflaredPath(ctx, dataDir) }}
 }
 
 // isTunnelHost reports whether a request came in over the quick tunnel.
@@ -65,8 +77,81 @@ func isTunnelHost(host string) bool {
 	return strings.HasSuffix(strings.ToLower(host), ".trycloudflare.com")
 }
 
-// URL starts the tunnel if needed and returns its https address.
+// URL starts the tunnel if needed and returns its https address once
+// it's reachable from the internet.
 func (t *tunnel) URL(ctx, base context.Context, target string) (string, error) {
+	for attempt := 0; ; attempt++ {
+		u, err := t.start(ctx, base, target)
+		if err != nil {
+			return "", err
+		}
+		t.mu.Lock()
+		fresh := time.Since(t.checked) < 30*time.Second && t.url == u
+		t.mu.Unlock()
+		if fresh {
+			return u, nil
+		}
+		wait := tunnelCheckWait
+		if attempt == 0 && t.wasChecked(u) {
+			wait = 8 * time.Second // a tunnel that worked before answers fast
+		}
+		if t.waitReachable(ctx, u, wait) {
+			return u, nil
+		}
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		log.Printf("secure link: %s isn't reachable, starting a new one", u)
+		t.restart(u)
+		if attempt >= 1 {
+			return "", errors.New("the secure link isn't reachable from the internet yet, try again in a minute")
+		}
+	}
+}
+
+func (t *tunnel) wasChecked(u string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.url == u && !t.checked.IsZero()
+}
+
+// waitReachable polls the address until it answers as this server.
+func (t *tunnel) waitReachable(ctx context.Context, u string, wait time.Duration) bool {
+	deadline := time.Now().Add(wait)
+	for {
+		cctx, cancel := context.WithTimeout(ctx, 6*time.Second)
+		ok := t.check(cctx, u)
+		cancel()
+		if ok {
+			t.mu.Lock()
+			if t.url == u {
+				t.checked = time.Now()
+			}
+			t.mu.Unlock()
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+// restart ends the tunnel at u (if it's still the current one).
+func (t *tunnel) restart(u string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.url == u && t.stop != nil {
+		t.stop()
+		t.url, t.running, t.checked = "", false, time.Time{}
+	}
+}
+
+func (t *tunnel) start(ctx, base context.Context, target string) (string, error) {
 	t.mu.Lock()
 	if t.running && t.url != "" {
 		u := t.url
@@ -75,9 +160,11 @@ func (t *tunnel) URL(ctx, base context.Context, target string) (string, error) {
 	}
 	if !t.running {
 		t.running = true
-		t.url, t.err = "", nil
+		t.url, t.err, t.checked = "", nil, time.Time{}
 		t.ready = make(chan struct{})
-		go t.run(base, target, t.ready)
+		pctx, stop := context.WithCancel(base)
+		t.stop = stop
+		go t.run(pctx, target, t.ready)
 	}
 	ready := t.ready
 	t.mu.Unlock()
@@ -100,12 +187,45 @@ func (t *tunnel) URL(ctx, base context.Context, target string) (string, error) {
 	return t.url, nil
 }
 
+// publicDNS resolves through Cloudflare's own resolver, so the check sees
+// the address as soon as it exists and the host's resolver never caches a
+// "not found" for it.
+var publicDNS = &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, system string) (net.Conn, error) {
+	d := net.Dialer{Timeout: 2 * time.Second}
+	if c, err := d.DialContext(ctx, network, "1.1.1.1:53"); err == nil {
+		return c, nil
+	}
+	return d.DialContext(ctx, network, system) // DNS port blocked: the host's own
+}}
+
+var tunnelClient = &http.Client{Transport: &http.Transport{
+	Proxy:       http.ProxyFromEnvironment,
+	DialContext: (&net.Dialer{Timeout: 5 * time.Second, Resolver: publicDNS}).DialContext,
+}}
+
+// tunnelAnswers reports whether u reaches this very server (same boot id).
+func tunnelAnswers(ctx context.Context, u string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u+"/api/status", nil)
+	if err != nil {
+		return false
+	}
+	res, err := tunnelClient.Do(req)
+	if err != nil {
+		return false
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
+	return res.StatusCode == http.StatusOK && strings.Contains(string(b), bootID)
+}
+
 func (t *tunnel) run(ctx context.Context, target string, ready chan struct{}) {
 	var once sync.Once
 	signal := func() { once.Do(func() { close(ready) }) }
 	fail := func(err error) {
 		t.mu.Lock()
-		t.err, t.url, t.running = err, "", false
+		if t.ready == ready { // not already replaced by a newer tunnel
+			t.err, t.url, t.running, t.checked = err, "", false, time.Time{}
+		}
 		t.mu.Unlock()
 		signal()
 	}
@@ -133,7 +253,7 @@ func (t *tunnel) run(ctx context.Context, target string, ready chan struct{}) {
 		line := sc.Text()
 		if u := tunnelURLRe.FindString(line); u != "" {
 			t.mu.Lock()
-			if t.url == "" {
+			if t.url == "" && t.ready == ready {
 				t.url = u
 				log.Printf("secure link: %s", u)
 			}
@@ -241,7 +361,7 @@ func localTarget(addr string) string {
 // POST /api/companion/secure → {url}: a one-time link to Scene notes on the
 // secure address, already signed in as the caller.
 func (s *Server) handleSecureLink(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), tunnelStartWait+5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), tunnelStartWait+2*tunnelCheckWait+10*time.Second)
 	defer cancel()
 	base, err := s.tunnel.URL(ctx, s.baseCtx, localTarget(s.cfg.Addr))
 	if err != nil {

@@ -232,7 +232,7 @@ export default function Companion() {
             </button>
             <p className="muted small">
               {linking
-                ? "This takes a few seconds the first time."
+                ? "The first time can take up to a minute while the secure address goes live."
                 : "Opens this page on a secure address, which phones need before a page may keep the screen on. You stay signed in."}
             </p>
             {linkErr && <p className="err small">{linkErr}</p>}
