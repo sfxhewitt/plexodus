@@ -18,6 +18,7 @@ import Wrapped from "./pages/Wrapped";
 import Activity from "./pages/Activity";
 import History from "./pages/History";
 import Person from "./pages/Person";
+import Companion from "./pages/Companion";
 import "./styles.css";
 
 function Shell() {
@@ -42,6 +43,7 @@ function Shell() {
           <Route path="/settings" element={<Settings />} />
           <Route path="/activity" element={<Activity />} />
           <Route path="/history" element={<History />} />
+          <Route path="/scene" element={<Companion />} />
           <Route path="/wrapped" element={<Wrapped />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
