@@ -124,9 +124,15 @@ var (
 	ErrWeakPass = errors.New("password must be at least 6 characters")
 )
 
+//
+// A failed read (a client that hung up, a stalled disk) counts as "yes":
+// otherwise the first-run setup page, which creates an admin, would open
+// up on a server that has one.
 func (a *Auth) HasUsers(ctx context.Context) bool {
 	var n int
-	a.db.R.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&n)
+	if err := a.db.R.QueryRowContext(context.WithoutCancel(ctx), `SELECT COUNT(*) FROM users`).Scan(&n); err != nil {
+		return true
+	}
 	return n > 0
 }
 
