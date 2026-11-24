@@ -2,6 +2,23 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, art, type NowPlaying } from "../api";
 import { Sparkle } from "../components/Icons";
+import { KeepAwake } from "../keepAwake";
+
+const AWAKE_KEY = "plexodus.scene.keepAwake";
+function awakePref() {
+  try {
+    return localStorage.getItem(AWAKE_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+function savePref(on: boolean) {
+  try {
+    localStorage.setItem(AWAKE_KEY, on ? "1" : "0");
+  } catch {
+    // private mode: fine
+  }
+}
 
 interface Note {
   at: number;
@@ -56,6 +73,18 @@ export default function Companion() {
   const [answers, setAnswers] = useState<Answer[]>([]);
   const [q, setQ] = useState("");
   const [asking, setAsking] = useState(false);
+  const awake = useRef(new KeepAwake());
+  const [awakeOn, setAwakeOn] = useState(false);
+  const toggleAwake = async () => {
+    if (awake.current.on) {
+      awake.current.disable();
+      setAwakeOn(false);
+      savePref(false);
+    } else {
+      savePref(true);
+      setAwakeOn(await awake.current.enable());
+    }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -107,22 +136,26 @@ export default function Companion() {
     window.addEventListener("pageshow", wake);
     window.addEventListener("online", wake);
     const t = window.setInterval(() => setTick((n) => n + 1), 1000);
-    // Keep the phone awake while the page is open, where supported.
-    let lock: { release: () => Promise<void> } | null = null;
-    const nav = navigator as Navigator & { wakeLock?: { request: (t: "screen") => Promise<{ release: () => Promise<void> }> } };
-    const keepAwake = () => !document.hidden && nav.wakeLock?.request("screen").then((l) => (lock = l), () => {});
-    keepAwake();
-    document.addEventListener("visibilitychange", keepAwake);
+    // Keep the phone awake: needs a tap, so the first touch anywhere turns
+    // it on unless the viewer switched it off.
+    const firstTap = (e: PointerEvent) => {
+      if ((e.target as Element | null)?.closest?.(".cmp-awake")) return; // the button does it
+      if (awakePref()) awake.current.enable().then(setAwakeOn, () => {});
+    };
+    document.addEventListener("pointerdown", firstTap, { once: true, capture: true });
+    const reAwake = () => awake.current.resume();
+    document.addEventListener("visibilitychange", reAwake);
     return () => {
       alive = false;
       clearInterval(poll);
       clearInterval(t);
       document.removeEventListener("visibilitychange", wake);
-      document.removeEventListener("visibilitychange", keepAwake);
+      document.removeEventListener("visibilitychange", reAwake);
+      document.removeEventListener("pointerdown", firstTap, { capture: true });
       window.removeEventListener("focus", wake);
       window.removeEventListener("pageshow", wake);
       window.removeEventListener("online", wake);
-      lock?.release().catch(() => {});
+      awake.current.disable();
     };
   }, []);
 
@@ -165,7 +198,13 @@ export default function Companion() {
     <div className="page companion-page">
       {s?.backdrop && <div className="cmp-bg" style={{ backgroundImage: `url(${art(s.backdrop, "w780")})` }} />}
       <div className="cmp-head">
-        <h1><Sparkle size={20} /> Scene notes</h1>
+        <div className="cmp-title">
+          <h1><Sparkle size={20} /> Scene notes</h1>
+          <button className={`btn sm ${awakeOn ? "primary" : "glass"} cmp-awake`} onClick={(e) => { e.stopPropagation(); toggleAwake(); }}
+            aria-pressed={awakeOn} title="Stop the phone's screen from turning off">
+            {awakeOn ? "Screen stays on" : "Keep screen on"}
+          </button>
+        </div>
         {s ? (
           <div className="cmp-now">
             {s.poster && <img src={art(s.poster, "w185")} alt="" />}
