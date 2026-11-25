@@ -248,7 +248,7 @@ function Shell() {
       // finished stays in Up Next with its old progress.
       window.dispatchEvent(new Event("tv:refresh"));
       refreshAgain.current.forEach(clearTimeout);
-      refreshAgain.current = [2500, 7000].map((ms) => setTimeout(() => window.dispatchEvent(new Event("tv:refresh")), ms));
+      refreshAgain.current = [2500, 7000, 15000].map((ms) => setTimeout(() => window.dispatchEvent(new Event("tv:refresh")), ms));
       if (!lastId) return;
       // The server has the last word (it knows the credits of an episode the
       // player went on to by itself, which this page doesn't): ask whether it

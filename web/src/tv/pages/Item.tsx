@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, art, Card, Detail, episodeLabel, fmtRuntime, fmtTime, resolution, ShareTarget, shareToPlex } from "../../api";
 import { Check, Eye, Play, Plus, Refresh, Share, Tv, X } from "../../components/Icons";
@@ -13,6 +13,7 @@ import { CollectionTile } from "../collectionTile";
 import { initials } from "../../people";
 import { countLabel, episodeCard, episodeStatus, fmtAirDate, Guide, GuideEpisode, mergeEpisodes, mergeSeasons, seasonCard, seasonSub } from "../../guide";
 import { hasRT, RTScores } from "../../rt";
+import { forgetFinished, useFinishedTick, withFinished } from "../../homeHidden";
 
 function MediaChips({ d }: { d: Detail }) {
   const f = d.files[0];
@@ -40,7 +41,11 @@ export default function Item() {
   const { id } = useParams();
   const nav = useNavigate();
   const toast = useToast();
-  const { data: d, error, reload } = useApi<Detail>(`/api/items/${id}`);
+  const { data: raw, error, reload } = useApi<Detail>(`/api/items/${id}`);
+  // Back from the player: what it just finished shows as watched straight
+  // away, whatever the server's copy still says.
+  const finishedTick = useFinishedTick();
+  const d = useMemo(() => raw && withFinished(raw), [raw, finishedTick]);
   const { data: shareData } = useApi<{ targets: ShareTarget[] }>("/api/share/targets");
   const shareTargets = shareData?.targets ?? [];
   const isTitle = d?.kind === "movie" || d?.kind === "show";
@@ -96,6 +101,7 @@ export default function Item() {
   const toggleWatched = async () => {
     try {
       await api.post(`/api/items/${d.id}/watched`, { watched: !allWatched });
+      if (allWatched) [d, ...d.children].forEach((c) => forgetFinished(c.id));
       api.invalidate("/api/home");
       api.invalidate("/api/libraries/");
       reload();

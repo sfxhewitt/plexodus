@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, art, Card, Detail, episodeLabel, fmtRuntime, fmtSize, fmtTime, resolution, ShareTarget, shareToPlex } from "../api";
 import { Img, PosterCard, Row } from "../components/Cards";
@@ -7,6 +7,7 @@ import { useApi, useDebounced, useUser } from "../hooks";
 import { initials } from "../people";
 import { countLabel, episodeStatus, fmtAirDate, Guide, GuideEpisode, mergeEpisodes, mergeSeasons, seasonCard, seasonSub } from "../guide";
 import { hasRT, RTScores } from "../rt";
+import { forgetFinished, useFinishedTick, withFinished } from "../homeHidden";
 
 function MatchModal({ item, onClose, onDone }: { item: Detail; onClose: () => void; onDone: () => void }) {
   const [q, setQ] = useState(item.title);
@@ -188,7 +189,10 @@ export default function Item() {
   const { id } = useParams();
   const nav = useNavigate();
   const { user } = useUser();
-  const { data: d, error, reload } = useApi<Detail>(`/api/items/${id}`);
+  const { data: raw, error, reload } = useApi<Detail>(`/api/items/${id}`);
+  // Just back from the player: what it finished shows as watched at once.
+  const finishedTick = useFinishedTick();
+  const d = useMemo(() => raw && withFinished(raw), [raw, finishedTick]);
   const isTitle = d?.kind === "movie" || d?.kind === "show";
   const { data: extras } = useApi<{ cast: { id?: number; name: string; character?: string; profile?: string }[]; similar: Card[] }>(
     isTitle && String(d?.id) === id ? `/api/items/${id}/extras` : null);
@@ -216,6 +220,7 @@ export default function Item() {
   const toggleWatched = async () => {
     const watched = d.kind === "show" || d.kind === "season" ? d.viewedLeafCount !== d.leafCount : !d.watched;
     await api.post(`/api/items/${d.id}/watched`, { watched });
+    if (!watched) [d, ...d.children].forEach((c) => forgetFinished(c.id));
     api.invalidate("/api/home");
     reload();
   };
