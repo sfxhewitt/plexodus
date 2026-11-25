@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { Card } from "./api";
 
 // Remove from Up Next, Mark as watched, or finishing something in the player
@@ -41,6 +42,7 @@ export function hideOnHome(id: number, keepMs = KEEP_MS) {
 
 /** Marked unwatched again: it may come back. */
 export function unhideOnHome(id: number) {
+  forgetFinished(id);
   const had = hidden.delete(id);
   if (replaced.delete(id) || had) changed(id);
 }
@@ -76,6 +78,47 @@ export function creditsStart(markers: { type: string; start: number }[], duratio
  */
 export function finishedOnHome(id: number) {
   hideOnHome(id, 2 * 60_000);
+  finishedHere.set(id, Date.now());
+  window.dispatchEvent(new CustomEvent("plexodus:finished", { detail: id }));
+}
+
+// Titles the player just finished. Their pages show them as watched at once
+// (Watched, Mark unwatched, no resume point) instead of waiting for the
+// server: its answer can still be the one from before the last progress
+// report landed, and a page that kept its old copy would say "Mark watched".
+const FINISHED_MS = 2 * 60_000;
+const finishedHere = new Map<number, number>();
+
+export function justFinished(id: number): boolean {
+  const at = finishedHere.get(id);
+  if (at === undefined) return false;
+  if (Date.now() - at > FINISHED_MS) {
+    finishedHere.delete(id);
+    return false;
+  }
+  return true;
+}
+
+/** Marked unwatched by hand: the server's answer counts again. */
+export function forgetFinished(id: number) {
+  finishedHere.delete(id);
+}
+
+/**
+ * A title page as it should look right now: the title, or any of its
+ * episodes, that the player just finished shows as watched. Once the server
+ * agrees nothing changes.
+ */
+export function withFinished<T extends { id: number; kind: string; watched?: boolean; position?: number; children?: Card[]; onDeck?: Card }>(d: T): T {
+  if (!finishedHere.size) return d;
+  const fix = <C extends { id: number; watched?: boolean; position?: number }>(c: C): C =>
+    justFinished(c.id) && !c.watched ? { ...c, watched: true, position: 0 } : c;
+  let out = fix(d);
+  if (d.children?.some((c) => justFinished(c.id) && !c.watched)) out = { ...out, children: d.children.map(fix) };
+  // A show's "next up" that was just finished: the server will name the next
+  // episode shortly; until then don't offer to resume the finished one.
+  if (d.onDeck && justFinished(d.onDeck.id) && !d.onDeck.watched) out = { ...out, onDeck: fix(d.onDeck) };
+  return out;
 }
 
 /** The finished episode's card turns into the show's next one, in the same place. */
@@ -144,4 +187,15 @@ export function onHomeStale(reload: () => void) {
     clearTimeout(timer);
     window.removeEventListener("plexodus:home-stale", on);
   };
+}
+
+/** Re-renders when the player finishes a title (see withFinished). */
+export function useFinishedTick() {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    const on = () => setN((x) => x + 1);
+    window.addEventListener("plexodus:finished", on);
+    return () => window.removeEventListener("plexodus:finished", on);
+  }, []);
+  return n;
 }

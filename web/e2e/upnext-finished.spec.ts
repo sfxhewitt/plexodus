@@ -120,3 +120,36 @@ test("an episode the server counts as watched (into its credits) leaves Up Next 
   await expect(inUpNext(page, ids.episode), "gone once the server says it's watched").toHaveCount(0, { timeout: 3000 });
   await expect(inUpNext(page, nextId), "the next episode takes its place").toHaveCount(1);
 });
+
+test("the title page says Watched as soon as the player finishes the film", async ({ page, openTv }) => {
+  await page.addInitScript(tvBox);
+  const film = ids.movie + 3;
+  await openTv(`/item/${film}`);
+  await waitForFocus(page);
+  const watchedBtn = page.locator('[data-fk="watched"]');
+  await expect(watchedBtn).toHaveText(/Mark watched/);
+  await page.locator('[data-fk="play"]').focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __played?: { itemId: number } }).__played?.itemId)).toBe(film);
+  // The mock server never saves the progress: the page must not wait for it.
+  await closePlayer(page, { itemId: film, lastItemId: film, position: 5100, duration: 5400, ended: false });
+  await expect(watchedBtn, "flips without waiting for the server").toHaveText(/Mark unwatched/, { timeout: 500 });
+  await expect(page.locator(".tv-watched")).toHaveCount(1);
+  await expect(page.locator('[data-fk="play"]')).toHaveText(/^\s*Play/);
+  // Refetches of the server's old copy don't flip it back.
+  await page.waitForTimeout(3000);
+  await expect(watchedBtn).toHaveText(/Mark unwatched/);
+});
+
+test("stopping partway leaves the title page unwatched", async ({ page, openTv }) => {
+  await page.addInitScript(tvBox);
+  const film = ids.movie + 3;
+  await openTv(`/item/${film}`);
+  await waitForFocus(page);
+  await page.locator('[data-fk="play"]').focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __played?: { itemId: number } }).__played?.itemId)).toBe(film);
+  await closePlayer(page, { itemId: film, lastItemId: film, position: 3000, duration: 5400, ended: false });
+  await page.waitForTimeout(800);
+  await expect(page.locator('[data-fk="watched"]')).toHaveText(/Mark watched/);
+});
