@@ -260,7 +260,7 @@ export default function Companion() {
       {!data.enabled && (
         <div className="cmp-card cmp-warn">
           Scene notes are written by Claude, so the server needs an Anthropic API key. Add one in{" "}
-          <Link to="/settings">Settings → Plain-English search</Link> (admins), then come back here.
+          <Link to="/settings/metadata">Settings → Metadata and search</Link> (admins), then come back here.
         </div>
       )}
 

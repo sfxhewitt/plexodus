@@ -318,6 +318,7 @@ function Shell() {
               <Route path="/collection/:id" element={<CollectionPage />} />
               <Route path="/person/:id" element={<PersonPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/settings/:section" element={<SettingsPage />} />
               <Route path="/wrapped" element={<WrappedPage />} />
               <Route path="/play/:id" element={<PlayRoute />} />
               <Route path="/voice" element={<VoiceRoute />} />

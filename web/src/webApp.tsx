@@ -41,6 +41,7 @@ function Shell() {
           <Route path="/play/:id" element={<Player />} />
           <Route path="/search" element={<Search />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/settings/:section" element={<Settings />} />
           <Route path="/activity" element={<Activity />} />
           <Route path="/history" element={<History />} />
           <Route path="/scene" element={<Companion />} />

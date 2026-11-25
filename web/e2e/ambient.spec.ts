@@ -111,7 +111,7 @@ test("titles without a trailer just keep their art", async ({ page, openTv }) =>
 });
 
 test("trailers can be switched off in Settings", async ({ page, openTv }) => {
-  await openTv("/settings");
+  await openTv("/settings/screen");
   await waitForFocus(page);
   await page.locator('[data-fk="trailers"]').focus();
   await page.keyboard.press("Enter");
@@ -134,7 +134,7 @@ test("screensaver: drifts through art, any button wakes, OK plays", async ({ pag
       },
     };
   });
-  await openTv("/settings");
+  await openTv("/settings/screen");
   await waitForFocus(page);
   const preview = page.locator('[data-fk="saver-preview"]');
   await preview.focus();
@@ -155,7 +155,7 @@ test("screensaver: drifts through art, any button wakes, OK plays", async ({ pag
   await expect(saver).toHaveCount(1);
   await page.keyboard.press("Escape");
   await expect(saver).toHaveCount(0);
-  expect(new URL(page.url()).pathname).toBe("/settings");
+  expect(new URL(page.url()).pathname).toBe("/settings/screen");
 
   // OK plays what's on screen.
   await page.keyboard.press("Enter");
@@ -167,7 +167,7 @@ test("screensaver: drifts through art, any button wakes, OK plays", async ({ pag
     { message: "OK hands the title on screen to the player" }).toBeTruthy();
   const played = await page.evaluate(() => (window as unknown as { __played: { title: string } }).__played.title);
   expect(shown, "it plays the title that was on screen").toContain(played);
-  expect(new URL(page.url()).pathname, "and stays on Settings").toBe("/settings");
+  expect(new URL(page.url()).pathname, "and stays on Settings").toBe("/settings/screen");
 });
 
 test("screensaver starts by itself after the idle time", async ({ page, openTv }) => {
