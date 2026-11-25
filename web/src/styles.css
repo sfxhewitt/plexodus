@@ -395,7 +395,7 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
 .check input { margin-top: 4px; accent-color: var(--indigo); }
 .check.inline { align-items: center; }
 .check.inline input { margin: 0; }
-.form-actions { display: flex; gap: 10px; }
+.form-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .lib-list { display: flex; flex-direction: column; gap: 12px; }
 .lib-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; }
 .lib-row-main { min-width: 0; flex: 1 1 320px; }

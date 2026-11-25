@@ -152,7 +152,12 @@ test("phone: a list of categories, each opening with a way back", async ({ page,
     await expect(page.locator(`.settings-pane[data-section="${key}"]`)).toBeVisible();
     await expect(nav).toHaveCount(0);
     await page.waitForTimeout(300);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${key}: no sideways scroll`).toBe(true);
+    // Name whatever sticks out, so a failure says what to fix. Wider letters stand in for other fonts.
+    await page.addStyleTag({ content: "*{letter-spacing:0.12em!important}" });
+    const wide = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".settings-pane *")]
+      .filter((el) => el.getBoundingClientRect().right > window.innerWidth + 1 && !el.closest(".code"))
+      .map((el) => `${el.tagName.toLowerCase()}.${el.className} "${el.innerText.slice(0, 30)}"`).slice(0, 5));
+    expect(wide, `${key}: nothing runs off the side`).toEqual([]);
     await page.screenshot({ path: info.outputPath(`phone-02-${key}.png`) });
     await page.locator(".settings-back").click();
     await expect(page).toHaveURL(/\/settings(\?|$)/);
