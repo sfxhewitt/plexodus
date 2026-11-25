@@ -58,3 +58,9 @@ export const Sliders = (p: P) => (<Svg {...p}><path d="M4 6h10M18 6h2M4 12h4M12 
 export const SortIcon = (p: P) => (<Svg {...p}><path d="M7 4v16M3 16l4 4 4-4M17 20V4M13 8l4-4 4 4" /></Svg>);
 export const Shuffle = (p: P) => (<Svg {...p}><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5" /></Svg>);
 export const Clock = (p: P) => (<Svg {...p}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></Svg>);
+export const Dice = (p: P) => (
+  <Svg {...p}><rect x="3.5" y="3.5" width="17" height="17" rx="3" /><circle cx="8.5" cy="8.5" r="1.2" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" /><circle cx="15.5" cy="15.5" r="1.2" fill="currentColor" stroke="none" /></Svg>
+);
+export const Compass = (p: P) => (<Svg {...p}><circle cx="12" cy="12" r="9" /><path d="m15.5 8.5-2 5-5 2 2-5z" /></Svg>);
+export const ThumbUp = (p: P) => (<Svg {...p}><path d="M7 10v10H4V10zM7 10l4-7a2 2 0 0 1 2 2v4h5a2 2 0 0 1 2 2.3l-1.2 7A2 2 0 0 1 16.8 20H7" /></Svg>);
+export const ThumbDown = (p: P) => (<Svg {...p}><path d="M7 14V4H4v10zM7 14l4 7a2 2 0 0 0 2-2v-4h5a2 2 0 0 0 2-2.3l-1.2-7A2 2 0 0 0 16.8 4H7" /></Svg>);

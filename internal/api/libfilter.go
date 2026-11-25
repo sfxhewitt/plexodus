@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/sfxhewitt/plexodus/internal/db"
+	"github.com/sfxhewitt/plexodus/internal/mood"
 )
 
 // Library filters, shared by the item list and the live counts the TV's
@@ -24,6 +25,17 @@ import (
 //	age     kids | 13 | 16 | adult (content rating, see internal/rating)
 //	length  short (under 90 min) | medium (90–120) | long (over 2 h)
 //	added   added in the last N days: 7, 30 or 90
+//
+// Films also have a mood profile (internal/mood), which adds:
+//
+//	mood     fg | th | cr | la | mb | ch | ad (Feel-good, Thriller, ...)
+//	content  any of noviolence, noscares, family, nosex, romance, comma-separated
+//	feel     where the film should sit on a dimension, within 25 points:
+//	         "v:80,dark:20" (v a dark humour complex pace weight comfort, 0–100)
+//	yfrom, yto  release year range
+//
+// and the viewer's saved "never show" and "must be" genres (pick_genres)
+// always apply.
 
 // resExpr buckets a film by its best file's picture size. A wide 1920×800
 // scope film is still 1080p, so width counts as much as height.
@@ -38,10 +50,15 @@ type facetOpt struct {
 	cond string // SQL over the derived table t (see facetsQuery)
 }
 
+// optWheres holds, by cond, the condition to use in the item list instead of
+// cond rewritten (mood columns are joined into t but not into the list).
+var optWheres = map[string]string{}
+
 type facetDef struct {
 	Key    string
 	Label  string
 	Movies bool // only for film libraries
+	Multi  bool // several choices at once, comma-separated; all must hold
 	opts   []facetOpt
 }
 
@@ -97,6 +114,71 @@ var facetDefs = []facetDef{
 	}},
 }
 
+// moodExists is a condition on a film's mood profile, for the item list.
+func moodExists(conds []string) string {
+	return "EXISTS (SELECT 1 FROM item_moods m WHERE m.item_id = i.id AND " + strings.Join(conds, " AND ") + ")"
+}
+
+// moodOpt builds a choice from conditions written against item_moods as m:
+// counted over t's joined mood columns (t.m_dark), listed with an EXISTS.
+func moodOpt(v, l string, conds []string) facetOpt {
+	cond := strings.ReplaceAll(strings.Join(conds, " AND "), "m.", "t.m_")
+	optWheres[cond] = moodExists(conds)
+	return facetOpt{v, l, cond}
+}
+
+// moodCols selects every mood column into the derived table t as m_<name>.
+var moodCols = func() string {
+	var cols []string
+	for _, c := range mood.Columns {
+		cols = append(cols, "m."+c+" m_"+c)
+	}
+	return strings.Join(cols, ", ")
+}()
+
+func init() {
+	moods := facetDef{Key: "mood", Label: "Mood", Movies: true}
+	for _, p := range mood.Moods {
+		var conds []string
+		for _, r := range p.R {
+			if r.Lo > 0 {
+				conds = append(conds, fmt.Sprintf("m.%s >= %d", mood.Columns[r.Dim], int(r.Lo*100+.5)))
+			}
+			if r.Hi < 1 {
+				conds = append(conds, fmt.Sprintf("m.%s <= %d", mood.Columns[r.Dim], int(r.Hi*100+.5)))
+			}
+		}
+		moods.opts = append(moods.opts, moodOpt(p.Key, p.Label+" · "+p.Sub, conds))
+	}
+	content := facetDef{Key: "content", Label: "Content", Movies: true, Multi: true}
+	for _, f := range mood.Flags {
+		op := ">="
+		if f.Below {
+			op = "<"
+		}
+		content.opts = append(content.opts, moodOpt(f.Key, f.Label, []string{fmt.Sprintf("m.%s %s %d", mood.Columns[f.Dim], op, int(f.At*100+.5))}))
+	}
+	// Mood first: it is what people come to these filters for.
+	facetDefs = append([]facetDef{moods, content}, facetDefs...)
+}
+
+// feelTolerance is how far (in points) a film may sit from a "feel" slider.
+const feelTolerance = 25
+
+// parseFeel reads "v:80,dark:20" into dimension → 0–100.
+func parseFeel(s string) map[int]int {
+	out := map[int]int{}
+	for _, part := range strings.Split(s, ",") {
+		k, v, ok := strings.Cut(part, ":")
+		d, known := mood.DimIndex(k)
+		n, err := strconv.Atoi(v)
+		if ok && known && err == nil && n >= 0 && n <= 100 {
+			out[d] = n
+		}
+	}
+	return out
+}
+
 func findOpt(key, v string) (facetDef, facetOpt, bool) {
 	for _, f := range facetDefs {
 		if f.Key != key {
@@ -114,10 +196,21 @@ func findOpt(key, v string) (facetDef, facetOpt, bool) {
 // tCond rewrites a facet condition written against the derived table t so it
 // runs directly on the items/watch_state join.
 func tCond(c string) string {
-	r := strings.NewReplacer(
+	return tReplacer().Replace(c)
+}
+
+// optWhere is a choice's condition for the item list.
+func optWhere(o facetOpt) string {
+	if w, ok := optWheres[o.cond]; ok {
+		return w
+	}
+	return tCond(o.cond)
+}
+
+func tReplacer() *strings.Replacer {
+	return strings.NewReplacer(
 		"t.watched", "COALESCE(w.watched, 0)", "t.position", "COALESCE(w.position, 0)",
 		"t.res", resExpr, "t.", "i.", "%NOW%", strconv.FormatInt(db.Now(), 10))
-	return r.Replace(c)
 }
 
 // libraryWhere builds the WHERE clause for a library's films and shows with
@@ -134,10 +227,38 @@ func libraryWhere(r *http.Request, id int64, q url.Values, skip string) (string,
 		if f.Key == skip {
 			continue
 		}
+		if f.Multi {
+			for _, v := range strings.Split(q.Get(f.Key), ",") {
+				if _, o, ok := findOpt(f.Key, v); ok {
+					where += " AND " + optWhere(o)
+				}
+			}
+			continue
+		}
 		if _, o, ok := findOpt(f.Key, q.Get(f.Key)); ok {
-			where += " AND " + tCond(o.cond)
+			where += " AND " + optWhere(o)
 		}
 	}
+	if feel := parseFeel(q.Get("feel")); len(feel) > 0 {
+		var conds []string
+		for d := 0; d < mood.NDims; d++ { // in order, so the SQL is stable
+			if n, ok := feel[d]; ok {
+				conds = append(conds, fmt.Sprintf("m.%s BETWEEN %d AND %d", mood.Columns[d], n-feelTolerance, n+feelTolerance))
+			}
+		}
+		where += " AND " + moodExists(conds)
+	}
+	if y, err := strconv.Atoi(q.Get("yfrom")); err == nil && y > 0 {
+		where += fmt.Sprintf(" AND i.year >= %d", y)
+	}
+	if y, err := strconv.Atoi(q.Get("yto")); err == nil && y > 0 {
+		where += fmt.Sprintf(" AND i.year > 0 AND i.year <= %d", y)
+	}
+	// The viewer's saved genres: none of the "never" ones and, if they insist
+	// on any, at least one of those.
+	where += ` AND NOT EXISTS (SELECT 1 FROM pick_genres pg, json_each(i.genres) pj WHERE pg.user_id = ?1 AND pg.mode = 1 AND pj.value = pg.genre)
+		AND (NOT EXISTS (SELECT 1 FROM pick_genres pg WHERE pg.user_id = ?1 AND pg.mode = 2)
+			OR EXISTS (SELECT 1 FROM pick_genres pg, json_each(i.genres) pj WHERE pg.user_id = ?1 AND pg.mode = 2 AND pj.value = pg.genre))`
 	return where, args
 }
 
@@ -150,6 +271,7 @@ type facetCount struct {
 type facetOut struct {
 	Key     string       `json:"key"`
 	Label   string       `json:"label"`
+	Multi   bool         `json:"multi,omitempty"`
 	Options []facetCount `json:"options"`
 }
 
@@ -166,10 +288,14 @@ func (s *Server) handleLibraryFacets(w http.ResponseWriter, r *http.Request) {
 	s.db.R.QueryRowContext(r.Context(), `SELECT kind FROM libraries WHERE id = ?`, id).Scan(&kind)
 	movies := kind != "shows"
 	uid := currentUser(r).ID
+	if movies {
+		s.ensureMoods(r.Context())
+	}
 
-	res := "NULL"
+	res, mcols, mjoin := "NULL", "", ""
 	if movies {
 		res = resExpr
+		mcols, mjoin = ", "+moodCols, " LEFT JOIN item_moods m ON m.item_id = i.id"
 	}
 	// One pass per distinct WHERE: every facet without a choice shares the
 	// fully filtered set; each facet with a choice is counted without it.
@@ -186,8 +312,8 @@ func (s *Server) handleLibraryFacets(w http.ResponseWriter, r *http.Request) {
 		}
 		sums = append(sums, "COUNT(*)")
 		rows, err := s.db.R.QueryContext(r.Context(), `SELECT `+strings.Join(sums, ", ")+` FROM (SELECT i.year, i.rating, i.rt_critic, i.rt_audience, i.age, i.runtime, i.added_at,
-			COALESCE(w.watched, 0) watched, COALESCE(w.position, 0) position, `+res+` res
-			FROM items i LEFT JOIN watch_state w ON w.item_id = i.id AND w.user_id = ?1 `+where+`) t`, append([]any{uid}, args...)...)
+			COALESCE(w.watched, 0) watched, COALESCE(w.position, 0) position, `+res+` res`+mcols+`
+			FROM items i LEFT JOIN watch_state w ON w.item_id = i.id AND w.user_id = ?1`+mjoin+` `+where+`) t`, append([]any{uid}, args...)...)
 		if err != nil {
 			return err
 		}
@@ -221,7 +347,7 @@ func (s *Server) handleLibraryFacets(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		visible = append(visible, f)
-		if _, _, ok := findOpt(f.Key, q.Get(f.Key)); ok {
+		if _, _, ok := findOpt(f.Key, q.Get(f.Key)); ok && !f.Multi {
 			if err := run(f.Key, []facetDef{f}); err != nil {
 				writeErr(w, 500, err.Error())
 				return
@@ -237,7 +363,7 @@ func (s *Server) handleLibraryFacets(w http.ResponseWriter, r *http.Request) {
 
 	out := []facetOut{}
 	for _, f := range visible {
-		fo := facetOut{Key: f.Key, Label: f.Label, Options: []facetCount{}}
+		fo := facetOut{Key: f.Key, Label: f.Label, Multi: f.Multi, Options: []facetCount{}}
 		for _, o := range f.opts {
 			n := counts[f.Key][o.V]
 			// Empty decades only clutter the list; keep the others, at 0, so

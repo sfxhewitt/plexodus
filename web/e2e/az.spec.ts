@@ -50,7 +50,7 @@ test("A–Z bar: Up and Down stay on the bar, the button on top opens the filter
   }
   expect(f.fk, "the top of the bar is the Filters button").toBe("az-filters");
   await page.keyboard.press("Enter");
-  await waitForFocus(page, "cat-genre");
+  await waitForFocus(page, "cat-mood");
   await snap(page, info, "01 filters from the A–Z bar");
   await page.keyboard.press("Escape");
   await waitForFocus(page, "filters");

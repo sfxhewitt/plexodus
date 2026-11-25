@@ -278,3 +278,50 @@ CREATE TABLE IF NOT EXISTS companion_notes (
     created_at INTEGER NOT NULL,
     PRIMARY KEY (item_id, chunk)
 ) WITHOUT ROWID;
+
+-- Mood profile of every film (internal/mood): thirteen scores, 0–100. src 1 =
+-- worked out ahead of time for the film's TMDB id, 0 = estimated from its
+-- genres. sig is what the row was made from, so a re-match or new genres
+-- refresh it.
+CREATE TABLE IF NOT EXISTS item_moods (
+    item_id  INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+    v        INTEGER NOT NULL,
+    a        INTEGER NOT NULL,
+    dark     INTEGER NOT NULL,
+    humour   INTEGER NOT NULL,
+    complex  INTEGER NOT NULL,
+    pace     INTEGER NOT NULL,
+    weight   INTEGER NOT NULL,
+    comfort  INTEGER NOT NULL,
+    violence INTEGER NOT NULL,
+    scary    INTEGER NOT NULL,
+    sex      INTEGER NOT NULL,
+    family   INTEGER NOT NULL,
+    romance  INTEGER NOT NULL,
+    src      INTEGER NOT NULL DEFAULT 0,
+    sig      TEXT NOT NULL
+);
+
+-- "Surprise me" and "Help me choose" memory, per viewer and film: when it was
+-- last suggested (it then rests for 30 days), how many times it was skipped
+-- (three hides it for a year), until when it is hidden, and a like (1) or
+-- dislike (-1) that shapes later picks.
+CREATE TABLE IF NOT EXISTS pick_state (
+    user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id   INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    shown_at  INTEGER NOT NULL DEFAULT 0,
+    strikes   INTEGER NOT NULL DEFAULT 0,
+    ban_until INTEGER NOT NULL DEFAULT 0,
+    ban_why   TEXT,                          -- notint | skips
+    vote      INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, item_id)
+) WITHOUT ROWID;
+
+-- Genres a viewer never wants to see (mode 1) or insists on (mode 2). Applied
+-- to their library pages and every pick.
+CREATE TABLE IF NOT EXISTS pick_genres (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    genre   TEXT NOT NULL,
+    mode    INTEGER NOT NULL,
+    PRIMARY KEY (user_id, genre)
+) WITHOUT ROWID;
