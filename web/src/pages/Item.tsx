@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, art, Card, Detail, episodeLabel, fmtRuntime, fmtSize, fmtTime, resolution, ShareTarget, shareToPlex } from "../api";
 import { Img, PosterCard, Row } from "../components/Cards";
+import { MoodProfile } from "../components/Picks";
 import { Check, Eye, Play, Refresh, Search, Share, Wand, X } from "../components/Icons";
 import { useApi, useDebounced, useUser } from "../hooks";
 import { initials } from "../people";
@@ -306,6 +307,7 @@ export default function Item() {
       </div>
 
       <div className="detail-below page">
+        {d.kind === "movie" && <MoodProfile id={d.id} />}
         {d.kind === "show" && seasons.length > 0 && (
           <section>
             <h2 className="section-title">Seasons</h2>

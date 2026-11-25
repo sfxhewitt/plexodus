@@ -32,6 +32,8 @@ export interface Card {
   watchlisted?: boolean;
   /** Smart rows: replaces the subtitle ("Season 2 · 3 left · 2h 10m"). */
   note?: string;
+  /** How well it fits the mood asked for, 40–99, on a Best match list. */
+  match?: number;
 }
 
 export interface Stream {

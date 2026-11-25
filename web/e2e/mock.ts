@@ -215,6 +215,13 @@ function detail(c: Card): Detail {
 interface UserState {
   hiddenContinue: Set<number>;
   watchlist: number[];
+  /** Picks: never-show / must-have genres, and what was suggested, skipped or hidden. */
+  genres: { exclude: string[]; require: string[] };
+  shown: Set<number>;
+  hidden: Set<number>;
+  skips: Map<number, number>;
+  votes: Map<number, number>;
+  seen: Set<number>;
   /** Removed from History. */
   historyHidden?: Set<number>;
 }
@@ -269,7 +276,7 @@ export function wrapped(year = 2026): Wrapped {
   };
 }
 
-function home(st: UserState = { hiddenContinue: new Set(), watchlist: [] }): { hero: Card[]; rows: Row[] } {
+function home(st: Pick<UserState, "hiddenContinue" | "watchlist"> = { hiddenContinue: new Set(), watchlist: [] }): { hero: Card[]; rows: Row[] } {
   const continuing = [...movies, ...allEpisodes].filter((c) => c.position && !st.hiddenContinue.has(c.id));
   const wl = st.watchlist.map((id) => ({ ...byId.get(id)!, watchlisted: true }));
   const onDeck = shows.slice(1, 6).map((s) => episodes.get(seasons.get(s.id)![0].id)![0]);
@@ -286,10 +293,24 @@ function home(st: UserState = { hiddenContinue: new Set(), watchlist: [] }): { h
   };
 }
 
+// The mock has no mood scores: a mood is a couple of genres, a content limit rules one out.
+const MOOD_GENRES: [string, string[]][] = [["fg", ["Comedy"]], ["th", ["Thriller", "Crime"]], ["cr", ["Drama"]], ["la", ["Comedy"]], ["mb", ["Mystery", "Science Fiction"]], ["ch", ["Comedy", "Drama"]], ["ad", ["Thriller"]]];
+const MOOD_NAMES: Record<string, string> = { fg: "Feel-good", th: "Thriller", cr: "Have a cry", la: "Laugh", mb: "Mind-bender", ch: "Chill", ad: "Adrenaline" };
+const CONTENT_OUT: Record<string, string> = { noviolence: "Crime", noscares: "Thriller", family: "Thriller", nosex: "Drama" };
+
 function libraryItems(id: number, q: URLSearchParams) {
   let items = id === MOVIES_LIB ? [...movies] : id === SHOWS_LIB ? [...shows] : [];
   const genre = q.get("genre");
   if (genre) items = items.filter((c) => detail(c).genres.includes(genre));
+  const moodGenres = MOOD_GENRES.find(([k]) => k === q.get("mood"))?.[1];
+  if (moodGenres) items = items.filter((c) => detail(c).genres.some((g) => moodGenres.includes(g)));
+  for (const k of (q.get("content") || "").split(",").filter(Boolean)) {
+    items = items.filter((c) => (k === "romance" ? detail(c).genres.includes("Drama") : !detail(c).genres.includes(CONTENT_OUT[k])));
+  }
+  const no = (q.get("nogenre") || "").split(",").filter(Boolean);
+  const need = (q.get("needgenre") || "").split(",").filter(Boolean);
+  if (no.length) items = items.filter((c) => !detail(c).genres.some((g) => no.includes(g)));
+  if (need.length) items = items.filter((c) => detail(c).genres.some((g) => need.includes(g)));
   if (q.get("filter") === "unwatched") items = items.filter((c) => !c.watched);
   if (q.get("filter") === "inprogress") items = items.filter((c) => c.position);
   if (q.get("filter") === "watched") items = items.filter((c) => c.watched);
@@ -300,7 +321,7 @@ function libraryItems(id: number, q: URLSearchParams) {
   const rt = q.get("rt");
   if (rt) items = items.filter((c) => (rt === "audience" ? (c.rtAudience ?? -1) >= 80 : rt === "rotten" ? c.rtCritic != null && c.rtCritic < 60 : (c.rtCritic ?? -1) >= (rt === "90" ? 90 : 60)));
   const sort = q.get("sort") || "title";
-  const key = (c: Card) => (sort === "added" ? c.addedAt : sort === "rating" ? c.rating || 0 : sort === "critics" ? c.rtCritic ?? -1 : sort === "audience" ? c.rtAudience ?? -1 : sort === "year" || sort === "release" ? c.year || 0 : c.title.toLowerCase().replace(/^(the|a|an) /, ""));
+  const key = (c: Card) => (sort === "added" ? c.addedAt : sort === "rating" || sort === "match" ? c.rating || 0 : sort === "critics" ? c.rtCritic ?? -1 : sort === "audience" ? c.rtAudience ?? -1 : sort === "year" || sort === "release" ? c.year || 0 : c.title.toLowerCase().replace(/^(the|a|an) /, ""));
   items.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
   if ((q.get("order") || (sort === "title" ? "asc" : "desc")) === "desc") items.reverse();
   const offset = Number(q.get("offset") || 0);
@@ -334,6 +355,11 @@ function facets(id: number, q: URLSearchParams) {
   return {
     total: libraryItems(id, new URLSearchParams([...q, ["limit", "1"]])).total,
     facets: [
+      ...(id === MOVIES_LIB ? [
+        { key: "mood", label: "Mood", options: opts("mood", MOOD_GENRES.map(([k, gs]) => [k, MOOD_NAMES[k], (c: Card) => detail(c).genres.some((x) => gs.includes(x))])) },
+        { key: "content", label: "Content", multi: true, options: [["noviolence", "No graphic violence"], ["noscares", "No scares"], ["family", "Family-friendly"], ["nosex", "No explicit sex"], ["romance", "Romance"]]
+          .map(([v, l]) => ({ v, l, count: libraryItems(id, new URLSearchParams([...q, ["limit", "100000"], ["content", [q.get("content"), v].filter(Boolean).join(",")]])).total })) },
+      ] : []),
       { key: "filter", label: "Watched", options: opts("filter", [["unwatched", "Unwatched", (c) => !c.watched], ["inprogress", "In progress", (c) => !!c.position], ["watched", "Watched", (c) => !!c.watched]]) },
       { key: "decade", label: "Decade", options: opts("decade", decades) },
       { key: "rating", label: "Rating", options: opts("rating", [["8", "8+ Outstanding", (c) => (c.rating || 0) >= 8], ["7", "7+ Great", (c) => (c.rating || 0) >= 7], ["6", "6+ Good", (c) => (c.rating || 0) >= 6]]) },
@@ -412,7 +438,21 @@ addEventListener("message", function (e) {
 
   // Per-test copy: the settings screen changes library choices.
   const libs = libraries.map((l) => ({ ...l, hidden: false, hiddenHome: false }));
-  const st: UserState = { hiddenContinue: new Set(), watchlist: [] };
+  const st: UserState = { hiddenContinue: new Set(), watchlist: [], genres: { exclude: [], require: [] }, shown: new Set(), hidden: new Set(), skips: new Map(), votes: new Map(), seen: new Set() };
+  // The saved genres apply to every library request, as on the server.
+  const withPrefs = (q: URLSearchParams) => {
+    const p = new URLSearchParams(q);
+    if (st.genres.exclude.length) p.set("nogenre", st.genres.exclude.join(","));
+    if (st.genres.require.length) p.set("needgenre", st.genres.require.join(","));
+    return p;
+  };
+  const pick = (c: Card, q: URLSearchParams) => ({
+    ...c, match: 90, moods: MOOD_GENRES.filter(([, gs]) => detail(c).genres.some((g) => gs.includes(g))).map(([k]) => MOOD_NAMES[k]).slice(0, 2),
+    genres: detail(c).genres, blurb: detail(c).overview,
+    why: `${q.get("mood") ? `Fits ${MOOD_NAMES[q.get("mood")!].toLowerCase()}: funny (90%); ` : ""}${(c.rating || 0).toFixed(1)} weighted rating from 12k votes.`,
+  });
+  const pickable = (q: URLSearchParams) => libraryItems(MOVIES_LIB, new URLSearchParams([...withPrefs(q), ["limit", "100000"], ["sort", "rating"]])).items
+    .filter((c) => !c.watched && !st.seen.has(c.id));
   const account = { id: 1, name: "daniel", avatar: "", color: "cyan", kids: false, hasPin: !!opts.profiles, isAccount: true };
   const profiles = opts.profiles
     ? [account, { id: 2, name: "Mia", avatar: "🦊", color: "magenta", kids: true, maxAge: 8, hasPin: false, isAccount: false },
@@ -474,6 +514,7 @@ addEventListener("message", function (e) {
       st.hiddenContinue.add(Number(mm[1]));
       return json(route, { ok: true });
     }
+    if ((mm = p.match(/^\/api\/items\/(\d+)\/watched$/)) && m === "POST" && route.request().postDataJSON()?.watched) st.seen.add(Number(mm[1]));
     if ((mm = p.match(/^\/api\/items\/(\d+)\/watchlist$/)) && m === "POST") {
       const id = Number(mm[1]);
       st.watchlist = st.watchlist.filter((x) => x !== id);
@@ -481,8 +522,54 @@ addEventListener("message", function (e) {
       return json(route, { ok: true });
     }
     if ((mm = p.match(/^\/api\/libraries\/(\d+)\/genres$/))) return json(route, GENRES.map((name, i) => ({ name, count: 40 - i * 5 })));
-    if ((mm = p.match(/^\/api\/libraries\/(\d+)\/facets$/))) return json(route, facets(Number(mm[1]), u.searchParams));
-    if ((mm = p.match(/^\/api\/libraries\/(\d+)\/items$/))) return json(route, libraryItems(Number(mm[1]), u.searchParams));
+    if ((mm = p.match(/^\/api\/libraries\/(\d+)\/facets$/))) return json(route, facets(Number(mm[1]), withPrefs(u.searchParams)));
+    if ((mm = p.match(/^\/api\/libraries\/(\d+)\/items$/))) return json(route, libraryItems(Number(mm[1]), withPrefs(u.searchParams)));
+    // Picks (Reel Pick): Surprise me, the quiz, and what they remember.
+    if ((mm = p.match(/^\/api\/libraries\/(\d+)\/picks$/))) {
+      const all = pickable(u.searchParams);
+      const fresh = all.filter((c) => !st.shown.has(c.id) && !st.hidden.has(c.id));
+      return json(route, { picks: fresh.slice(0, 20).map((c) => pick(c, u.searchParams)), matching: all.length, fresh: fresh.length });
+    }
+    if ((mm = p.match(/^\/api\/libraries\/(\d+)\/quiz$/)) && m === "POST") {
+      const a = route.request().postDataJSON() as { who?: string; exclude?: number[] };
+      const q = new URLSearchParams(a.who === "family" ? [["content", "family"]] : []);
+      const fresh = pickable(q).filter((c) => !st.shown.has(c.id) && !st.hidden.has(c.id) && !(a.exclude || []).includes(c.id));
+      return json(route, { picks: fresh.slice(0, 15).map((c) => pick(c, q)), found: fresh.length });
+    }
+    if (p === "/api/picks/state") return json(route, { genres: st.genres, resting: st.shown.size, hidden: st.hidden.size, struck: st.skips.size, votes: st.votes.size });
+    if (p === "/api/picks/genres" && m === "PUT") {
+      st.genres = route.request().postDataJSON();
+      return json(route, st.genres);
+    }
+    if (p === "/api/picks/feedback" && m === "POST") {
+      const b = route.request().postDataJSON() as { ids: number[]; type: string };
+      let hidden = false;
+      for (const id of b.ids) {
+        if (b.type === "shown") st.shown.add(id);
+        if (b.type === "notint") st.hidden.add(id);
+        if (b.type === "like" || b.type === "dislike") st.votes.set(id, b.type === "like" ? 1 : -1);
+        if (b.type === "clear") st.votes.delete(id);
+        if (b.type === "skip") {
+          st.skips.set(id, (st.skips.get(id) || 0) + 1);
+          if (st.skips.get(id)! >= 3) (st.hidden.add(id), (hidden = true));
+        }
+      }
+      return json(route, { ok: true, hidden });
+    }
+    if (p === "/api/picks/reset" && m === "POST") {
+      const what = route.request().postDataJSON()?.what;
+      if (what !== "taste") (st.shown.clear(), st.hidden.clear(), st.skips.clear());
+      if (what !== "rules") st.votes.clear();
+      return json(route, { ok: true });
+    }
+    if ((mm = p.match(/^\/api\/items\/(\d+)\/mood$/))) {
+      const id = Number(mm[1]);
+      if (!movies.some((c) => c.id === id)) return json(route, { error: "not found" }, 404);
+      const bars = [["v", "Mood", "Bleak", "Uplifting", 72], ["a", "Intensity", "Low-key", "Intense", 55], ["dark", "Tone", "Light", "Dark", 30], ["humour", "Humour", "Serious", "Funny", 64],
+        ["complex", "Complexity", "Easy watch", "Demanding", 41], ["pace", "Pace", "Slow-burn", "Fast", 58], ["weight", "Tearjerker", "Dry-eyed", "Tissues", 22], ["comfort", "Comfort", "Challenging", "Comforting", 70]]
+        .map(([key, label, low, high, value]) => ({ key, label, low, high, value }));
+      return json(route, { bars, moods: ["Feel-good"], notes: ["No scares"], warnings: [], scored: true, vote: st.votes.get(id) || 0, hidden: st.hidden.has(id) });
+    }
     if ((mm = p.match(/^\/api\/items\/(\d+)\/markers$/))) return json(route, []);
     // Only the first film has a trailer, so the other screens stay still.
     // Only one film has cast and "more like this", so other pages keep nothing below the fold.

@@ -66,6 +66,7 @@ type Server struct {
 	phone      phoneSessions
 	comp       *companion
 	tunnel     *tunnel
+	moods      moodCache
 }
 
 func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner, agent *metadata.Agent,
@@ -87,6 +88,14 @@ func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner,
 	if d.Setting(ctx, "api_key") == "" {
 		d.SetSetting(ctx, "api_key", randomHex(16))
 	}
+	// Mood profiles for the library filters and picks, ready before anyone asks.
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-time.After(20 * time.Second):
+			s.ensureMoods(ctx)
+		}
+	}()
 	return s
 }
 
@@ -144,6 +153,14 @@ func (s *Server) Handler() http.Handler {
 	user("GET /api/libraries/{id}/items", s.handleLibraryItems)
 	user("GET /api/libraries/{id}/genres", s.handleLibraryGenres)
 	user("GET /api/libraries/{id}/facets", s.handleLibraryFacets)
+	user("GET /api/libraries/{id}/picks", s.handlePicks)
+	user("POST /api/libraries/{id}/quiz", s.handleQuiz)
+	user("GET /api/picks/state", s.handlePickState)
+	user("PUT /api/picks/genres", s.handlePickGenres)
+	user("POST /api/picks/feedback", s.handlePickFeedback)
+	user("POST /api/picks/reset", s.handlePickReset)
+	user("GET /api/picks/export", s.handlePickExport)
+	user("GET /api/items/{id}/mood", s.handleItemMood)
 	user("GET /api/items/{id}", s.handleItem)
 	user("POST /api/items/{id}/progress", s.handleProgress)
 	user("POST /api/items/{id}/watched", s.handleWatched)

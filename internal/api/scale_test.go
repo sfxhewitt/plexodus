@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"net/http"
 	"os"
 	"testing"
 	"time"
@@ -191,5 +192,32 @@ func TestScaleLibraryFacets(t *testing.T) {
 			call(t, s, u, s.handleLibraryItems, "GET", "/api/libraries/"+lib+"/items?sort=title&limit=120&letters=1&"+q, "", map[string]string{"id": lib}, nil)
 			t.Logf("items lib %s %q took %s", lib, q, time.Since(start))
 		}
+	}
+}
+
+func TestScalePicks(t *testing.T) {
+	if os.Getenv("PLEXODUS_SCALE") == "" {
+		t.Skip()
+	}
+	s, u := scaleServer(t)
+	for _, c := range []struct {
+		name string
+		h    http.HandlerFunc
+		m, q string
+		body string
+	}{
+		{"first items (builds moods)", s.handleLibraryItems, "GET", "items?limit=120", ""},
+		{"items mood", s.handleLibraryItems, "GET", "items?limit=120&mood=fg", ""},
+		{"items best match", s.handleLibraryItems, "GET", "items?limit=120&mood=fg&sort=match", ""},
+		{"items best match, no filter", s.handleLibraryItems, "GET", "items?limit=120&sort=match", ""},
+		{"facets", s.handleLibraryFacets, "GET", "facets", ""},
+		{"facets mood", s.handleLibraryFacets, "GET", "facets?mood=fg&content=noscares", ""},
+		{"surprise", s.handlePicks, "GET", "picks?mood=th", ""},
+		{"surprise, no filter", s.handlePicks, "GET", "picks", ""},
+		{"quiz", s.handleQuiz, "POST", "quiz", `{"feel":"low","mode":"change","who":"date"}`},
+	} {
+		start := time.Now()
+		code := call(t, s, u, c.h, c.m, "/api/libraries/1/"+c.q, c.body, map[string]string{"id": "1"}, nil)
+		t.Logf("%s: %d in %s", c.name, code, time.Since(start))
 	}
 }

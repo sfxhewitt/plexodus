@@ -48,6 +48,8 @@ type Card struct {
 	ViewedLeaves  int     `json:"viewedLeafCount,omitempty"`
 	Overview      string  `json:"overview,omitempty"`
 	Watchlisted   bool    `json:"watchlisted,omitempty"`
+	// Match is how well the title fits the mood asked for, 40–99 ("87% match").
+	Match int `json:"match,omitempty"`
 	// Note replaces the card's subtitle in smart rows ("Season 2 · 3 left").
 	Note string `json:"note,omitempty"`
 }
@@ -315,6 +317,15 @@ func (s *Server) handleLibraryItems(w http.ResponseWriter, r *http.Request) {
 	}
 	limit := queryInt(r, "limit", 100, 500)
 	offset := queryInt(r, "offset", 0, 0)
+	var libKind string
+	s.db.R.QueryRowContext(r.Context(), `SELECT kind FROM libraries WHERE id = ?`, id).Scan(&libKind)
+	if libKind == "movies" {
+		s.ensureMoods(r.Context())
+		if q.Get("sort") == "match" {
+			s.matchPage(w, r, id, q, limit, offset)
+			return
+		}
+	}
 
 	where, args := libraryWhere(r, id, q, "")
 	if col == "random" {

@@ -116,7 +116,8 @@ test("library: grid, filter bar and the filter panel", async ({ page, openTv }, 
   // The panel is a modal: categories on the left, choices with counts on the right.
   await page.locator('[data-fk="filters"]').focus();
   await page.keyboard.press("Enter");
-  await waitForFocus(page, "cat-genre");
+  await waitForFocus(page, "cat-mood");
+  await page.locator('[data-fk="cat-genre"]').focus();
   expect((await press(page, "right")).fk, "Right goes to the choices, on Any").toBe("o-genre-");
   const g = await press(page, "down");
   expect(g.fk).toMatch(/^o-genre-./);
