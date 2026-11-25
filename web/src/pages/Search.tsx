@@ -60,7 +60,7 @@ function Ask({ q }: { q: string }) {
           <h1 className="search-head grad">{data.summary}</h1>
           {data.notice && <div className="ask-notice">{data.notice}</div>}
           {data.engine === "basic" && !data.notice && (
-            <div className="muted small ask-engine">Basic mode: understands decades, lengths, genres and “haven’t seen”. Add an Anthropic API key in Settings for smarter answers and “something like…” recommendations.</div>
+            <div className="muted small ask-engine">Basic mode: understands decades, lengths, genres and “haven’t seen”. Add an Anthropic API key in Settings → Metadata and search for smarter answers and “something like…” recommendations.</div>
           )}
           {!data.picks.length && !data.matches.length && <div className="page-msg">Nothing in your library fits that. Try saying it another way.</div>}
           {data.picks.length > 0 && (

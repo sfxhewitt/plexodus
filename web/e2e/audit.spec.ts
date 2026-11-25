@@ -13,6 +13,9 @@ const screens: [string, string, { limit?: number }?][] = [
   ["shows library", `/library/${SHOWS_LIB}`],
   ["search", "/search"],
   ["settings", "/settings"],
+  ["settings libraries", "/settings/libraries"],
+  ["settings look and feel", "/settings/screen"],
+  ["settings this tv", "/settings/app"],
 ];
 
 test.describe("focus audit", () => {

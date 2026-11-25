@@ -28,7 +28,8 @@ test("who's watching: kids profile, then PIN back to the main profile", async ({
   // Settings: switch profile -> main profile asks for its PIN.
   await page.goto("/settings?tv=1");
   // A reload keeps the profile picked for this app session.
-  await waitForFocus(page, "profiles");
+  await waitForFocus(page, "set-account");
+  expect((await press(page, "right")).fk, "Right steps into Account").toBe("profiles");
   await expect(page.getByRole("button", { name: "Manage profiles" }), "a kids profile can't manage profiles").toHaveCount(0);
   await page.keyboard.press("Enter");
   await waitForFocus(page, "pf-2");

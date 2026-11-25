@@ -30,7 +30,7 @@ const app = (features: string) => {
 
 test("Settings sets this TV's lip sync offset and opens calibration", async ({ page, openTv }) => {
   await page.addInitScript(app, "recap,avsync");
-  await openTv("/settings");
+  await openTv("/settings/playback");
   await waitForFocus(page);
   const later = page.locator('[data-fk="lipsync-later"]');
   await later.focus();
@@ -52,7 +52,7 @@ test("Settings sets this TV's lip sync offset and opens calibration", async ({ p
 
 test("Fix with my phone opens the phone calibration on apps that have it", async ({ page, openTv }) => {
   await page.addInitScript(app, "recap,avsync,avsync-phone");
-  await openTv("/settings");
+  await openTv("/settings/playback");
   await waitForFocus(page);
   await expect(page.locator('[data-fk="lipsync-calibrate"]')).toHaveText("Calibrate by eye");
   await page.locator('[data-fk="lipsync-phone"]').focus();
@@ -62,7 +62,7 @@ test("Fix with my phone opens the phone calibration on apps that have it", async
 
 test("apps without phone calibration don't offer it", async ({ page, openTv }) => {
   await page.addInitScript(app, "recap,avsync");
-  await openTv("/settings");
+  await openTv("/settings/playback");
   await waitForFocus(page);
   await expect(page.locator('[data-fk="lipsync-calibrate"]')).toHaveText("Calibrate");
   await expect(page.locator('[data-fk="lipsync-phone"]')).toHaveCount(0);
@@ -70,7 +70,7 @@ test("apps without phone calibration don't offer it", async ({ page, openTv }) =
 
 test("an older app is asked to update instead", async ({ page, openTv }) => {
   await page.addInitScript(app, "recap");
-  await openTv("/settings");
+  await openTv("/settings/playback");
   await waitForFocus(page);
   await expect(page.locator(".tv-lib-prefs").filter({ hasText: "Lip sync" })).toContainText("Update the Plexodus app");
   await expect(page.locator('[data-fk="lipsync-calibrate"]')).toHaveCount(0);
@@ -91,7 +91,7 @@ test("Settings asks an app that can update itself to check for updates", async (
     const w = window as unknown as { PlexodusNative: Record<string, unknown>; __checked?: boolean };
     w.PlexodusNative.checkForUpdates = () => { w.__checked = true; };
   });
-  await openTv("/settings");
+  await openTv("/settings/app");
   await waitForFocus(page);
   await page.locator('[data-fk="app-update"]').focus();
   await page.keyboard.press("Enter");
@@ -100,7 +100,7 @@ test("Settings asks an app that can update itself to check for updates", async (
 
 test("older apps get no update button", async ({ page, openTv }) => {
   await page.addInitScript(app, "recap,avsync");
-  await openTv("/settings");
+  await openTv("/settings/app");
   await waitForFocus(page);
   await expect(page.locator('[data-fk="app-update"]')).toHaveCount(0);
 });

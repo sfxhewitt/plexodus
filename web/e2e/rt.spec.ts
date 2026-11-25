@@ -29,7 +29,7 @@ test("TV: poster badges, title page scores, and the setting to hide badges", asy
   await expect(page.locator(".tv-detail-info .tv-rating")).toHaveCount(0);
   await snap(page, info, "02 title page");
 
-  await openTv("/settings");
+  await openTv("/settings/screen");
   await page.locator('[data-fk="rt-posters"]').focus();
   await page.keyboard.press("Enter");
   await expect(page.locator('[data-fk="rt-posters"]')).toHaveAttribute("aria-pressed", "false");
