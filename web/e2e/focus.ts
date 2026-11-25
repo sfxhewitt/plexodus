@@ -215,6 +215,8 @@ export async function auditFocus(page: Page, opts: { limit?: number; skip?: (fk:
               const c = before.rects[j];
               if (c.group && c.group === b.group) return false;
               if (c.entry && !b.entry) return false;
+              // Settings: Down from the tab bar returns to the category list by design.
+              if (b.group === "settings" && before.rects[i].group === "nav") return false;
               return dir === "down" ? c.bottom <= b.top : c.top >= b.bottom;
             });
             if (skipped !== undefined) problems.push({ from: name, key, problem: `skipped over ${await label(skipped)} to ${await label(after.idx)}` });

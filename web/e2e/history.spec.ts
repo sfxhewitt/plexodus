@@ -20,8 +20,13 @@ test("History tab: days newest first, resume points, remove one", async ({ page,
   await openTv("/");
   await waitForFocus(page, "hero-play");
   await press(page, "up");
-  await press(page, "right");
-  expect((await press(page, "right")).fk).toBe("nav-history");
+  // History is the last tab, after the libraries and Collections.
+  const keys = await page.locator(".tv-nav [data-fk^='nav-']").evaluateAll((els) => els.map((e) => e.getAttribute("data-fk")));
+  expect(keys.filter((k) => k !== "nav-settings").slice(-2)).toEqual(["nav-collections", "nav-history"]);
+  expect(keys.findIndex((k) => k?.startsWith("nav-lib"))).toBeGreaterThan(keys.indexOf("nav-watchlist"));
+  let f = await focused(page);
+  for (let i = 0; i < 12 && f.fk !== "nav-history"; i++) f = await press(page, "right");
+  expect(f.fk).toBe("nav-history");
   await press(page, "Enter");
   await expect(page).toHaveURL(/\/history$/);
 

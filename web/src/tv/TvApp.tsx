@@ -50,9 +50,10 @@ function TabBar({ hidden }: { hidden: boolean }) {
     { key: "search", to: "/search", icon: <SearchIcon size={24} /> },
     { key: "home", to: "/", label: "Home" },
     { key: "watchlist", to: "/watchlist", label: "Watchlist" },
-    { key: "history", to: "/history", label: "History" },
     ...(libs || []).filter((l) => !l.hidden).map((l) => ({ key: `lib${l.id}`, to: `/library/${l.id}`, label: l.name, lib: l })),
     { key: "collections", to: "/collection", label: "Collections" },
+    // History goes last, after the libraries, so it doesn't split them up.
+    { key: "history", to: "/history", label: "History" },
   ];
   const active = (to: string) => (to === "/" ? loc.pathname === "/" : loc.pathname.startsWith(to));
   const anyActive = tabs.some((t) => active(t.to)) || loc.pathname.startsWith("/settings");
@@ -318,6 +319,7 @@ function Shell() {
               <Route path="/collection/:id" element={<CollectionPage />} />
               <Route path="/person/:id" element={<PersonPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/settings/:section" element={<SettingsPage />} />
               <Route path="/wrapped" element={<WrappedPage />} />
               <Route path="/play/:id" element={<PlayRoute />} />
               <Route path="/voice" element={<VoiceRoute />} />

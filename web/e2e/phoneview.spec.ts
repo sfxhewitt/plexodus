@@ -14,7 +14,7 @@ const tvBox = () => {
 
 async function toPhoneView(page: import("@playwright/test").Page, openTv: (p?: string) => Promise<void>) {
   await page.addInitScript(tvBox);
-  await openTv("/settings");
+  await openTv("/settings/screen");
   await waitForFocus(page);
   await page.locator('[data-fk="classic"]').focus();
   await page.keyboard.press("Enter");

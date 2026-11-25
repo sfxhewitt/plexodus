@@ -1,6 +1,7 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useState } from "react";
+import { Link, NavLink, useParams } from "react-router-dom";
 import { AdminUser, api, fmtSize, Invite, Library, PlexStatus, PlexSyncStatus, ScanProgress, User } from "../api";
-import { Copy, Folder, Plus, Refresh, Trash, X } from "../components/Icons";
+import { ChevronLeft, ChevronRight, Copy, Folder, Grid, Link as LinkIcon, Phone, Play, Plus, Refresh, Search, Server, Trash, Users as UsersIcon, X } from "../components/Icons";
 import { useApi, useUser } from "../hooks";
 import { deviceLipSync, native, phoneLipSync } from "../native";
 
@@ -145,7 +146,7 @@ function Libraries() {
   return (
     <section className="settings-section">
       <div className="section-head">
-        <h2>Libraries</h2>
+        <span className="muted">{libs ? `${libs.length} ${libs.length === 1 ? "library" : "libraries"}, rescanned every 15 minutes` : ""}</span>
         {!editing && (
           <div className="row-btns">
             {(libs?.length ?? 0) > 1 && (
@@ -673,7 +674,7 @@ function AskSettings() {
   );
 }
 
-function Metadata() {
+function TmdbKey() {
   const { data, setData } = useApi<SettingsT>("/api/settings");
   const [key, setKey] = useState("");
   const [msg, setMsg] = useState<string>();
@@ -684,13 +685,7 @@ function Metadata() {
     setKey("");
     setMsg("Saved. Matching runs in the background.");
   };
-  const regen = async () => {
-    if (!confirm("Generate a new API key? Anything using the old key will stop working.")) return;
-    setData(await api.put<SettingsT>("/api/settings", { regenerateApiKey: true }));
-  };
-  const origin = window.location.origin;
   return (
-    <>
       <section className="settings-section">
         <h2>Metadata</h2>
         <form className="card form" onSubmit={save}>
@@ -703,7 +698,14 @@ function Metadata() {
           <div className="form-actions"><button className="btn primary" disabled={!key}>Save key</button></div>
         </form>
       </section>
-      <AskSettings />
+  );
+}
+
+/** Up Next threshold and the recap/intro/credits finder. */
+function PlaybackSettings() {
+  const { data, setData } = useApi<SettingsT>("/api/settings");
+  return (
+    <>
       <section className="settings-section">
         <h2>Up Next</h2>
         <div className="card form">
@@ -735,6 +737,18 @@ function Metadata() {
           </label>
         </div>
       </section>
+    </>
+  );
+}
+
+function Integrations() {
+  const { data, setData } = useApi<SettingsT>("/api/settings");
+  const regen = async () => {
+    if (!confirm("Generate a new API key? Anything using the old key will stop working.")) return;
+    setData(await api.put<SettingsT>("/api/settings", { regenerateApiKey: true }));
+  };
+  const origin = window.location.origin;
+  return (
       <section className="settings-section">
         <h2>Integrations</h2>
         <div className="card form">
@@ -749,7 +763,6 @@ function Metadata() {
           <pre className="code">curl -X POST "{origin}/api/scan?apikey={data?.apiKey || "KEY"}&path=/mnt/media/Movies/Some%20Movie%20(2024)"</pre>
         </div>
       </section>
-    </>
   );
 }
 
@@ -1023,25 +1036,87 @@ function DeviceLipSync() {
   );
 }
 
+type Cat = { key: string; label: string; hint: string; icon: ReactNode; body: ReactNode };
+
+/** True on phone-width screens, where Settings is a list you tap into. */
+function useNarrow() {
+  const q = "(max-width: 860px)";
+  const [narrow, setNarrow] = useState(() => window.matchMedia(q).matches);
+  useEffect(() => {
+    const m = window.matchMedia(q);
+    const on = () => setNarrow(m.matches);
+    m.addEventListener("change", on);
+    return () => m.removeEventListener("change", on);
+  }, []);
+  return narrow;
+}
+
+/**
+ * Settings by category. On a computer or tablet the categories sit down the
+ * left with the chosen one beside them; on a phone they are a list, and
+ * tapping one opens it with a way back.
+ */
 export default function Settings() {
   const { user } = useUser();
+  const { section } = useParams();
+  const narrow = useNarrow();
+  const cats: Cat[] = [
+    ...(deviceLipSync() ? [{ key: "device", label: "This device", hint: "Lip sync for this phone or tablet", icon: <Phone size={20} />, body: <DeviceLipSync /> }] : []),
+    ...(user?.isAdmin ? [
+      { key: "libraries", label: "Libraries", hint: "Folders and scans", icon: <Grid size={20} />, body: <Libraries /> },
+      {
+        key: "plex", label: "Plex", hint: "Import, sync and sharing", icon: <LinkIcon size={20} />,
+        body: <><PlexImport /><PlexSync /><PlexSignInSettings /><ShareToPlex /></>,
+      },
+      { key: "playback", label: "Playback", hint: "Up Next and skip buttons", icon: <Play size={20} />, body: <PlaybackSettings /> },
+      { key: "metadata", label: "Metadata and search", hint: "TMDB and plain-English search", icon: <Search size={20} />, body: <><TmdbKey /><AskSettings /></> },
+      { key: "people", label: "People", hint: "Invites, users and access", icon: <UsersIcon size={20} />, body: <><Invites /><Users /></> },
+      { key: "server", label: "Server", hint: "Updates and the API key", icon: <Server size={20} />, body: <><Updates /><Integrations /></> },
+    ] : []),
+  ];
+  const picked = cats.find((c) => c.key === section);
+  // A phone shows the list first; wider screens open the first category.
+  const cat = picked || (narrow && cats.length > 1 ? undefined : cats[0]);
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [cat?.key]);
+
+  if (cats.length <= 1) {
+    return (
+      <div className="settings page">
+        <h1>Settings</h1>
+        {cat ? cat.body : <p className="muted">There is nothing to set up here. The server's settings are for its admin.</p>}
+      </div>
+    );
+  }
+  const list = (
+    <nav className="settings-nav" aria-label="Settings categories">
+      {cats.map((c) => (
+        <NavLink key={c.key} to={`/settings/${c.key}`} replace={!narrow} className={c.key === cat?.key ? "on" : ""}
+          aria-current={c.key === cat?.key ? "page" : undefined}>
+          <span className="ic">{c.icon}</span>
+          <span className="tx"><b>{c.label}</b><span className="muted small">{c.hint}</span></span>
+          <ChevronRight size={18} className="chev" />
+        </NavLink>
+      ))}
+    </nav>
+  );
   return (
-    <div className="settings page">
-      <h1>Settings</h1>
-      {deviceLipSync() && <DeviceLipSync />}
-      {user?.isAdmin && (
-        <>
-          <Libraries />
-          <PlexImport />
-          <PlexSync />
-          <PlexSignInSettings />
-          <ShareToPlex />
-          <Metadata />
-          <Updates />
-          <Invites />
-          <Users />
-        </>
+    <div className={`settings page ${narrow ? "narrow" : "wide"}`}>
+      {narrow && cat ? (
+        <Link to="/settings" className="settings-back"><ChevronLeft size={18} /> Settings</Link>
+      ) : (
+        <h1>Settings</h1>
       )}
+      <div className="settings-layout">
+        {(!narrow || !cat) && list}
+        {cat && (
+          <div className="settings-pane" key={cat.key} data-section={cat.key}>
+            <h2 className="settings-title">{cat.label}</h2>
+            {cat.body}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

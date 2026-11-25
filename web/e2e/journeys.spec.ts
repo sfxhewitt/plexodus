@@ -1,6 +1,6 @@
 // What someone with a remote actually does, screen by screen, with screenshots.
 import { expect, test } from "./fixtures";
-import { focused, press, snap, waitForFocus, walk } from "./focus";
+import { auditFocus, expectClean, focused, press, snap, waitForFocus, walk } from "./focus";
 import { ids, MOVIES_LIB } from "./mock";
 
 test.skip(!!process.env.E2E_BASE_URL, "uses the mock library");
@@ -175,14 +175,37 @@ test("search: ask in plain English", async ({ page, openTv }, info) => {
 
 test("settings", async ({ page, openTv }, info) => {
   await openTv("/settings");
-  await waitForFocus(page, "profiles");
+  // Categories down the left, starting on Account with its settings showing.
+  await waitForFocus(page, "set-account");
+  await expect(page.locator('[data-fk="profiles"]')).toBeVisible();
   await snap(page, info, "01 settings");
+  expect((await press(page, "up")).inNav, "Up from the first category reaches the tab bar").toBe(true);
+  expect((await press(page, "down")).fk, "and Down comes back").toBe("set-account");
+  expect((await press(page, "right")).fk, "Right steps into the category").toBe("profiles");
+  await page.keyboard.press("Escape");
+  expect((await focused(page)).fk, "Back steps out to the categories").toBe("set-account");
+  expect(new URL(page.url()).pathname, "without leaving Settings").toBe("/settings");
 
-  // Down to the library choices: hide TV Shows from the menu.
+  // Down the list: each category shows as it takes focus.
   const tabs = page.locator(".tv-nav .tv-tab-btn");
   await expect(tabs.filter({ hasText: "TV Shows" })).toHaveCount(1);
   let f = await press(page, "down");
-  expect(f.fk, "Down from the buttons reaches the first library").toBe("lib-1-menu");
+  expect(f.fk).toBe("set-libraries");
+  await expect(page.locator('[data-fk="profiles"]')).toBeHidden();
+  await expect(page.locator('[data-fk="lib-1-menu"]')).toBeVisible();
+  const cats = await walk(page, "down");
+  expect(cats.at(-1)!.fk, "Down stops on the last category").toBe("set-app");
+  await expect(page.locator('[data-fk="reload"]')).toBeVisible();
+  await snap(page, info, "03 this tv");
+  await page.locator('[data-fk="set-screen"]').focus();
+  await snap(page, info, "04 look and feel");
+  await page.locator('[data-fk="set-libraries"]').focus();
+
+  // Into the library choices: hide TV Shows from the menu.
+  f = await press(page, "right");
+  expect(f.fk, "Right lands on the first library").toBe("lib-1-menu");
+  expect((await press(page, "left")).fk, "Left returns to the category").toBe("set-libraries");
+  await press(page, "right");
   f = await press(page, "down");
   expect(f.fk).toBe("lib-2-menu");
   expect((await press(page, "right")).fk, "Right moves to the Home switch").toBe("lib-2-home");
@@ -196,6 +219,41 @@ test("settings", async ({ page, openTv }, info) => {
   // And back again.
   await press(page, "Enter");
   await expect(tabs.filter({ hasText: "TV Shows" })).toHaveCount(1);
+});
+
+test("settings: playback settings on a TV box", async ({ page, openTv }, info) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as Record<string, unknown>;
+    let delay = 0, engine = "exo", fr = false;
+    w.PlexodusNative = {
+      isTv: () => true, version: () => "test", platform: () => "android", canEmbed: () => true,
+      changeServer() {}, exit() {}, play() {},
+      features: () => "recap,avsync,avsync-phone,engine,framerate-option,update",
+      audioDelay: () => delay, setAudioDelay: (ms: number) => { delay = ms; },
+      calibrateAudio() {}, calibrateWithPhone() {}, checkForUpdates() {},
+      playerEngine: () => engine, setPlayerEngine: (e: string) => { engine = e; },
+      matchFrameRate: () => fr, setMatchFrameRate: (v: boolean) => { fr = v; },
+    };
+  });
+  await openTv("/settings/playback");
+  await waitForFocus(page, "set-playback");
+  expect((await press(page, "right")).fk).toBe("lipsync-phone");
+  await snap(page, info, "01 playback");
+  // Down through every setting; the last ones scroll into view.
+  const down = await walk(page, "down");
+  expect(down.at(-1)!.fk).toMatch(/^framerate-/);
+  await page.locator('[data-fk="framerate-on"]').focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".tv-lib-prefs").filter({ hasText: "Match frame rate" }).locator(".tv-pref-name .tv-muted")).toHaveText("On");
+  await page.locator('[data-fk="engine-vlc"]').focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator('[data-fk="engine-vlc"]')).toHaveClass(/\bon\b/);
+  await snap(page, info, "02 playback scrolled");
+  // Back up to the top shows the heading again.
+  await walk(page, "up");
+  await expect(page.locator('.tv-set-sec[data-section="playback"] .tv-section-title').first()).toBeInViewport({ ratio: 1 });
+  await expect(page.locator(".tv-set-head")).toHaveText("Playback");
+  expectClean(await auditFocus(page), info, "settings playback");
 });
 
 test("continue watching says how long is left", async ({ page, openTv }) => {

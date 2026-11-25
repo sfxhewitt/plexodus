@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { KeyboardEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { useParams } from "react-router-dom";
 import { Activity, api, fmtTime, Library, LibraryPrefs, setLibraryPrefs } from "../../api";
-import { Check, Logout, Refresh, X } from "../../components/Icons";
+import { Check, Grid, Logout, Play, Pulse, Refresh, Sparkle, Tv, User as UserIcon, X } from "../../components/Icons";
 import { useUser } from "../../hooks";
 import { native, nativeHas, phoneLipSync } from "../../native";
 import { ambientPrefs, onAmbientPrefs, setAmbientPrefs, startScreensaver, trailersSupported } from "../ambient";
 import { TvButton, useBackdrop } from "../components";
+import { focusEl, onBack } from "../focus";
 import { useLibraries, usePageFocus, useToast } from "../hooks";
 import { rtPostersOn, setRtPosters } from "../../rt";
 
@@ -127,7 +129,6 @@ function NowWatching() {
   if (!data) return null;
   return (
     <section className="tv-lib-prefs">
-      <h2 className="tv-section-title">Now watching</h2>
       {!data.streams.length && <p className="tv-muted tv-section-note">Nobody is watching right now.</p>}
       {data.streams.map((s) => {
         const title = s.kind === "episode" && s.showTitle
@@ -236,8 +237,8 @@ function EngineChoice() {
           <span>This TV</span>
           <span className="tv-muted">{engine === "exo" ? "ExoPlayer (like Plex)" : "libVLC"}</span>
         </div>
-        <TvButton fk="engine-exo" className={"chip ambient" + (engine === "exo" ? " active" : "")} onClick={() => pick("exo")}>ExoPlayer (like Plex)</TvButton>
-        <TvButton fk="engine-vlc" className={"chip ambient" + (engine === "vlc" ? " active" : "")} onClick={() => pick("vlc")}>libVLC</TvButton>
+        <TvButton fk="engine-exo" className={"chip ambient" + (engine === "exo" ? " on" : "")} onClick={() => pick("exo")}>ExoPlayer (like Plex)</TvButton>
+        <TvButton fk="engine-vlc" className={"chip ambient" + (engine === "vlc" ? " on" : "")} onClick={() => pick("vlc")}>libVLC</TvButton>
       </div>
     </section>
   );
@@ -270,15 +271,48 @@ function FrameRateChoice() {
           <span>This TV</span>
           <span className="tv-muted">{on ? "On" : "Off"}</span>
         </div>
-        <TvButton fk="framerate-off" className={"chip ambient" + (!on ? " active" : "")} onClick={() => pick(false)}>Off</TvButton>
-        <TvButton fk="framerate-on" className={"chip ambient" + (on ? " active" : "")} onClick={() => pick(true)}>On</TvButton>
+        <TvButton fk="framerate-off" className={"chip ambient" + (!on ? " on" : "")} onClick={() => pick(false)}>Off</TvButton>
+        <TvButton fk="framerate-on" className={"chip ambient" + (on ? " on" : "")} onClick={() => pick(true)}>On</TvButton>
       </div>
     </section>
   );
 }
 
+/** "Use the phone-style interface": the touch layout, until the app restarts. */
+function PhoneViewChoice() {
+  const classic = () => {
+    try {
+      sessionStorage.setItem("plexodus.tv.session", "0");
+    } catch {
+      /* ignore */
+    }
+    window.location.href = "/";
+  };
+  return (
+    <section className="tv-lib-prefs">
+      <h2 className="tv-section-title">Interface</h2>
+      <p className="tv-muted tv-section-note">
+        The phone-style interface is the touch layout phones and tablets get. It lasts until the app restarts, and a
+        Back to TV view button brings you straight back.
+      </p>
+      <div className="tv-pref-row" data-row data-group="classic">
+        <div className="tv-pref-name"><span>This TV</span><span className="tv-muted">TV interface</span></div>
+        <TvButton fk="classic" className="chip ambient" onClick={classic}>Use the phone-style interface</TvButton>
+      </div>
+    </section>
+  );
+}
+
+type Cat = { key: string; label: string; hint: string; icon: ReactNode; body: ReactNode };
+
+/**
+ * Settings in two panes: categories down the left, the chosen one's settings
+ * on the right. Moving through the categories shows each one straight away;
+ * Right (or OK) steps into it, Left or Back steps out again.
+ */
 export default function SettingsPage() {
   const { user, setUser, openProfiles } = useUser();
+  const params = useParams();
   useBackdrop(undefined);
   usePageFocus(true);
   let version = "";
@@ -308,50 +342,153 @@ export default function SettingsPage() {
     }
   };
 
-  const classic = () => {
-    try {
-      sessionStorage.setItem("plexodus.tv.session", "0");
-    } catch {
-      /* ignore */
-    }
-    window.location.href = "/";
+  const admin = !!user?.isAdmin && !user.isProfile;
+  const cats: Cat[] = [
+    {
+      key: "account", label: "Account", hint: "Profiles and signing out", icon: <UserIcon size={24} />,
+      body: (
+        <>
+          <dl className="tv-facts">
+            <dt>Profile</dt><dd>{user?.name || user?.username}{user?.kids ? " (kids)" : ""}</dd>
+            <dt>Signed in as</dt><dd>{user?.username}{user?.isAdmin ? " (admin)" : ""}</dd>
+          </dl>
+          <div className="tv-settings-actions" data-row data-row-top>
+            <TvButton fk="profiles" onClick={() => openProfiles?.()}>Switch profile</TvButton>
+            {!user?.isProfile && <TvButton fk="manage-profiles" onClick={() => openProfiles?.(true)}>Manage profiles</TvButton>}
+            <TvButton fk="logout" icon={<Logout size={22} />} onClick={signOut}>Sign out</TvButton>
+            {user && !user.isAdmin && !user.isProfile && (
+              <TvButton fk="delete-account" onClick={deleteAccount}>
+                {confirmDelete ? "Press again to delete your account" : "Delete my account"}
+              </TvButton>
+            )}
+          </div>
+          {deleteError && <p className="tv-muted tv-note">{deleteError}</p>}
+        </>
+      ),
+    },
+    { key: "libraries", label: "Libraries", hint: "Menu and Home choices", icon: <Grid size={24} />, body: <LibraryChoices /> },
+    {
+      key: "screen", label: "Look and feel", hint: "Screensaver, trailers, ratings", icon: <Sparkle size={24} />,
+      body: (
+        <>
+          <AmbientChoices />
+          <RatingChoices />
+          {!user?.kids && <PhoneViewChoice />}
+        </>
+      ),
+    },
+    ...(native ? [{
+      key: "playback", label: "Playback", hint: "Lip sync, player, frame rate", icon: <Play size={24} />,
+      body: (
+        <>
+          <LipSyncChoices />
+          <EngineChoice />
+          <FrameRateChoice />
+        </>
+      ),
+    }] : []),
+    ...(admin ? [{ key: "activity", label: "Now watching", hint: "Who is playing what", icon: <Pulse size={24} />, body: null }] : []),
+    {
+      key: "app", label: "This TV", hint: "App, updates and server", icon: <Tv size={24} />,
+      body: (
+        <>
+          <dl className="tv-facts">
+            <dt>Server</dt><dd>{window.location.host}</dd>
+            {version && <><dt>App version</dt><dd>{version}</dd></>}
+          </dl>
+          <div className="tv-settings-actions" data-row data-row-top>
+            <TvButton fk="reload" icon={<Refresh size={22} />} onClick={() => window.location.reload()}>Reload</TvButton>
+            {native && nativeHas("update") && (
+              <TvButton fk="app-update" onClick={() => native?.checkForUpdates?.()}>Check for updates</TvButton>
+            )}
+            {native && <TvButton fk="server" onClick={() => native?.changeServer()}>Change server</TvButton>}
+          </div>
+          <p className="tv-muted tv-note">Adding libraries, users and the Plex import live in the Plexodus web page on a computer.</p>
+        </>
+      ),
+    },
+  ];
+
+  const [picked, setPicked] = useState(params.section || "account");
+  useEffect(() => {
+    if (params.section) setPicked(params.section);
+  }, [params.section]);
+  const section = cats.some((c) => c.key === picked) ? picked : "account";
+  const pane = useRef<HTMLDivElement>(null);
+  const rail = useRef<HTMLElement>(null);
+  // Each category starts at its top.
+  useEffect(() => {
+    if (pane.current) pane.current.scrollTop = 0;
+  }, [section]);
+
+  const railItem = () => rail.current?.querySelector<HTMLElement>(`[data-fk="set-${section}"]`);
+  const enterPane = () => {
+    const first = [...(pane.current?.querySelectorAll<HTMLElement>(".tv-set-sec:not([hidden]) [data-f]") || [])]
+      .find((el) => !(el as HTMLButtonElement).disabled && el.getBoundingClientRect().width > 0);
+    return focusEl(first, true);
+  };
+  // Back from a category's settings returns to the list of categories.
+  useEffect(() => onBack(() => {
+    const a = document.activeElement;
+    if (!a || !pane.current?.contains(a) || document.querySelector("[data-scope]")) return false;
+    return focusEl(railItem(), true);
+  }));
+  // Down from the tab bar comes back to the list, where Up left it.
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "ArrowDown" || document.querySelector("[data-scope]")) return;
+      if (!(document.activeElement as HTMLElement | null)?.closest(".tv-nav")) return;
+      const item = railItem();
+      if (!item) return;
+      e.preventDefault();
+      e.stopPropagation();
+      focusEl(item, true);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  });
+  // The list is entered with Left and left with Right, so Up and Down stay in
+  // it; Right always starts a category at its first setting, and Up from the
+  // first category goes to the tab bar like the top of any page.
+  const onRailKey = (e: KeyboardEvent, i: number) => {
+    const toNav = e.key === "ArrowUp" && i === 0;
+    if (e.key !== "ArrowRight" && !toNav) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (toNav) focusEl(document.querySelector<HTMLElement>(".tv-nav [data-default]") || document.querySelector<HTMLElement>(".tv-nav [data-f]"), true);
+    else enterPane();
   };
 
   return (
-    <div className="tv-page tv-settings" data-vscroll="reveal" data-margin="5rem">
-      <h1 className="tv-h1">Settings</h1>
-      <dl className="tv-facts">
-        <dt>Profile</dt><dd>{user?.name || user?.username}{user?.kids ? " (kids)" : ""}</dd>
-        <dt>Signed in as</dt><dd>{user?.username}{user?.isAdmin ? " (admin)" : ""}</dd>
-        <dt>Server</dt><dd>{window.location.host}</dd>
-        {version && <><dt>App version</dt><dd>{version}</dd></>}
-      </dl>
-      <div className="tv-settings-actions" data-row data-row-top>
-        <TvButton autoFocus fk="profiles" onClick={() => openProfiles?.()}>Switch profile</TvButton>
-        {!user?.isProfile && <TvButton fk="manage-profiles" onClick={() => openProfiles?.(true)}>Manage profiles</TvButton>}
-        <TvButton fk="reload" icon={<Refresh size={22} />} onClick={() => window.location.reload()}>Reload</TvButton>
-        {native && nativeHas("update") && (
-          <TvButton fk="app-update" onClick={() => native?.checkForUpdates?.()}>Check for updates</TvButton>
-        )}
-        {native && <TvButton fk="server" onClick={() => native?.changeServer()}>Change server</TvButton>}
-        {!user?.kids && <TvButton fk="classic" onClick={classic}>Use the phone-style interface</TvButton>}
-        <TvButton fk="logout" icon={<Logout size={22} />} onClick={signOut}>Sign out</TvButton>
-        {user && !user.isAdmin && !user.isProfile && (
-          <TvButton fk="delete-account" onClick={deleteAccount}>
-            {confirmDelete ? "Press again to delete your account" : "Delete my account"}
-          </TvButton>
-        )}
+    <div className="tv-page tv-settings">
+      {/* The pane comes first so the page's focus order starts in it; the list sits on the left. */}
+      <div className="tv-set-pane">
+        <header className="tv-set-head">
+          <h2>{cats.find((c) => c.key === section)?.label}</h2>
+        </header>
+        {/* Every category stays mounted (hidden) so its switches keep their state as you move through the list. */}
+        <div className="tv-set-scroll" ref={pane} data-vscroll="reveal" data-margin="14rem">
+          {cats.map((c) => (
+            <div key={c.key} className="tv-set-sec" data-section={c.key} hidden={c.key !== section}>
+              {c.key === "activity" ? section === "activity" && <NowWatching /> : c.body}
+            </div>
+          ))}
+          <div className="tv-page-tail" />
+        </div>
       </div>
-      {deleteError && <p className="tv-muted tv-note">{deleteError}</p>}
-      {user?.isAdmin && !user.isProfile && <NowWatching />}
-      <LibraryChoices />
-      <AmbientChoices />
-      <RatingChoices />
-      {native && <LipSyncChoices />}
-      {native && <EngineChoice />}
-      {native && <FrameRateChoice />}
-      <p className="tv-muted tv-note">Adding libraries, users and the Plex import live in the Plexodus web page on a computer.</p>
-      <div className="tv-page-tail" />
+      <aside className="tv-set-rail" ref={rail} data-group="settings" data-enter="left" aria-label="Settings categories">
+        <h1 className="tv-h1">Settings</h1>
+        {cats.map((c, i) => (
+          <button key={c.key} data-f data-fk={`set-${c.key}`} data-autofocus={c.key === section ? "" : undefined}
+            data-default={c.key === section ? "" : undefined}
+            className={`tv-set-cat ${c.key === section ? "active" : ""}`} aria-current={c.key === section}
+            onFocus={() => setPicked(c.key)} onClick={enterPane} onKeyDown={(e) => onRailKey(e, i)}>
+            {c.icon}
+            <span className="l">{c.label}</span>
+            <span className="h">{c.hint}</span>
+          </button>
+        ))}
+      </aside>
     </div>
   );
 }
