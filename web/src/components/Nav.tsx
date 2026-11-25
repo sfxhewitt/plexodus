@@ -133,14 +133,15 @@ export function Nav() {
       <nav className="nav-links">
         <NavLink to="/" end><Home size={18} /><span>Home</span></NavLink>
         <NavLink to="/libraries" end><Grid size={18} /><span>Libraries</span></NavLink>
-        <NavLink to="/history" end aria-label="History" title="History"><Clock size={18} /><span>History</span></NavLink>
-        <NavLink to="/scene" end aria-label="Scene notes" title="Scene notes"><Sparkle size={18} /><span>Scene notes</span></NavLink>
         {libs?.filter((l) => !l.hidden).map((l) => (
           <NavLink key={l.id} to={`/library/${l.id}`} className="lib-link">
             {l.kind === "movies" ? <Film size={18} /> : <Tv size={18} />}
             <span>{l.name}</span>
           </NavLink>
         ))}
+        {/* After the libraries, so they stay together. */}
+        <NavLink to="/scene" end aria-label="Scene notes" title="Scene notes"><Sparkle size={18} /><span>Scene notes</span></NavLink>
+        <NavLink to="/history" end aria-label="History" title="History"><Clock size={18} /><span>History</span></NavLink>
       </nav>
       <div className="nav-right">
         {tvBack && (
