@@ -6,10 +6,13 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/sfxhewitt/plexodus/internal/ask"
 	"github.com/sfxhewitt/plexodus/internal/auth"
+	"github.com/sfxhewitt/plexodus/internal/config"
 	"github.com/sfxhewitt/plexodus/internal/db"
 )
 
@@ -48,6 +51,11 @@ func scaleServer(t *testing.T) (*Server, auth.User) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { d.Close() })
+			start := time.Now()
+			if err := d.BuildTitleIndex(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("title index (%s) ready in %s", d.TitleFTS(), time.Since(start))
 			s := &Server{db: d, auth: auth.New(d), baseCtx: context.Background()}
 			_, u, err := s.auth.Login(context.Background(), "daniel", "password123")
 			if err != nil {
@@ -64,25 +72,30 @@ func scaleServer(t *testing.T) (*Server, auth.User) {
 	id := int64(1000)
 	genres := []string{`["Drama","Crime"]`, `["Comedy"]`, `["Action","Thriller"]`, `["Animation"]`}
 	var eps, movies []int64
+	words := scaleWords(rnd)
 	for i := 0; i < 30000; i++ {
 		id++
-		tx.Exec(`INSERT INTO items(id, library_id, kind, guid, title, sort_title, poster, backdrop, genres, rating, runtime, year, added_at, updated_at, meta_state, tmdb_id)
-			VALUES (?, 1, 'movie', ?, ?, ?, '/p.jpg', '/b.jpg', ?, ?, ?, ?, ?, ?, 'matched', ?)`, id, fmt.Sprint("m", id), fmt.Sprint("Film ", i), fmt.Sprint("film ", i), genres[i%4], 5+rnd.Float64()*4, 70+rnd.Intn(90), 1950+rnd.Intn(75), now-int64(rnd.Intn(3000))*86400, now, id)
+		title := fmt.Sprint("Film ", i, " ", words(1+rnd.Intn(3)))
+		if i == 12345 {
+			title = "About Time"
+		}
+		tx.Exec(`INSERT INTO items(id, library_id, kind, guid, title, sort_title, poster, backdrop, genres, rating, runtime, year, added_at, updated_at, meta_state, tmdb_id, overview)
+			VALUES (?, 1, 'movie', ?, ?, ?, '/p.jpg', '/b.jpg', ?, ?, ?, ?, ?, ?, 'matched', ?, ?)`, id, fmt.Sprint("m", id), title, strings.ToLower(title), genres[i%4], 5+rnd.Float64()*4, 70+rnd.Intn(90), 1950+rnd.Intn(75), now-int64(rnd.Intn(3000))*86400, now, id, words(40+rnd.Intn(40)))
 		tx.Exec(`INSERT INTO media_files(item_id, library_id, path, size, mtime) VALUES (?, 1, ?, 1000, 0)`, id, fmt.Sprint("/m/", id))
 		movies = append(movies, id)
 	}
 	for sh := 0; sh < 13000; sh++ {
 		id++
 		show := id
-		tx.Exec(`INSERT INTO items(id, library_id, kind, guid, title, sort_title, poster, backdrop, genres, rating, added_at, updated_at, meta_state, tmdb_id)
-			VALUES (?, 3, 'show', ?, ?, ?, '/p.jpg', '/b.jpg', ?, ?, ?, ?, 'matched', ?)`, show, fmt.Sprint("s", show), fmt.Sprint("Show ", sh), fmt.Sprint("show ", sh), genres[sh%4], 5+rnd.Float64()*4, now-int64(rnd.Intn(3000))*86400, now, id)
+		tx.Exec(`INSERT INTO items(id, library_id, kind, guid, title, sort_title, poster, backdrop, genres, rating, added_at, updated_at, meta_state, tmdb_id, overview)
+			VALUES (?, 3, 'show', ?, ?, ?, '/p.jpg', '/b.jpg', ?, ?, ?, ?, 'matched', ?, ?)`, show, fmt.Sprint("s", show), fmt.Sprint("Show ", sh, " ", words(1+rnd.Intn(3))), fmt.Sprint("show ", sh), genres[sh%4], 5+rnd.Float64()*4, now-int64(rnd.Intn(3000))*86400, now, id, words(40+rnd.Intn(40)))
 		for se := 1; se <= 4; se++ {
 			id++
 			season := id
 			tx.Exec(`INSERT INTO items(id, library_id, kind, guid, parent_id, title, sort_title, season_number, added_at, updated_at) VALUES (?, 3, 'season', ?, ?, ?, ?, ?, 0, 0)`, season, fmt.Sprint("x", season), show, fmt.Sprint("Season ", se), "s", se)
 			for e := 1; e <= 13; e++ {
 				id++
-				tx.Exec(`INSERT INTO items(id, library_id, kind, guid, parent_id, title, sort_title, season_number, episode_number, runtime, added_at, updated_at) VALUES (?, 3, 'episode', ?, ?, 'Ep', 'ep', ?, ?, 45, 0, 0)`, id, fmt.Sprint("e", id), season, se, e)
+				tx.Exec(`INSERT INTO items(id, library_id, kind, guid, parent_id, title, sort_title, season_number, episode_number, runtime, added_at, updated_at, overview) VALUES (?, 3, 'episode', ?, ?, ?, 'ep', ?, ?, 45, 0, 0, ?)`, id, fmt.Sprint("e", id), season, words(1+rnd.Intn(4)), se, e, words(20+rnd.Intn(30)))
 				tx.Exec(`INSERT INTO media_files(item_id, library_id, path, size, mtime) VALUES (?, 3, ?, 1000, 0)`, id, fmt.Sprint("/e/", id))
 				eps = append(eps, id)
 			}
@@ -123,6 +136,57 @@ func scaleServer(t *testing.T) (*Server, auth.User) {
 		}
 	}
 	return s, u
+}
+
+// scaleWords makes plot-summary-like text: words drawn with the long-tailed
+// frequencies of real English, so "about" and "time" turn up in a few
+// percent of summaries, as they do in a real library.
+func scaleWords(rnd *rand.Rand) func(n int) string {
+	common := strings.Fields(`the a to of and in his is her with for on that he as an by from who their when they she at
+		after life has into it new but about young man this are him out one up family time two world find must them
+		love what will while have story all where friends can be back years woman series only finds home against first`)
+	z := rand.NewZipf(rnd, 1.1, 2, 30000)
+	return func(n int) string {
+		var b strings.Builder
+		for i := 0; i < n; i++ {
+			if i > 0 {
+				b.WriteByte(' ')
+			}
+			if k := int(z.Uint64()); k < len(common) {
+				b.WriteString(common[k])
+			} else {
+				fmt.Fprintf(&b, "w%d", k)
+			}
+		}
+		return b.String()
+	}
+}
+
+// Searching for "About time" (two of the commonest words in plot summaries)
+// has to answer at once, in both the title search and the plain-English one.
+func TestScaleSearch(t *testing.T) {
+	if os.Getenv("PLEXODUS_SCALE") == "" {
+		t.Skip()
+	}
+	s, u := scaleServer(t)
+	s.cfg = &config.Config{}
+	s.claude = ask.NewClaude("", "")
+	for _, q := range []string{"About+time", "time", "the", "abo", "family", "something+like+about+time", "w900+w901"} {
+		for i := 0; i < 2; i++ {
+			var res struct{ Movies, Shows, Episodes []Card }
+			start := time.Now()
+			call(t, s, u, s.handleSearch, "GET", "/api/search?q="+q, "", nil, &res)
+			top := ""
+			if len(res.Movies) > 0 {
+				top = res.Movies[0].Title
+			}
+			t.Logf("search %q took %s (%d films, top %q, %d shows, %d episodes)", q, time.Since(start), len(res.Movies), top, len(res.Shows), len(res.Episodes))
+			var a askResult
+			start = time.Now()
+			call(t, s, u, s.handleAsk, "GET", "/api/ask?q="+q, "", nil, &a)
+			t.Logf("ask %q took %s (%d picks, %d matches)", q, time.Since(start), len(a.Picks), len(a.Matches))
+		}
+	}
 }
 
 func TestScaleCollections(t *testing.T) {

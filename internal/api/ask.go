@@ -25,38 +25,85 @@ func (s *Server) anthropicKey(ctx context.Context) string {
 }
 
 type genreCache struct {
-	mu   sync.Mutex
-	list []string
-	at   time.Time
+	mu         sync.Mutex
+	list       []string
+	at         time.Time
+	refreshing bool
+	ready      chan struct{} // closed once the first list is in
 }
 
-// libraryGenres lists every genre name in use, refreshed every 15 minutes.
+// libraryGenres lists every genre name in use. The list is read in the
+// background (at startup, then when it is 15 minutes old), never by the
+// search that wants it: reading the genres of every title can take a while
+// on a busy disk. A search waits a moment for the very first list only.
 func (s *Server) libraryGenres(ctx context.Context) []string {
-	s.genres.mu.Lock()
-	defer s.genres.mu.Unlock()
-	if s.genres.list != nil && time.Since(s.genres.at) < 15*time.Minute {
-		return s.genres.list
+	g := &s.genres
+	g.mu.Lock()
+	if g.ready == nil {
+		g.ready = make(chan struct{})
 	}
-	rows, err := s.db.R.QueryContext(ctx, `SELECT DISTINCT j.value FROM items i, json_each(i.genres) j
-		WHERE i.kind IN ('movie', 'show') AND i.genres IS NOT NULL ORDER BY j.value`)
-	if err != nil {
-		return s.genres.list
+	ready, have := g.ready, g.list != nil
+	if (!have || time.Since(g.at) > 15*time.Minute) && !g.refreshing {
+		g.refreshing = true
+		go s.refreshGenres()
 	}
-	defer rows.Close()
-	list := []string{}
-	for rows.Next() {
-		var g string
-		if rows.Scan(&g) == nil && g != "" {
-			list = append(list, g)
+	g.mu.Unlock()
+	if !have {
+		wait := time.NewTimer(2 * time.Second)
+		defer wait.Stop()
+		select {
+		case <-ready:
+		case <-wait.C:
+		case <-ctx.Done():
 		}
 	}
-	s.genres.list, s.genres.at = list, time.Now()
-	return list
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.list
+}
+
+// refreshGenres reads the genre list. It keeps the old list if the read fails.
+func (s *Server) refreshGenres() {
+	g := &s.genres
+	ctx := s.baseCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var list []string
+	rows, err := s.db.R.QueryContext(ctx, `SELECT DISTINCT j.value FROM items i, json_each(i.genres) j
+		WHERE i.kind IN ('movie', 'show') AND i.genres IS NOT NULL ORDER BY j.value`)
+	if err == nil {
+		list = []string{}
+		for rows.Next() {
+			var name string
+			if rows.Scan(&name) == nil && name != "" {
+				list = append(list, name)
+			}
+		}
+		err = rows.Close()
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.refreshing = false
+	if g.ready == nil {
+		g.ready = make(chan struct{})
+	}
+	if err != nil {
+		log.Printf("ask: reading genres failed: %v", err)
+		g.at = time.Now().Add(-14 * time.Minute) // try again in a minute
+		return
+	}
+	g.list, g.at = list, time.Now()
+	select {
+	case <-g.ready:
+	default:
+		close(g.ready)
+	}
 }
 
 type askResult struct {
 	Summary string    `json:"summary"`
-	Engine  string    `json:"engine"` // "claude" or "basic"
+	Engine  string    `json:"engine"` // "claude", "basic", or "title" when the request is simply a title in the library
 	Notice  string    `json:"notice,omitempty"`
 	Query   ask.Query `json:"query"`
 	Picks   []Card    `json:"picks"`
@@ -75,7 +122,13 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	genres := s.libraryGenres(r.Context())
 	res := askResult{Engine: "basic"}
-	if s.claude.Enabled() {
+	// Someone who types a title and presses Enter wants that title, now:
+	// no need to ask Claude what "About Time" means.
+	_, isTitle := s.findTitle(r, text, 0, nil)
+	if isTitle {
+		res.Engine = "title"
+		res.Query = ask.Query{Titles: []ask.Title{{Title: text}}, Watched: "any", Sort: "relevance", Summary: text}
+	} else if s.claude.Enabled() {
 		q, err := s.claude.Translate(r.Context(), text, genres)
 		if err == nil {
 			res.Query, res.Engine = q, "claude"
@@ -84,7 +137,11 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 			if errors.Is(err, context.Canceled) {
 				return
 			}
-			res.Notice = "Claude couldn't answer (" + err.Error() + "), so this used basic search."
+			if errors.Is(err, context.DeadlineExceeded) {
+				res.Notice = "Claude took too long to answer, so this used basic search."
+			} else {
+				res.Notice = "Claude couldn't answer (" + err.Error() + "), so this used basic search."
+			}
 		}
 	}
 	if res.Engine == "basic" {
@@ -144,9 +201,10 @@ func (s *Server) findTitle(r *http.Request, title string, year int, kinds []stri
 		return 0, false
 	}
 	want := normTitle(title)
+	fts := s.db.TitleFTS()
 	rows, err := s.db.R.QueryContext(r.Context(), `SELECT i.id, i.kind, i.title, COALESCE(i.original_title, ''), COALESCE(i.year, 0)
-		FROM items_fts f JOIN items i ON i.id = f.rowid`+aclJoin(currentUser(r), "i")+`
-		WHERE items_fts MATCH ? AND i.kind IN ('movie', 'show') LIMIT 50`,
+		FROM `+fts+` f JOIN items i ON i.id = f.rowid`+aclJoin(currentUser(r), "i")+`
+		WHERE `+fts+` MATCH ? AND i.kind IN ('movie', 'show') LIMIT 50`,
 		`{title original_title} : "`+strings.Join(toks, " ")+`"`)
 	if err != nil {
 		return 0, false
@@ -354,7 +412,11 @@ func (s *Server) askMatches(r *http.Request, q ask.Query) ([]Card, error) {
 			" ELSE w.position > 0 AND COALESCE(w.watched, 0) = 0 END")
 	}
 	if fq := ftsAny(q.Keywords); fq != "" {
-		join = ` JOIN (SELECT rowid, bm25(items_fts, 10.0, 5.0, 1.0) AS score FROM items_fts WHERE items_fts MATCH ` + arg(fq) + `) f ON f.rowid = i.id`
+		// The films-and-shows index: the same words match tens of thousands
+		// of episode summaries in items_fts, each of which would be read
+		// only to be thrown away.
+		fts := s.db.TitleFTS()
+		join = ` JOIN (SELECT rowid, bm25(` + fts + `, 10.0, 5.0, 1.0) AS score FROM ` + fts + ` WHERE ` + fts + ` MATCH ` + arg(fq) + `) f ON f.rowid = i.id`
 		if q.Sort == "relevance" {
 			order = "f.score"
 		}

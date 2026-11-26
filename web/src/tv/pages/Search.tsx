@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { AskResult, Card, Collection } from "../../api";
+import { AskResult, Card, Collection, looksLikeQuestion } from "../../api";
 import { Search as SearchIcon, Sparkle } from "../../components/Icons";
 import { useApi, useDebounced } from "../../hooks";
 import { TvCard, TvRow, useBackdrop } from "../components";
@@ -22,7 +22,11 @@ export default function SearchPage() {
   const [asked, setAsked] = useState(() => (params.get("ask") === "1" ? (params.get("q") || "").trim() : ""));
   const dq = useDebounced(q.trim(), 250);
   const asking = !!asked && asked === dq;
-  const { data } = useApi<Results>(dq && !asking ? `/api/search?q=${encodeURIComponent(dq)}` : null);
+  // Films and shows first; episodes (far more of them to look through)
+  // follow on their own so they never hold the titles up.
+  const { data: titles } = useApi<Results>(dq && !asking ? `/api/search?q=${encodeURIComponent(dq)}&part=titles` : null);
+  const { data: eps, error: epsError } = useApi<Results>(dq && !asking ? `/api/search?q=${encodeURIComponent(dq)}&part=episodes` : null);
+  const data = titles && { ...titles, episodes: eps?.episodes ?? [] };
   const { data: answer, error: askError } = useApi<AskResult>(asking ? `/api/ask?q=${encodeURIComponent(asked)}` : null);
   const ask = (text: string) => {
     const t = text.trim();
@@ -52,7 +56,7 @@ export default function SearchPage() {
 
   const type = (k: string) => setQ((v) => (v + k).slice(0, 60));
   const results = data && dq && !asking ? data : undefined;
-  const empty = results && !results.movies.length && !results.shows.length && !results.episodes.length && !results.collections?.length;
+  const empty = results && (eps || epsError) && !results.movies.length && !results.shows.length && !results.episodes.length && !results.collections?.length;
 
   return (
     <div className="tv-search">
@@ -60,7 +64,14 @@ export default function SearchPage() {
         <label className="tv-search-input">
           <SearchIcon size={26} />
           <input data-f data-fk="input" value={q} placeholder="Search or ask" enterKeyHint="search" onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); ask(q); } }} />
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              e.preventDefault();
+              // A word or two is a title, and its matches are already
+              // listed: go to them. A longer request is asked in plain English.
+              if (looksLikeQuestion(q)) ask(q);
+              else focusEl(document.querySelector<HTMLElement>(".tv-search-results [data-f]"));
+            }} />
         </label>
         <div className="tv-keys">
           {KEYS.map((k, i) => (

@@ -130,6 +130,32 @@ CREATE TRIGGER IF NOT EXISTS items_fts_au AFTER UPDATE OF title, original_title,
     VALUES (new.id, new.title, new.original_title, new.overview);
 END;
 
+-- Films and shows only, for search. items_fts is nine parts episodes, so a
+-- search for common words ("about time") had to rank tens of thousands of
+-- episode summaries before it could answer; this index is small enough to
+-- stay in memory. Filled by DB.BuildTitleIndex on libraries that predate it.
+CREATE VIRTUAL TABLE IF NOT EXISTS titles_fts USING fts5(
+    title, original_title, overview,
+    content='items', content_rowid='id',
+    tokenize='unicode61 remove_diacritics 2',
+    prefix='2 3'
+);
+
+CREATE TRIGGER IF NOT EXISTS titles_fts_ai AFTER INSERT ON items WHEN new.kind IN ('movie', 'show') BEGIN
+    INSERT INTO titles_fts(rowid, title, original_title, overview)
+    VALUES (new.id, new.title, new.original_title, new.overview);
+END;
+CREATE TRIGGER IF NOT EXISTS titles_fts_ad AFTER DELETE ON items WHEN old.kind IN ('movie', 'show') BEGIN
+    INSERT INTO titles_fts(titles_fts, rowid, title, original_title, overview)
+    VALUES ('delete', old.id, old.title, old.original_title, old.overview);
+END;
+CREATE TRIGGER IF NOT EXISTS titles_fts_au AFTER UPDATE OF title, original_title, overview ON items WHEN old.kind IN ('movie', 'show') BEGIN
+    INSERT INTO titles_fts(titles_fts, rowid, title, original_title, overview)
+    VALUES ('delete', old.id, old.title, old.original_title, old.overview);
+    INSERT INTO titles_fts(rowid, title, original_title, overview)
+    VALUES (new.id, new.title, new.original_title, new.overview);
+END;
+
 -- Intro/credits/recap markers (imported from Plex or detected on first play).
 CREATE TABLE IF NOT EXISTS markers (
     item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,

@@ -226,15 +226,23 @@ interface UserState {
   historyHidden?: Set<number>;
 }
 
-/** History: what was played, newest first, relative to the real clock so the day groups are stable. */
+/**
+ * History: what was played, newest first, on three different days whatever
+ * the time of day (two plays today, one yesterday, one three days ago).
+ * Times counted back from "now" alone fell into the wrong days in the
+ * minutes after midnight.
+ */
 function history(st: UserState) {
   const now = Math.floor(Date.now() / 1000);
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const today = Math.floor(midnight.getTime() / 1000);
   const ep = allEpisodes[0];
   const list = [
-    { ...movies[3], playedAt: now - 600 },
-    { ...ep, position: 40, duration: 2700, watched: false, playedAt: now - 1200 },
-    { ...movies[0], position: undefined, duration: 6000, watched: true, playedAt: now - 86400 - 60 },
-    { ...movies[7], position: 300, duration: 6500, watched: false, playedAt: now - 3 * 86400 },
+    { ...movies[3], playedAt: Math.max(today, now - 600) },
+    { ...ep, position: 40, duration: 2700, watched: false, playedAt: Math.max(today, now - 1200) },
+    { ...movies[0], position: undefined, duration: 6000, watched: true, playedAt: today - 3600 },
+    { ...movies[7], position: 300, duration: 6500, watched: false, playedAt: today - 2 * 86400 - 3600 },
   ];
   return { items: list.filter((c) => !st.historyHidden?.has(c.id)), more: false, before: 0 };
 }
@@ -609,8 +617,12 @@ addEventListener("message", function (e) {
     if (p === "/api/search") {
       const q = (u.searchParams.get("q") || "").toLowerCase();
       const hit = (c: Card) => c.title.toLowerCase().includes(q) || !!c.showTitle?.toLowerCase().includes(q);
-      return json(route, { movies: movies.filter(hit).slice(0, 20), shows: shows.filter(hit), episodes: allEpisodes.filter(hit).slice(0, 20),
-        collections: COLLECTION.card().name.toLowerCase().includes(q) ? [COLLECTION.card()] : [] });
+      // The search pages ask for part=titles and part=episodes separately.
+      const part = u.searchParams.get("part");
+      const titles = part !== "episodes", eps = part !== "titles";
+      return json(route, { movies: titles ? movies.filter(hit).slice(0, 20) : [], shows: titles ? shows.filter(hit) : [],
+        episodes: eps ? allEpisodes.filter(hit).slice(0, 20) : [],
+        collections: titles && COLLECTION.card().name.toLowerCase().includes(q) ? [COLLECTION.card()] : [] });
     }
     if (p === "/api/share/targets") {
       return json(route, { targets: opts.share && me().isAdmin ? [{ id: "555", name: "Dad", plexUser: "bigdave", addedAt: 0 }] : [] });
