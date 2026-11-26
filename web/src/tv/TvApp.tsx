@@ -265,6 +265,24 @@ function Shell() {
         }
         if (finished.includes(lastId)) break;
       }
+      // The page saves what the player couldn't. Its own reports can fail
+      // to arrive (a film watched to the end stayed at an old resume
+      // point): if the server still has an older place than where the
+      // player says it stopped, send that place from here.
+      let fixed = "";
+      const saved = last ? { position: last.position || 0, watched: !!last.watched } : undefined;
+      if (last && !last.watched && d.duration > 0) {
+        const done = finished.includes(lastId);
+        const at = d.ended ? d.duration : d.position;
+        if (done || Math.abs((last.position || 0) - at) > 30) {
+          fixed = await api.post(`/api/items/${lastId}/progress`, { position: at, duration: d.duration, state: "stopped" }).then(
+            () => (done ? "marked it watched" : "saved the place"), (e: Error) => `could not save: ${e.message}`);
+          api.invalidate("/api/home");
+          window.dispatchEvent(new Event("tv:refresh"));
+        }
+      }
+      // One line per sitting in the server's log, to trace a film that wasn't saved.
+      api.post("/api/player/closed", { ...d, saved, fixed }).catch(() => {});
       // A finished episode's Up Next card becomes the next episode.
       const showId = finished.length ? (last?.kind === "episode" && last.showId) || (it?.kind === "episode" && it.showId) || 0 : 0;
       // The server may not have saved the last report yet, so ask again

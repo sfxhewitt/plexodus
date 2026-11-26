@@ -1,9 +1,15 @@
 package api
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"io"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/sfxhewitt/plexodus/internal/auth"
 	"github.com/sfxhewitt/plexodus/internal/db"
 )
 
@@ -197,5 +203,45 @@ func TestProgressIntoCreditsIsWatched(t *testing.T) {
 	}
 	if !post("20", 5400) {
 		t.Fatal("90%, as in Plex: watched")
+	}
+}
+
+// A player that never learned the film's length still gets the end counted
+// as watched, from the length on file; and a report is saved even when the
+// player has already stopped waiting for the answer.
+func TestProgressWithoutLengthAndAfterTheCallerLeft(t *testing.T) {
+	s, u := testServer(t)
+	if _, err := s.db.W.Exec(`INSERT INTO media_files(id, item_id, library_id, path, size, mtime, duration, streams) VALUES (5, 10, 1, '/m/a.mkv', 1, 0, 7380, '[]')`); err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Watched bool `json:"watched"`
+	}
+	if code := call(t, s, u, s.handleProgress, "POST", "/api/items/10/progress", `{"position": 3000, "duration": 0}`, map[string]string{"id": "10"}, &out); code != 200 || out.Watched {
+		t.Fatalf("midway with no length: code %d watched %v", code, out.Watched)
+	}
+	var pos, dur float64
+	s.db.R.QueryRow(`SELECT position, duration FROM watch_state WHERE item_id = 10`).Scan(&pos, &dur)
+	if pos != 3000 || dur != 7380 {
+		t.Fatalf("saved position %v of %v, want 3000 of 7380", pos, dur)
+	}
+	if code := call(t, s, u, s.handleProgress, "POST", "/api/items/10/progress", `{"position": 7000, "duration": 0}`, map[string]string{"id": "10"}, &out); code != 200 || !out.Watched {
+		t.Fatalf("near the end with no length: code %d watched %v", code, out.Watched)
+	}
+
+	// The caller hung up before the write: it is still saved.
+	r := httptest.NewRequest("POST", "/api/items/20/progress", strings.NewReader(`{"position": 1234, "duration": 6000}`))
+	r.SetPathValue("id", "20")
+	ctx, cancel := context.WithCancel(auth.WithUser(r.Context(), u))
+	r = r.WithContext(ctx)
+	body, _ := io.ReadAll(r.Body)
+	cancel()
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	s.handleProgress(httptest.NewRecorder(), r)
+	pos = 0
+	s.db.R.QueryRow(`SELECT position FROM watch_state WHERE item_id = 20`).Scan(&pos)
+	if pos != 1234 {
+		t.Fatalf("report from a caller that left: saved %v, want 1234", pos)
 	}
 }

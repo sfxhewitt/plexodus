@@ -25,6 +25,8 @@ export interface NativeEnded {
   position: number;
   duration: number;
   ended: boolean;
+  /** How the sitting's progress reports went (newer apps); passed on to the server's log. */
+  stats?: Record<string, unknown>;
 }
 
 interface Bridge {

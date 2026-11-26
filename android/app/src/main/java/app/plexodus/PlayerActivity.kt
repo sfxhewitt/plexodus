@@ -604,6 +604,7 @@ class PlayerActivity : Activity() {
                     }
                 }
                 timeMs = value
+                lastTimeEventAt = SystemClock.uptimeMillis()
                 if (calibrating) return
                 updateTime()
                 updateSkip()
@@ -2578,27 +2579,91 @@ class PlayerActivity : Activity() {
 
     // ---- progress reporting, same contract as the web player ----
 
-    private fun report(force: Boolean = false, positionMs: Long = timeMs, stopped: Boolean = false) {
-        if (calibrating || lengthMs <= 0 || itemId == 0L || !started) return
+    // What became of this sitting's reports: handed to the page when the
+    // player closes (it passes them on to the server's log), so a film that
+    // wasn't saved can be traced afterwards.
+    private var reportsOk = 0
+    private var reportsFailed = 0
+    private var reportsSkipped = 0
+    private var reportNote = ""
+    /** When the engine last said where the film is. */
+    private var lastTimeEventAt = 0L
+    private var timeStalled = false
+
+    /**
+     * Where the film is. Normally the engine's last time event; if those
+     * have stopped while it plays on, ask the engine itself, so the saved
+     * position can't be left behind at where playback started.
+     */
+    private fun positionNow(): Long {
+        if (!started || !playing || pendingStartMs > 0 || scrubMs >= 0 || !::player.isInitialized) return timeMs
+        if (SystemClock.uptimeMillis() - lastTimeEventAt < 5_000) return timeMs
+        val t = try { player.time } catch (_: Exception) { -1L }
+        if (t > timeMs + 5_000) {
+            if (!timeStalled) android.util.Log.w(TAG, "time events stopped at ${fmt(timeMs)}; the engine is at ${fmt(t)}")
+            timeStalled = true
+            return t
+        }
+        return timeMs
+    }
+
+    private fun report(force: Boolean = false, positionMs: Long = positionNow(), stopped: Boolean = false) {
+        if (calibrating || itemId == 0L) return
+        if (!started) {
+            if (force) {
+                reportsSkipped++
+                reportNote = "not started"
+            }
+            return
+        }
+        if (lengthMs <= 0 && positionMs <= 0) return
         val now = System.currentTimeMillis()
         if (!force && now - lastReport < 10_000) return
         lastReport = now
         // state feeds the server's Now watching page.
         val state = if (finished || stopped) "stopped" else if (playing) "playing" else "paused"
-        val body = "{\"position\":${positionMs / 1000.0},\"duration\":${lengthMs / 1000.0},\"state\":\"$state\"}"
-        io.execute {
-            try {
-                Http.request("$server/api/items/$itemId/progress", "POST", body, mapOf("Cookie" to cookie))
-            } catch (_: Exception) {
+        // With no length from the engine the server uses the one it has on file.
+        val body = "{\"position\":${positionMs / 1000.0},\"duration\":${lengthMs.coerceAtLeast(0) / 1000.0},\"state\":\"$state\"}"
+        val url = "$server/api/items/$itemId/progress"
+        val headers = mapOf("Cookie" to cookie)
+        // The last report of a sitting is the one that marks a film watched:
+        // keep trying for a while if the server doesn't take it.
+        val last = finished || stopped
+        reportIo.execute {
+            val waits = if (last) longArrayOf(0, 2_000, 5_000, 10_000) else longArrayOf(0)
+            var err = ""
+            for (w in waits) {
+                if (w > 0) Thread.sleep(w)
+                err = try {
+                    val r = Http.request(url, "POST", body, headers, timeoutMs = if (last) 20_000 else 10_000)
+                    if (r.code in 200..299) "" else "HTTP ${r.code}"
+                } catch (e: Exception) {
+                    e.javaClass.simpleName + (e.message?.let { ": $it" } ?: "")
+                }
+                if (err.isEmpty()) break
+                android.util.Log.w(TAG, "progress report failed ($err) at ${positionMs / 1000}s")
+            }
+            ui.post {
+                if (err.isEmpty()) reportsOk++ else {
+                    reportsFailed++
+                    reportNote = err
+                }
             }
         }
     }
 
-    private fun finishPlayback(ended: Boolean) {
-        if (finished) return
-        finished = true
-        val position = if (ended) lengthMs else timeMs
-        report(force = true, positionMs = position)
+    /** What the page is told when the player closes. */
+    private fun closeResult(position: Long, ended: Boolean): Intent {
+        val stats = JSONObject()
+            .put("engine", if (::player.isInitialized) player.name else "")
+            .put("ok", reportsOk)
+            .put("failed", reportsFailed)
+            .put("skipped", reportsSkipped)
+            .put("note", reportNote)
+            .put("started", started)
+            .put("stalled", timeStalled)
+            .put("lengthMs", lengthMs)
+            .put("timeMs", timeMs)
         // Name the item the page started, so it closes its player page. Once
         // this player has offered the next episode itself, report ended=false
         // so the page doesn't offer it a second time.
@@ -2608,8 +2673,32 @@ class PlayerActivity : Activity() {
             .put("position", position / 1000.0)
             .put("duration", lengthMs / 1000.0)
             .put("ended", ended && !handledNext)
-        setResult(RESULT_OK, Intent().putExtra(EXTRA_RESULT, result.toString()))
+            .put("stats", stats)
+        android.util.Log.i(TAG, "closed item $itemId at ${fmt(position)} of ${fmt(lengthMs)}, ended=$ended, reports ok=$reportsOk failed=$reportsFailed skipped=$reportsSkipped $reportNote")
+        return Intent().putExtra(EXTRA_RESULT, result.toString())
+    }
+
+    private fun finishPlayback(ended: Boolean) {
+        if (finished) return
+        finished = true
+        val position = if (ended && lengthMs > 0) lengthMs else positionNow()
+        report(force = true, positionMs = position)
+        setResult(RESULT_OK, closeResult(position, ended))
         finish()
+    }
+
+    /**
+     * Closed some other way than Back or the film ending (the system, or a
+     * new title sent to the app): still save the place and tell the page.
+     */
+    override fun finish() {
+        if (!finished && !calibrating && ::player.isInitialized && itemId != 0L) {
+            finished = true
+            val position = positionNow()
+            report(force = true, positionMs = position)
+            setResult(RESULT_OK, closeResult(position, false))
+        }
+        super.finish()
     }
 
     // ---- lifecycle ----
@@ -2733,6 +2822,12 @@ class PlayerActivity : Activity() {
         private val PASSTHROUGH_CLOSES_CLEANLY = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
 
         const val EXTRA_RESULT = "result"
+        /**
+         * Progress reports go out on their own thread, which outlives the
+         * player screen: the last one (the one that marks a film watched) is
+         * sent as the screen closes, and nothing else may hold it up.
+         */
+        private val reportIo = Executors.newSingleThreadExecutor()
         private const val TAG = "Plexodus"
         /** What films and shows are made at; 23.976 wins a near-24 count (most films). */
         private val STANDARD_RATES = listOf(23.976f, 25f, 29.97f, 50f, 59.94f)
