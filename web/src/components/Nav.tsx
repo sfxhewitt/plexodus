@@ -4,7 +4,7 @@ import { Activity, api, Library, looksLikeQuestion } from "../api";
 import { useApi, useUser } from "../hooks";
 import { deviceLipSync } from "../native";
 import { backToTv, canReturnToTv } from "../tv/detect";
-import { Bookmark, Clock, Film, Grid, Home, Logout, Pulse, Search, Settings, Sparkle, Tv } from "./Icons";
+import { Bookmark, Clock, Film, Grid, Home, Logout, Pulse, Search, Settings, Sparkle, Tv, X } from "./Icons";
 import { ProfileAvatar } from "./Profiles";
 
 export function Logo() {
@@ -152,7 +152,10 @@ export function Nav() {
         )}
         <label className="search-box">
           <Search size={18} />
+          {/* Phones: the keyboard's Enter key reads "Search", and film titles
+              aren't capitalised or "corrected" as you type. */}
           <input ref={input} value={q} placeholder="Search or ask…" onChange={(e) => onSearch(e.target.value)}
+            enterKeyHint="search" autoCapitalize="none" autoCorrect="off" spellCheck={false} aria-label="Search or ask"
             onKeyDown={(e) => {
               if (e.key === "Escape") onSearch(""), input.current?.blur();
               // Enter asks in plain English ("90s heist films I haven't seen").
@@ -164,7 +167,10 @@ export function Nav() {
                 else input.current?.blur();
               }
             }} />
-          <kbd>/</kbd>
+          {q ? (
+            <button type="button" className="search-clear" aria-label="Clear search"
+              onClick={() => (onSearch(""), input.current?.focus())}><X size={16} /></button>
+          ) : <kbd>/</kbd>}
         </label>
         {user?.isAdmin && !user.isProfile && <span className="np-top"><NowWatchingLink /></span>}
         {(user?.isAdmin || deviceLipSync()) && <NavLink to="/settings" className="icon-btn" aria-label="Settings"><Settings /></NavLink>}
