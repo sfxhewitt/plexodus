@@ -526,7 +526,7 @@ export interface PlexStatus {
 export interface AskResult {
   summary: string;
   /** "claude" when Claude translated the request, "basic" for the built-in parser. */
-  engine: "claude" | "basic";
+  engine: "claude" | "basic" | "title";
   notice?: string;
   /** Claude's suggestions that are in the library, best first. */
   picks: Card[];

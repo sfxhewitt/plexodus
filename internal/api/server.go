@@ -88,6 +88,17 @@ func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner,
 	if d.Setting(ctx, "api_key") == "" {
 		d.SetSetting(ctx, "api_key", randomHex(16))
 	}
+	// Search: the films-and-shows index for libraries that predate it, and
+	// the genre list the plain-English search needs.
+	go func() {
+		start := time.Now()
+		if err := d.BuildTitleIndex(ctx); err != nil {
+			log.Printf("search: building the title index failed: %v", err)
+		} else if took := time.Since(start); took > time.Second {
+			log.Printf("search: title index built in %s", took.Round(time.Millisecond))
+		}
+		s.refreshGenres()
+	}()
 	// Mood profiles for the library filters and picks, ready before anyone asks.
 	go func() {
 		select {

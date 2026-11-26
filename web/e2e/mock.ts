@@ -609,8 +609,12 @@ addEventListener("message", function (e) {
     if (p === "/api/search") {
       const q = (u.searchParams.get("q") || "").toLowerCase();
       const hit = (c: Card) => c.title.toLowerCase().includes(q) || !!c.showTitle?.toLowerCase().includes(q);
-      return json(route, { movies: movies.filter(hit).slice(0, 20), shows: shows.filter(hit), episodes: allEpisodes.filter(hit).slice(0, 20),
-        collections: COLLECTION.card().name.toLowerCase().includes(q) ? [COLLECTION.card()] : [] });
+      // The search pages ask for part=titles and part=episodes separately.
+      const part = u.searchParams.get("part");
+      const titles = part !== "episodes", eps = part !== "titles";
+      return json(route, { movies: titles ? movies.filter(hit).slice(0, 20) : [], shows: titles ? shows.filter(hit) : [],
+        episodes: eps ? allEpisodes.filter(hit).slice(0, 20) : [],
+        collections: titles && COLLECTION.card().name.toLowerCase().includes(q) ? [COLLECTION.card()] : [] });
     }
     if (p === "/api/share/targets") {
       return json(route, { targets: opts.share && me().isAdmin ? [{ id: "555", name: "Dad", plexUser: "bigdave", addedAt: 0 }] : [] });

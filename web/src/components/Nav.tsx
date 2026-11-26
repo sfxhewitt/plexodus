@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
-import { Activity, api, Library } from "../api";
+import { Activity, api, Library, looksLikeQuestion } from "../api";
 import { useApi, useUser } from "../hooks";
 import { deviceLipSync } from "../native";
 import { backToTv, canReturnToTv } from "../tv/detect";
@@ -155,7 +155,13 @@ export function Nav() {
             onKeyDown={(e) => {
               if (e.key === "Escape") onSearch(""), input.current?.blur();
               // Enter asks in plain English ("90s heist films I haven't seen").
-              if (e.key === "Enter" && q.trim()) nav(`/search?q=${encodeURIComponent(q)}&ask=1`, { replace: loc.pathname.startsWith("/search") });
+              // A word or two is a title: its matches are already on screen
+              // (and the phone keyboard's Search key is Enter), so just put
+              // the keyboard away.
+              if (e.key === "Enter" && q.trim()) {
+                if (looksLikeQuestion(q)) nav(`/search?q=${encodeURIComponent(q)}&ask=1`, { replace: loc.pathname.startsWith("/search") });
+                else input.current?.blur();
+              }
             }} />
           <kbd>/</kbd>
         </label>

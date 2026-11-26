@@ -9,15 +9,29 @@ type Results = { movies: Card[]; shows: Card[]; episodes: Card[] };
 export default function Search() {
   const [params, setParams] = useSearchParams();
   const q = useDebounced(params.get("q") || "", 150);
-  const asking = params.get("ask") === "1" && !!q.trim();
-  const { data } = useApi<Results>(q ? `/api/search?q=${encodeURIComponent(q)}` : null);
+  // Not until q has caught up with what was typed: Enter straight after
+  // typing must not ask about the half-typed text first.
+  const asking = params.get("ask") === "1" && !!q.trim() && q === (params.get("q") || "");
+  // Films and shows first; episodes (far more of them to look through)
+  // follow on their own so they never hold the titles up.
+  const { data: titles, error } = useApi<Results>(q ? `/api/search?q=${encodeURIComponent(q)}&part=titles` : null);
+  const { data: eps, error: epsError } = useApi<Results>(q && !asking ? `/api/search?q=${encodeURIComponent(q)}&part=episodes` : null);
+  const data = titles && { ...titles, episodes: eps?.episodes ?? [] };
   const titleHits = data && data.movies.length + data.shows.length + data.episodes.length;
-  const empty = data && !titleHits && !asking;
+  const empty = data && (eps || epsError) && !titleHits && !asking;
   const ask = () => setParams({ q, ask: "1" }, { replace: true });
 
   return (
     <div className="search page">
       {!asking && <h1 className="search-head">{q ? <>Results for <span className="grad">“{q}”</span></> : "Search"}</h1>}
+      {/* Titles that match what was typed come first and arrive at once;
+          the plain-English answer follows when it is ready. */}
+      {asking && !!(data?.movies.length || data?.shows.length) && (
+        <section className="ask-titles">
+          <h2 className="section-title">Titles matching “{q}”</h2>
+          <div className="grid">{[...data!.movies.slice(0, 6), ...data!.shows.slice(0, 6)].map((c) => <PosterCard key={c.id} c={c} />)}</div>
+        </section>
+      )}
       {asking && <Ask q={q} />}
       {!asking && q && (looksLikeQuestion(q) || data?.movies.length === 0) && (
         <button className="ask-offer" onClick={ask}>
@@ -25,20 +39,20 @@ export default function Search() {
         </button>
       )}
       {empty && <div className="page-msg">No titles match “{q}”.</div>}
-      {asking && !!titleHits && <h2 className="ask-sub">Titles matching “{q}”</h2>}
-      {data && data.movies.length > 0 && (
+      {error && !asking && <div className="page-msg">{error}</div>}
+      {!asking && data && data.movies.length > 0 && (
         <section>
           <h2 className="section-title">Movies</h2>
           <div className="grid">{data.movies.map((c) => <PosterCard key={c.id} c={c} />)}</div>
         </section>
       )}
-      {data && data.shows.length > 0 && (
+      {!asking && data && data.shows.length > 0 && (
         <section>
           <h2 className="section-title">Shows</h2>
           <div className="grid">{data.shows.map((c) => <PosterCard key={c.id} c={c} />)}</div>
         </section>
       )}
-      {data && data.episodes.length > 0 && (
+      {!asking && data && data.episodes.length > 0 && (
         <section>
           <h2 className="section-title">Episodes</h2>
           <div className="land-grid">{data.episodes.map((c) => <LandscapeCard key={c.id} c={c} to={`/item/${c.id}`} />)}</div>

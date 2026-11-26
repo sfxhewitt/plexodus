@@ -18,7 +18,13 @@ import (
 // libraries (1 Movies, 2 Anime) and a recently added film in each.
 func testServer(t *testing.T) (*Server, auth.User) {
 	t.Helper()
-	d, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	return testServerAt(t, filepath.Join(t.TempDir(), "test.db"))
+}
+
+// testServerAt opens (or creates) the database at path.
+func testServerAt(t *testing.T, path string) (*Server, auth.User) {
+	t.Helper()
+	d, err := db.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +37,7 @@ func testServer(t *testing.T) (*Server, auth.User) {
 	}
 	now := db.Now()
 	for _, q := range []string{
-		`INSERT INTO libraries(id, name, kind, paths, created_at) VALUES (1, 'Movies', 'movies', '[]', 0), (2, 'Anime', 'movies', '[]', 0)`,
+		`INSERT OR IGNORE INTO libraries(id, name, kind, paths, created_at) VALUES (1, 'Movies', 'movies', '[]', 0), (2, 'Anime', 'movies', '[]', 0)`,
 		`INSERT INTO items(id, library_id, kind, guid, title, sort_title, poster, backdrop, overview, rating, added_at, updated_at) VALUES
 			(10, 1, 'movie', 'm10', 'Heat', 'heat', '/p.jpg', '/b.jpg', 'x', 8, ?1, ?1),
 			(20, 2, 'movie', 'm20', 'Akira', 'akira', '/p.jpg', '/b.jpg', 'x', 8, ?1, ?1)`,

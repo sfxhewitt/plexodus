@@ -35,6 +35,9 @@ type cached struct {
 
 const cacheTTL = 6 * time.Hour
 
+// TranslateTimeout is how long Translate waits for Claude.
+var TranslateTimeout = 15 * time.Second
+
 // NewClaude makes a translator; opts are extra client options (tests point
 // the client at a fake server with option.WithBaseURL).
 func NewClaude(key, model string, opts ...option.RequestOption) *Claude {
@@ -82,7 +85,9 @@ func (c *Claude) Translate(ctx context.Context, text string, genres []string) (Q
 	case <-ctx.Done():
 		return Query{}, ctx.Err()
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	// A search that takes longer than this isn't worth waiting for: the
+	// caller falls back to the built-in parser.
+	ctx, cancel := context.WithTimeout(ctx, TranslateTimeout)
 	defer cancel()
 
 	resp, err := client.Beta.Messages.New(ctx, anthropic.BetaMessageNewParams{

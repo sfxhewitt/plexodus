@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -22,6 +23,8 @@ var schema string
 type DB struct {
 	W *sql.DB // single writer
 	R *sql.DB // reader pool
+
+	titlesReady atomic.Bool // titles_fts is filled (see TitleFTS)
 }
 
 func dsn(path string, readOnly bool) string {
@@ -56,7 +59,63 @@ func Open(path string) (*DB, error) {
 	}
 	r.SetMaxOpenConns(8)
 	r.SetConnMaxIdleTime(5 * time.Minute)
-	return &DB{W: w, R: r}, nil
+	d := &DB{W: w, R: r}
+	if d.Setting(context.Background(), titleIndexSetting) != "" {
+		d.titlesReady.Store(true)
+	} else {
+		// A new library: the triggers keep the index complete from the start.
+		var n int
+		if err := w.QueryRow(`SELECT COUNT(*) FROM (SELECT 1 FROM items WHERE kind IN ('movie', 'show') LIMIT 1)`).Scan(&n); err == nil && n == 0 {
+			if d.SetSetting(context.Background(), titleIndexSetting, "1") == nil {
+				d.titlesReady.Store(true)
+			}
+		}
+	}
+	return d, nil
+}
+
+const titleIndexSetting = "titles_fts_v1"
+
+// TitleFTS names the full-text index to search films and shows with:
+// titles_fts, or items_fts (which has every episode too) until
+// BuildTitleIndex has filled titles_fts. Both have the same columns.
+func (d *DB) TitleFTS() string {
+	if d.titlesReady.Load() {
+		return "titles_fts"
+	}
+	return "items_fts"
+}
+
+// BuildTitleIndex fills titles_fts on a library that predates it. It does
+// nothing once that is done.
+func (d *DB) BuildTitleIndex(ctx context.Context) error {
+	if d.titlesReady.Load() {
+		return nil
+	}
+	// Read the rows first, on the read side: that is the slow part on a
+	// busy disk, and it leaves them cached for the write below, which then
+	// holds the write lock only briefly.
+	var n, size int64
+	if err := d.R.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(length(title) + length(COALESCE(original_title, '')) + length(COALESCE(overview, ''))), 0)
+		FROM items WHERE kind IN ('movie', 'show')`).Scan(&n, &size); err != nil {
+		return err
+	}
+	err := d.Tx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO titles_fts(titles_fts) VALUES ('delete-all')`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO titles_fts(rowid, title, original_title, overview)
+			SELECT id, title, original_title, overview FROM items WHERE kind IN ('movie', 'show')`); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO settings(key, value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value`, titleIndexSetting)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	d.titlesReady.Store(true)
+	return nil
 }
 
 // migrate applies column additions that CREATE TABLE IF NOT EXISTS can't.

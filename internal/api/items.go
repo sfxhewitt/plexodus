@@ -869,28 +869,152 @@ func ftsQuery(q string) string {
 	return strings.Join(terms, " ")
 }
 
+// How long a search waits for episode matches once its films and shows are
+// ready. Episodes are nine tenths of the library and their index is the
+// one that can be slow on a busy disk; titles never wait on it for long.
+const episodeSearchWait = 1500 * time.Millisecond
+
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
-	q := ftsQuery(r.URL.Query().Get("q"))
+	raw := r.URL.Query().Get("q")
+	q := ftsQuery(raw)
+	res := map[string]any{"movies": []Card{}, "shows": []Card{}, "episodes": []Card{}, "collections": []CollectionCard{}}
 	if q == "" {
-		writeJSON(w, map[string]any{"movies": []Card{}, "shows": []Card{}, "episodes": []Card{}, "collections": []CollectionCard{}})
+		writeJSON(w, res)
 		return
 	}
-	search := func(kind string, limit int) []Card {
-		// Title matches outrank overview matches.
-		c, err := s.cards(r, fmt.Sprintf(`JOIN (SELECT rowid, bm25(items_fts, 10.0, 5.0, 1.0) AS score FROM items_fts
-			WHERE items_fts MATCH ?2 ORDER BY score LIMIT 400) f ON f.rowid = i.id
-			WHERE i.kind = ?3 ORDER BY f.score LIMIT %d`, limit), q, kind)
-		if err != nil {
-			return []Card{}
-		}
-		return c
+	start := time.Now()
+	// The search pages ask for the two parts separately (part=titles and
+	// part=episodes), so films and shows are on screen without waiting for
+	// episodes. Asked for both at once, episodes get a moment and no more.
+	part := r.URL.Query().Get("part")
+	epCtx, stopEpisodes := context.WithCancel(r.Context())
+	defer stopEpisodes()
+	epCh := make(chan []Card, 1)
+	if part != "titles" {
+		go func() { epCh <- s.searchEpisodes(r.WithContext(epCtx), q, 20) }()
 	}
-	writeJSON(w, map[string]any{
-		"movies":      search("movie", 40),
-		"shows":       search("show", 40),
-		"episodes":    search("episode", 20),
-		"collections": s.searchCollections(r, r.URL.Query().Get("q")),
-	})
+	if part != "episodes" {
+		res["movies"], res["shows"] = s.searchTitles(r, raw, q, 40)
+		res["collections"] = s.searchCollections(r, raw)
+	}
+	titled := time.Since(start)
+	switch part {
+	case "titles":
+	case "episodes":
+		res["episodes"] = <-epCh
+	default:
+		wait := time.NewTimer(episodeSearchWait)
+		defer wait.Stop()
+		select {
+		case res["episodes"] = <-epCh:
+		case <-wait.C:
+			stopEpisodes()
+			log.Printf("search: left episodes out for %q, still looking after %s", raw, time.Since(start).Round(time.Millisecond))
+		}
+	}
+	if d := time.Since(start); d > 500*time.Millisecond {
+		log.Printf("search: %s (%s for films and shows) for %q, part %q", d.Round(time.Millisecond), titled.Round(time.Millisecond), raw, part)
+	}
+	writeJSON(w, res)
+}
+
+// searchTitles finds films and shows, best match first: a title that is
+// exactly what was typed, then titles starting with it, then the rest by
+// relevance (title matches outrank plot-summary matches).
+func (s *Server) searchTitles(r *http.Request, raw, match string, limit int) (movies, shows []Card) {
+	movies, shows = []Card{}, []Card{}
+	fts := s.db.TitleFTS()
+	rows, err := s.db.R.QueryContext(r.Context(), `SELECT i.id, i.kind, i.title, COALESCE(i.original_title, '')
+		FROM (SELECT rowid, bm25(`+fts+`, 10.0, 5.0, 1.0) AS score FROM `+fts+` WHERE `+fts+` MATCH ?1 ORDER BY score LIMIT 400) f
+		JOIN items i ON i.id = f.rowid`+aclJoin(currentUser(r), "i")+`
+		WHERE i.kind IN ('movie', 'show') ORDER BY f.score`, match)
+	if err != nil {
+		log.Printf("search: %q failed: %v", raw, err)
+		return
+	}
+	type hit struct {
+		id   int64
+		kind string
+		tier int
+	}
+	want := normTitle(raw)
+	var hits []hit
+	for rows.Next() {
+		var h hit
+		var t, ot string
+		if rows.Scan(&h.id, &h.kind, &t, &ot) != nil {
+			continue
+		}
+		nt, no := normTitle(t), normTitle(ot)
+		switch {
+		case want == "":
+			h.tier = 2
+		case nt == want || no == want:
+			h.tier = 0
+		case strings.HasPrefix(nt, want) || strings.HasPrefix(no, want):
+			h.tier = 1
+		default:
+			h.tier = 2
+		}
+		hits = append(hits, h)
+	}
+	rows.Close()
+	sort.SliceStable(hits, func(a, b int) bool { return hits[a].tier < hits[b].tier })
+	var ids []int64
+	n := map[string]int{}
+	for _, h := range hits {
+		if n[h.kind] < limit {
+			n[h.kind]++
+			ids = append(ids, h.id)
+		}
+	}
+	byID, err := s.cardsByID(r, ids)
+	if err != nil {
+		log.Printf("search: %q failed: %v", raw, err)
+		return
+	}
+	for _, id := range ids {
+		if c, ok := byID[id]; ok {
+			if c.Kind == "movie" {
+				movies = append(movies, c)
+			} else {
+				shows = append(shows, c)
+			}
+		}
+	}
+	return
+}
+
+// searchEpisodes finds episodes by their own title. (Plot summaries are
+// left out: with hundreds of thousands of episodes nearly any word matches
+// thousands of them.)
+func (s *Server) searchEpisodes(r *http.Request, match string, limit int) []Card {
+	rows, err := s.db.R.QueryContext(r.Context(), `SELECT i.id
+		FROM (SELECT rowid, bm25(items_fts, 10.0, 5.0, 1.0) AS score FROM items_fts WHERE items_fts MATCH ?1 ORDER BY score LIMIT 200) f
+		JOIN items i ON i.id = f.rowid`+aclJoin(currentUser(r), "i")+`
+		WHERE i.kind = 'episode' ORDER BY f.score LIMIT ?2`, `{title original_title} : (`+match+`)`, limit)
+	if err != nil {
+		return []Card{}
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	byID, err := s.cardsByID(r, ids)
+	if err != nil {
+		return []Card{}
+	}
+	out := make([]Card, 0, len(ids))
+	for _, id := range ids {
+		if c, ok := byID[id]; ok {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // ---- watch state ----
