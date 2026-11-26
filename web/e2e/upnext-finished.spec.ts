@@ -153,3 +153,31 @@ test("stopping partway leaves the title page unwatched", async ({ page, openTv }
   await page.waitForTimeout(800);
   await expect(page.locator('[data-fk="watched"]')).toHaveText(/Mark watched/);
 });
+
+test("the page saves a finished film itself when the player's reports never arrived", async ({ page, openTv }) => {
+  await page.addInitScript(tvBox);
+  const film = ids.movie + 3;
+  const saves: { position: number; duration: number }[] = [];
+  const logs: { fixed?: string; stats?: { failed: number } }[] = [];
+  await page.route(`**/api/items/${film}/progress`, (route) => {
+    saves.push(route.request().postDataJSON());
+    return route.fulfill({ json: { watched: true } });
+  });
+  await page.route("**/api/player/closed", (route) => {
+    logs.push(route.request().postDataJSON());
+    return route.fulfill({ json: { ok: true } });
+  });
+  await openTv(`/item/${film}`);
+  await waitForFocus(page);
+  await page.locator('[data-fk="play"]').focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __played?: { itemId: number } }).__played?.itemId)).toBe(film);
+  // The server still has the film unwatched after the player closed at the end.
+  await page.evaluate((detail) => window.dispatchEvent(new CustomEvent("plexodus:native-ended", { detail })),
+    { itemId: film, lastItemId: film, position: 5390, duration: 5400, ended: false, stats: { ok: 0, failed: 12 } });
+  await expect.poll(() => saves.length, { timeout: 8000 }).toBe(1);
+  expect(saves[0]).toMatchObject({ position: 5390, duration: 5400 });
+  await expect.poll(() => logs.length).toBe(1);
+  expect(logs[0].fixed).toBe("marked it watched");
+  expect(logs[0].stats?.failed).toBe(12);
+});

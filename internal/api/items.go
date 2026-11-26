@@ -1020,6 +1020,13 @@ func (s *Server) searchEpisodes(r *http.Request, match string, limit int) []Card
 // ---- watch state ----
 
 func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
+	// Saved even if the player has stopped waiting for the answer (it gives
+	// up after a few seconds, and the last report of a film is sent as its
+	// screen closes): a write that had to queue behind a scan or a sync used
+	// to be dropped with the request, and the film stayed unwatched.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), time.Minute)
+	defer cancel()
+	r = r.WithContext(ctx)
 	id, ok := pathID(r, "id")
 	if !ok || !s.itemVisible(r, id) {
 		writeErr(w, 400, "bad id")
@@ -1036,34 +1043,106 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	s.nowPlaying.progress(r, currentUser(r).ID, id, body.Position, body.Duration, body.State)
-	watched := s.finishedAt(r.Context(), id, body.Position, body.Duration)
+	uid := currentUser(r).ID
+	// A player that couldn't work out the film's length still saves its
+	// place: use the length on file, so the end still counts as watched.
+	if body.Duration <= 0 {
+		s.db.R.QueryRowContext(r.Context(), `SELECT COALESCE((SELECT MAX(duration) FROM media_files WHERE item_id = ?1),
+			(SELECT runtime * 60 FROM items WHERE id = ?1), 0)`, id).Scan(&body.Duration)
+	}
+	s.nowPlaying.progress(r, uid, id, body.Position, body.Duration, body.State)
+	began := time.Now()
+	watched := s.finishedAt(ctx, id, body.Position, body.Duration)
 	pos := body.Position
 	if watched {
 		pos = 0
 	}
 	now := db.Now()
-	_, err := s.db.W.ExecContext(r.Context(), `INSERT INTO watch_state(user_id, item_id, position, duration, watched, play_count, updated_at, played_at)
+	_, err := s.db.W.ExecContext(ctx, `INSERT INTO watch_state(user_id, item_id, position, duration, watched, play_count, updated_at, played_at)
 		VALUES(?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id, item_id) DO UPDATE SET position = excluded.position, duration = excluded.duration,
 			play_count = watch_state.play_count + (excluded.watched AND NOT watch_state.watched),
 			watched = MAX(watch_state.watched, excluded.watched),
 			updated_at = excluded.updated_at, played_at = excluded.played_at`,
-		currentUser(r).ID, id, pos, body.Duration, watched, boolInt(watched), now, now)
+		uid, id, pos, body.Duration, watched, boolInt(watched), now, now)
 	if err == nil && watched {
-		err = db.RecordPlay(r.Context(), s.db.W, currentUser(r).ID, id, db.Now(), body.Duration, "plexodus")
-		s.forgetHome(currentUser(r).ID)
+		err = db.RecordPlay(ctx, s.db.W, uid, id, db.Now(), body.Duration, "plexodus")
+		s.forgetHome(uid)
+	}
+	if took := time.Since(began); err != nil || took > 3*time.Second {
+		log.Printf("progress: item %d at %.0f of %.0f s for user %d: took %s, error: %v", id, body.Position, body.Duration, uid, took.Round(time.Millisecond), err)
 	}
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.homeChanged(currentUser(r).ID) // resume points and Continue Watching
+	s.homeChanged(uid) // resume points and Continue Watching
 	// Near the end of an episode, get the next one's skip markers ready.
 	if s.detector != nil && body.Duration > 0 && body.Position/body.Duration > 0.7 {
 		s.detector.OnNearEnd(s.baseCtx, id)
 	}
 	writeJSON(w, map[string]any{"watched": watched})
+}
+
+// handlePlayerClosed logs how a sitting in the TV app's player went: where
+// it stopped and what became of its progress reports. One line per sitting
+// in the journal (`journalctl -u plexodus | grep "player closed"`), so a
+// film that didn't get saved can be traced.
+func (s *Server) handlePlayerClosed(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ItemID     int64   `json:"itemId"`
+		LastItemID int64   `json:"lastItemId"`
+		Position   float64 `json:"position"`
+		Duration   float64 `json:"duration"`
+		Ended      bool    `json:"ended"`
+		Stats      *struct {
+			Engine   string `json:"engine"`
+			OK       int    `json:"ok"`
+			Failed   int    `json:"failed"`
+			Skipped  int    `json:"skipped"`
+			Note     string `json:"note"`
+			Started  bool   `json:"started"`
+			Stalled  bool   `json:"stalled"`
+			LengthMs int64  `json:"lengthMs"`
+			TimeMs   int64  `json:"timeMs"`
+		} `json:"stats"`
+		Saved *struct {
+			Position float64 `json:"position"`
+			Watched  bool    `json:"watched"`
+		} `json:"saved"`
+		Fixed string `json:"fixed"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	id := body.LastItemID
+	if id == 0 {
+		id = body.ItemID
+	}
+	line := fmt.Sprintf("player closed: item %d at %.0f of %.0f s, ended=%v, user %d", id, body.Position, body.Duration, body.Ended, currentUser(r).ID)
+	if st := body.Stats; st != nil {
+		note := st.Note
+		if len(note) > 200 {
+			note = note[:200]
+		}
+		line += fmt.Sprintf("; %s reports ok=%d failed=%d skipped=%d started=%v stalled=%v length=%dms time=%dms %q",
+			st.Engine, st.OK, st.Failed, st.Skipped, st.Started, st.Stalled, st.LengthMs, st.TimeMs, note)
+	} else {
+		line += "; no report counts (older app)"
+	}
+	if sv := body.Saved; sv != nil {
+		line += fmt.Sprintf("; server had position=%.0f watched=%v", sv.Position, sv.Watched)
+	}
+	if body.Fixed != "" {
+		f := body.Fixed
+		if len(f) > 80 {
+			f = f[:80]
+		}
+		line += fmt.Sprintf("; page %q", f)
+	}
+	log.Print(line)
+	writeJSON(w, map[string]bool{"ok": true})
 }
 
 // finishedAt: past 90% (Plex's default), or into the closing credits, so
