@@ -40,6 +40,7 @@ export const Refresh = (p: P) => (<Svg {...p}><path d="M21 12a9 9 0 0 1-15.5 6.2
 export const External = (p: P) => (<Svg {...p}><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></Svg>);
 export const Copy = (p: P) => (<Svg {...p}><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></Svg>);
 export const Share = (p: P) => (<Svg {...p}><path d="M12 15V3M7 8l5-5 5 5" /><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" /></Svg>);
+export const Bookmark = (p: P) => (<Svg {...p}><path d="M6 4h12v17l-6-4.5L6 21z" /></Svg>);
 export const Plus = (p: P) => (<Svg {...p}><path d="M12 5v14M5 12h14" /></Svg>);
 export const Trash = (p: P) => (<Svg {...p}><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" /></Svg>);
 export const Folder = (p: P) => (<Svg {...p}><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></Svg>);

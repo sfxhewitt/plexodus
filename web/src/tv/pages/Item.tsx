@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, art, Card, Detail, episodeLabel, fmtRuntime, fmtTime, resolution, ShareTarget, shareToPlex } from "../../api";
+import { api, art, Card, Detail, episodeLabel, fmtRuntime, fmtTime, resolution, ShareTarget, shareToPlex, logoArt } from "../../api";
 import { Check, Eye, Play, Plus, Refresh, Share, Tv, X } from "../../components/Icons";
 import { useApi } from "../../hooks";
 import { Spinner, TvButton, TvCard, TvRow, useBackdrop } from "../components";
@@ -153,7 +153,7 @@ export default function Item() {
           {hasTrailer && <div className="tv-trailer-hint"><span>▲</span> Trailer full screen</div>}
           {(d.kind === "season" || d.kind === "episode") && showTitle && <div className="tv-eyebrow">{showTitle}</div>}
           {d.logo && (d.kind === "movie" || d.kind === "show") ? (
-            <img className="tv-detail-logo" src={art(d.logo, "w500")} alt={d.title} />
+            <img className="tv-detail-logo" src={logoArt(d.logo)} alt={d.title} />
           ) : (
             <h1 className="tv-detail-title">
               {d.kind === "episode" && <span className="tv-ep-label">{episodeLabel(d)}</span>}

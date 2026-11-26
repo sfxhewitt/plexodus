@@ -400,6 +400,12 @@ export function art(path: string | undefined, size: "w185" | "w342" | "w500" | "
   return `/art/${size}${path}`;
 }
 
+/** A title logo. Plex ones are asked for as PNG so they keep their see-through background. */
+export function logoArt(path: string | undefined) {
+  const u = art(path, "w500");
+  return u && path!.startsWith("plex:") ? `${u}&f=png` : u;
+}
+
 export function fmtRuntime(min?: number) {
   if (!min) return "";
   const h = Math.floor(min / 60);

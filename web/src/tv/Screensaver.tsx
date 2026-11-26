@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, art, Card } from "../api";
+import { api, art, Card, logoArt } from "../api";
 import { Play } from "../components/Icons";
 import { ambientPrefs, onAmbientPrefs, onStartScreensaver, stopTrailer, trailerFull } from "./ambient";
 import { onBack, swallowSelectUntilRelease } from "./focus";
@@ -167,7 +167,7 @@ function Slides({ onClose, onError }: { onClose: () => void; onError: (msg: stri
       <div className="tv-saver-clock">{time}</div>
       {c && (
         <div className="tv-saver-info" key={c.id}>
-          {c.logo ? <img className="tv-saver-logo" src={art(c.logo, "w500")} alt={c.title} /> : <div className="tv-saver-title">{c.title}</div>}
+          {c.logo ? <img className="tv-saver-logo" src={logoArt(c.logo)} alt={c.title} /> : <div className="tv-saver-title">{c.title}</div>}
           <div className="tv-saver-meta">
             {[c.kind === "show" ? "Series" : "Film", c.year ? String(c.year) : ""].filter(Boolean).join(" · ")}
           </div>

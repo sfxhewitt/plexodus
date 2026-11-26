@@ -214,15 +214,20 @@ var plexArtSizes = map[string][2]int{
 
 // plexArt returns the local cached file for a Plex image, fetching it
 // (resized by Plex) the first time. Concurrent requests for the same image
-// share one download.
-func (s *Server) plexArt(ctx context.Context, size, p string) (string, error) {
+// share one download. png keeps transparency, for title logos: as a JPEG a
+// logo comes back on a solid black box.
+func (s *Server) plexArt(ctx context.Context, size, p string, png bool) (string, error) {
 	dims, ok := plexArtSizes[size]
 	if !ok || !strings.HasPrefix(p, "/library/") {
 		return "", errors.New("bad image")
 	}
 	sum := sha1.Sum([]byte(p))
 	h := hex.EncodeToString(sum[:])
-	local := filepath.Join(s.cfg.ArtworkDir, "plex", size, h[:2], h+".jpg")
+	ext := ".jpg"
+	if png {
+		ext = ".png"
+	}
+	local := filepath.Join(s.cfg.ArtworkDir, "plex", size, h[:2], h+ext)
 	if _, err := os.Stat(local); err == nil {
 		return local, nil
 	}
@@ -239,7 +244,7 @@ func (s *Server) plexArt(ctx context.Context, size, p string) (string, error) {
 	f := &artFetch{done: make(chan struct{})}
 	s.plexArtInflight[local] = f
 	s.plexArtMu.Unlock()
-	f.err = s.plexArtDownload(ctx, p, dims, local)
+	f.err = s.plexArtDownload(ctx, p, dims, local, png)
 	close(f.done)
 	s.plexArtMu.Lock()
 	delete(s.plexArtInflight, local)
@@ -252,14 +257,14 @@ type artFetch struct {
 	err  error
 }
 
-func (s *Server) plexArtDownload(ctx context.Context, p string, dims [2]int, local string) error {
+func (s *Server) plexArtDownload(ctx context.Context, p string, dims [2]int, local string, png bool) error {
 	c, _ := s.plexClient(ctx)
 	if !c.Configured() {
 		return errors.New("plex not configured")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	resp, err := c.Image(ctx, p, dims[0], dims[1])
+	resp, err := c.Image(ctx, p, dims[0], dims[1], png)
 	if err != nil {
 		return err
 	}
@@ -284,12 +289,22 @@ func (s *Server) plexArtDownload(ctx context.Context, p string, dims [2]int, loc
 // handlePlexArt serves artwork from the Plex server, resized by Plex and
 // cached on local disk.
 func (s *Server) handlePlexArt(w http.ResponseWriter, r *http.Request) {
-	local, err := s.plexArt(r.Context(), r.PathValue("size"), r.URL.Query().Get("p"))
+	png := r.URL.Query().Get("f") == "png"
+	local, err := s.plexArt(r.Context(), r.PathValue("size"), r.URL.Query().Get("p"), png)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	if png {
+		// Say what Plex really sent, in case it ignored the format.
+		if f, err := os.Open(local); err == nil {
+			head := make([]byte, 512)
+			n, _ := f.Read(head)
+			f.Close()
+			w.Header().Set("Content-Type", http.DetectContentType(head[:n]))
+		}
+	}
 	http.ServeFile(w, r, local)
 }
 

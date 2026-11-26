@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { art, Card, episodeLabel, fmtRuntime, HomeData } from "../../api";
+import { art, Card, episodeLabel, fmtRuntime, HomeData, logoArt } from "../../api";
 import { ChevronRight, Info, Play } from "../../components/Icons";
 import { useApi } from "../../hooks";
 import { Spinner, TvButton, TvCard, TvRow, useBackdrop } from "../components";
@@ -112,7 +112,7 @@ function Hero({ items, onPlay }: { items: Card[]; onPlay: (c: Card) => void }) {
         {/* Only the text is keyed (to replay its fade): the buttons must survive a flip or focus is lost. */}
         <div className="tv-hero-text" key={c.id}>
           {c.logo ? (
-            <img className="tv-hero-logo" src={art(c.logo, "w500")} alt={c.title} />
+            <img className="tv-hero-logo" src={logoArt(c.logo)} alt={c.title} />
           ) : (
             <h1 className="tv-hero-title">{c.title}</h1>
           )}
