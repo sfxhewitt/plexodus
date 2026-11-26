@@ -4,7 +4,7 @@ import { Activity, api, Library, looksLikeQuestion } from "../api";
 import { useApi, useUser } from "../hooks";
 import { deviceLipSync } from "../native";
 import { backToTv, canReturnToTv } from "../tv/detect";
-import { Clock, Film, Grid, Home, Logout, Pulse, Search, Settings, Sparkle, Tv } from "./Icons";
+import { Bookmark, Clock, Film, Grid, Home, Logout, Pulse, Search, Settings, Sparkle, Tv } from "./Icons";
 import { ProfileAvatar } from "./Profiles";
 
 export function Logo() {
@@ -141,6 +141,7 @@ export function Nav() {
         ))}
         {/* After the libraries, so they stay together. */}
         <NavLink to="/scene" end aria-label="Scene notes" title="Scene notes"><Sparkle size={18} /><span>Scene notes</span></NavLink>
+        <NavLink to="/watchlist" end aria-label="Watchlist" title="Watchlist"><Bookmark size={18} /><span>Watchlist</span></NavLink>
         <NavLink to="/history" end aria-label="History" title="History"><Clock size={18} /><span>History</span></NavLink>
       </nav>
       <div className="nav-right">
@@ -196,6 +197,7 @@ export function Nav() {
     <nav className="tabbar" aria-label="Sections">
       <NavLink to="/" end><Home size={22} /><span>Home</span></NavLink>
       <NavLink to="/libraries"><Grid size={22} /><span>Libraries</span></NavLink>
+      <NavLink to="/watchlist" end><Bookmark size={22} /><span>Watchlist</span></NavLink>
       <NavLink to="/history" end><Clock size={22} /><span>History</span></NavLink>
       <NavLink to="/scene" end><Sparkle size={22} /><span>Scene notes</span></NavLink>
       {user?.isAdmin && !user.isProfile && <NowWatchingLink tab />}

@@ -17,6 +17,7 @@ import Settings from "./pages/Settings";
 import Wrapped from "./pages/Wrapped";
 import Activity from "./pages/Activity";
 import History from "./pages/History";
+import Watchlist from "./pages/Watchlist";
 import Person from "./pages/Person";
 import Companion from "./pages/Companion";
 import "./styles.css";
@@ -44,6 +45,7 @@ function Shell() {
           <Route path="/settings/:section" element={<Settings />} />
           <Route path="/activity" element={<Activity />} />
           <Route path="/history" element={<History />} />
+          <Route path="/watchlist" element={<Watchlist />} />
           <Route path="/scene" element={<Companion />} />
           <Route path="/wrapped" element={<Wrapped />} />
           <Route path="*" element={<Navigate to="/" replace />} />

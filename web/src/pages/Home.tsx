@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { art, Card, fmtRuntime, HomeData, Library } from "../api";
+import { art, Card, fmtRuntime, HomeData, Library, logoArt } from "../api";
 import { Row } from "../components/Cards";
 import { Info, Play } from "../components/Icons";
 import { useApi, useUser } from "../hooks";
@@ -25,7 +25,7 @@ function Hero({ items }: { items: Card[] }) {
       <div className="hero-shade" />
       <div className="hero-content" key={c.id}>
         {c.logo ? (
-          <img className="hero-logo" src={art(c.logo, "w500")} alt={c.title} />
+          <img className="hero-logo" src={logoArt(c.logo)} alt={c.title} />
         ) : (
           <h1 className="hero-title">{c.title}</h1>
         )}

@@ -759,3 +759,7 @@ a.cast-card:hover .cast-photo, a.cast-card:focus-visible .cast-photo { transform
 }
 .cmp-secure { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: -4px 0 14px; }
 .cmp-secure p { margin: 0; flex: 1 1 200px; }
+/* Watchlist: the title-page toggle and its page. */
+.btn.glass.on { color: var(--teal); }
+.link { color: var(--teal); text-decoration: underline; text-underline-offset: 3px; }
+.watchlist-intro { margin: 6px 0 22px; }

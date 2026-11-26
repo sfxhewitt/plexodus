@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, art, Card, Detail, episodeLabel, fmtRuntime, fmtSize, fmtTime, resolution, ShareTarget, shareToPlex } from "../api";
+import { api, art, Card, Detail, episodeLabel, fmtRuntime, fmtSize, fmtTime, resolution, ShareTarget, shareToPlex, logoArt } from "../api";
 import { Img, PosterCard, Row } from "../components/Cards";
 import { MoodProfile } from "../components/Picks";
-import { Check, Eye, Play, Refresh, Search, Share, Wand, X } from "../components/Icons";
+import { Check, Eye, Play, Plus, Refresh, Search, Share, Wand, X } from "../components/Icons";
 import { useApi, useDebounced, useUser } from "../hooks";
 import { initials } from "../people";
 import { countLabel, episodeStatus, fmtAirDate, Guide, GuideEpisode, mergeEpisodes, mergeSeasons, seasonCard, seasonSub } from "../guide";
@@ -225,6 +225,20 @@ export default function Item() {
     api.invalidate("/api/home");
     reload();
   };
+  // Films and shows go on the Watchlist; inside a show it is the show that goes on.
+  const listable = d.kind === "movie" || d.kind === "show";
+  const toggleWatchlist = async () => {
+    const on = !d.watchlisted;
+    try {
+      await api.post(`/api/items/${d.id}/watchlist`, { on });
+      api.invalidate("/api/home");
+      api.invalidate("/api/watchlist");
+      setShareMsg(on ? "Added to your Watchlist" : "Removed from your Watchlist");
+      reload();
+    } catch (e) {
+      setShareMsg((e as Error).message);
+    }
+  };
   const refresh = async () => {
     await api.post(`/api/items/${d.id}/refresh`);
     reload();
@@ -254,7 +268,7 @@ export default function Item() {
             <Link className="crumb" to={`/item/${d.show?.id || d.showId}`}>{d.show?.title || d.showTitle}</Link>
           )}
           {d.logo && d.kind !== "season" ? (
-            <img className="detail-logo" src={art(d.logo, "w500")} alt={d.title} />
+            <img className="detail-logo" src={logoArt(d.logo)} alt={d.title} />
           ) : (
             <h1>{d.kind === "episode" && <span className="ep-label">{episodeLabel(d)}</span>}{d.title}</h1>
           )}
@@ -281,6 +295,12 @@ export default function Item() {
             {resume > 0 && playable && (
               <button className="btn glass" onClick={() => nav(`/play/${d.id}?from=0`)}>From start</button>
             )}
+            {listable && (
+              <button className={`btn glass${d.watchlisted ? " on" : ""}`} data-testid="watchlist-toggle" aria-pressed={!!d.watchlisted}
+                title={d.watchlisted ? "Remove from your Watchlist" : "Add to your Watchlist"} onClick={toggleWatchlist}>
+                {d.watchlisted ? <><Check size={18} /> On your Watchlist</> : <><Plus size={18} /> Add to Watchlist</>}
+              </button>
+            )}
             <button className="btn glass" onClick={toggleWatched}>
               {allWatched ? <><Eye size={18} /> Mark unwatched</> : <><Check size={18} /> Mark watched</>}
             </button>
@@ -298,7 +318,11 @@ export default function Item() {
             )}
             {d.imdbId && <a className="btn glass sm" href={`https://www.imdb.com/title/${d.imdbId}/`} target="_blank" rel="noreferrer">IMDb</a>}
           </div>
-          {shareMsg && <div className="muted small" role="status" style={{ marginTop: 8 }}>{shareMsg}</div>}
+          {shareMsg && (
+            <div className="muted small" role="status" style={{ marginTop: 8 }}>
+              {shareMsg}{shareMsg === "Added to your Watchlist" && <> · <Link to="/watchlist" className="link">See your Watchlist</Link></>}
+            </div>
+          )}
           {d.metaState === "unmatched" && user?.isAdmin && (
             <div className="hint"><Search size={14} /> No metadata match found. Use Fix match to pick the right title.</div>
           )}

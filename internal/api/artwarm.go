@@ -51,7 +51,7 @@ func (s *Server) warmOnce(ctx context.Context) int {
 				}
 				var err error
 				if strings.HasPrefix(j.path, "plex:") {
-					_, err = s.plexArt(ctx, j.size, strings.TrimPrefix(j.path, "plex:"))
+					_, err = s.plexArt(ctx, j.size, strings.TrimPrefix(j.path, "plex:"), false)
 				} else {
 					_, err = s.art.Get(ctx, j.size, j.path)
 				}

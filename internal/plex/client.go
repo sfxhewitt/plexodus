@@ -67,10 +67,15 @@ func (c *Client) getRaw(ctx context.Context, path, rawQuery string, out any) err
 }
 
 // Image fetches an image through Plex's photo transcoder at the given width.
-func (c *Client) Image(ctx context.Context, path string, width, height int) (*http.Response, error) {
+// png keeps transparency (title logos); everything else is a JPEG.
+func (c *Client) Image(ctx context.Context, path string, width, height int, png bool) (*http.Response, error) {
 	q := url.Values{
 		"url": {path}, "width": {fmt.Sprint(width)}, "height": {fmt.Sprint(height)},
 		"minSize": {"1"}, "upscale": {"0"}, "format": {"jpeg"}, "quality": {"88"},
+	}
+	if png {
+		q.Set("format", "png")
+		q.Del("quality")
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", c.base+"/photo/:/transcode?"+q.Encode(), nil)
 	if err != nil {
