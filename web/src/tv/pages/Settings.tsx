@@ -1,6 +1,8 @@
 import { KeyboardEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Activity, api, fmtTime, Library, LibraryPrefs, setLibraryPrefs } from "../../api";
+import { Activity, api, Card, fmtTime, Library, LibraryPrefs, setLibraryPrefs, suggestions } from "../../api";
+import { useApi } from "../../hooks";
+import { unhideAllOnHome, unhideOnHome } from "../../homeHidden";
 import { Check, Grid, Logout, Play, Pulse, Refresh, Sparkle, Tv, User as UserIcon, X } from "../../components/Icons";
 import { useUser } from "../../hooks";
 import { native, nativeHas, phoneLipSync } from "../../native";
@@ -53,6 +55,53 @@ function LibraryChoices() {
           <Toggle fk={`lib-${l.id}-home`} on={!l.hiddenHome} label="On Home" onClick={() => change(l, { hiddenHome: !l.hiddenHome })} />
         </div>
       ))}
+    </section>
+  );
+}
+
+/** Titles taken off Home with "Remove from suggestions", and a way to put them back. */
+function RemovedSuggestions() {
+  const { data, reload } = useApi<{ items: Card[] }>("/api/suggestions/hidden");
+  const toast = useToast();
+  const items = data?.items ?? [];
+  const run = async (what: () => Promise<unknown>, done: string) => {
+    try {
+      await what();
+      toast(done);
+    } catch (e) {
+      toast((e as Error).message);
+    }
+    reload();
+  };
+  return (
+    <section className="tv-lib-prefs tv-removed" data-testid="removed-suggestions">
+      <h2 className="tv-section-title">Removed from suggestions</h2>
+      <p className="tv-muted tv-section-note">
+        {items.length
+          ? "These won't be suggested on Home. They are still in their libraries and in search."
+          : "Nothing yet. Hold OK on a title on Home and choose Remove from suggestions, and it won't be suggested again."}
+      </p>
+      {items.length > 1 && (
+        <div className="tv-settings-actions" data-row data-group="removed-all">
+          <TvButton fk="removed-all" icon={<Refresh size={22} />}
+            onClick={() => run(async () => (await suggestions.restoreAll(), unhideAllOnHome()), "They can all be suggested again")}>
+            Bring them all back
+          </TvButton>
+        </div>
+      )}
+      {items.slice(0, 60).map((c) => (
+        <div key={c.id} className="tv-pref-row" data-row data-group={`removed-${c.id}`}>
+          <div className="tv-pref-name">
+            <span>{c.title}</span>
+            <span className="tv-muted">{[c.kind === "show" ? "Series" : "Film", c.year].filter(Boolean).join(" · ")}</span>
+          </div>
+          <TvButton fk={`removed-${c.id}`} className="chip"
+            onClick={() => run(async () => (await suggestions.restore(c.id), unhideOnHome(c.id)), `${c.title} can be suggested again`)}>
+            Suggest again
+          </TvButton>
+        </div>
+      ))}
+      {items.length > 60 && <p className="tv-muted tv-section-note">And {items.length - 60} more.</p>}
     </section>
   );
 }
@@ -366,7 +415,7 @@ export default function SettingsPage() {
         </>
       ),
     },
-    { key: "libraries", label: "Libraries", hint: "Menu and Home choices", icon: <Grid size={24} />, body: <LibraryChoices /> },
+    { key: "libraries", label: "Libraries", hint: "Menu, Home and suggestions", icon: <Grid size={24} />, body: <><LibraryChoices /><RemovedSuggestions /></> },
     {
       key: "screen", label: "Look and feel", hint: "Screensaver, trailers, ratings", icon: <Sparkle size={24} />,
       body: (

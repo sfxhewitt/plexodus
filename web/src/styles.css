@@ -769,3 +769,28 @@ a.cast-card:hover .cast-photo, a.cast-card:focus-visible .cast-photo { transform
 .btn.glass.on { color: var(--teal); }
 .link { color: var(--teal); text-decoration: underline; text-underline-offset: 3px; }
 .watchlist-intro { margin: 6px 0 22px; }
+
+/* ---------- Home: press and hold a card (Remove from suggestions / Up Next) ---------- */
+.holdable { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.holdable img { -webkit-user-drag: none; pointer-events: none; }
+.card-sheet-back { position: fixed; inset: 0; z-index: 200; display: flex; align-items: flex-end; justify-content: center; background: rgba(3, 4, 8, 0.62); backdrop-filter: blur(6px); animation: sheet-fade 0.16s ease-out; }
+.card-sheet { width: min(460px, 100%); padding: 8px 8px calc(10px + env(safe-area-inset-bottom)); border-radius: 22px 22px 0 0; background: var(--bg-2); border: 1px solid var(--border); border-bottom: 0; box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.6); animation: sheet-up 0.2s var(--ease); }
+.card-sheet-head { display: flex; flex-direction: column; padding: 12px 14px 10px; }
+.card-sheet-head b { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-sheet-item { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 54px; padding: 10px 14px; border: 0; border-radius: 14px; background: none; text-align: left; }
+.card-sheet-item > span { display: flex; flex-direction: column; min-width: 0; }
+.card-sheet-item svg { flex: none; opacity: 0.85; }
+.card-sheet-item:hover, .card-sheet-item:active { background: var(--surface-2); }
+.card-sheet-item.cancel { justify-content: center; margin-top: 4px; background: var(--surface); }
+.card-sheet-item.cancel > span { align-items: center; }
+@media (min-width: 720px) {
+  .card-sheet-back { align-items: center; }
+  .card-sheet { border-radius: 22px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+}
+@keyframes sheet-up { from { transform: translateY(24px); opacity: 0; } }
+@keyframes sheet-fade { from { opacity: 0; } }
+body.sheet-open { overflow: hidden; }
+.home-link { padding: 0; border: 0; background: none; color: var(--teal); font-weight: 600; }
+.home-link:hover { text-decoration: underline; }
+.home-removed { padding: 6px var(--gutter) 28px; margin: 0; }
+.home-note { position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 210; display: flex; align-items: center; gap: 16px; max-width: calc(100vw - 32px); padding: 12px 18px; border-radius: 999px; background: rgba(20, 23, 34, 0.96); border: 1px solid var(--border); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55); white-space: nowrap; animation: sheet-up 0.2s var(--ease); }

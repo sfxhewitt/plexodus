@@ -215,7 +215,7 @@ func unseenAt(alias string, started []int64) string {
 	if len(started) > 0 {
 		show = `(` + alias + `.kind = 'show' AND ` + alias + `.id NOT IN (` + idList(started) + `))`
 	}
-	return `((` + alias + `.kind = 'movie' AND ` + unseenMovieAt(alias) + `) OR ` + show + `)`
+	return `((` + alias + `.kind = 'movie' AND ` + unseenMovieAt(alias) + `) OR ` + show + `)` + notRemoved(alias+".id")
 }
 
 // unwatched is unseenAt for the alias m used by the smart row queries.
@@ -226,7 +226,7 @@ func (s *Server) shortFilms(r *http.Request, hidden map[int64]bool) ([]Card, err
 	u := currentUser(r)
 	ids, err := s.queryIDs(r.Context(), `SELECT m.id FROM items m
 		WHERE m.kind = 'movie' AND m.runtime BETWEEN 60 AND 100 AND COALESCE(m.rating, 0) >= 6.5 AND m.poster IS NOT NULL
-		AND `+unwatchedMovie+libWhere(u, "m", hidden)+`
+		AND `+unwatchedMovie+notRemoved("m.id")+libWhere(u, "m", hidden)+`
 		ORDER BY `+shuffle("m")+` LIMIT 24`, u.ID, daySeed(u.ID))
 	if err != nil {
 		return nil, err
@@ -264,7 +264,7 @@ func (s *Server) finishSeason(r *http.Request, hidden map[int64]bool) ([]Card, e
 		FROM recent JOIN items se ON se.id = recent.season AND COALESCE(se.season_number, 0) > 0
 		JOIN items e ON e.parent_id = se.id AND e.kind = 'episode'
 		LEFT JOIN watch_state ws ON ws.user_id = ?1 AND ws.item_id = e.id
-		WHERE 1 = 1`+libWhere(u, "se", hidden)+`
+		WHERE 1 = 1`+notRemoved("se.parent_id")+libWhere(u, "se", hidden)+`
 		GROUP BY se.id HAVING seen >= 1 AND total - seen BETWEEN 1 AND 8
 		ORDER BY MAX(recent.t) DESC LIMIT 20`, u.ID, db.Now()-45*86400)
 	if err != nil {
