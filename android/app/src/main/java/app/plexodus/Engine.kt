@@ -19,6 +19,12 @@ interface Engine {
     /** A selectable audio or subtitle track. Subtitles list "off" as id -1 first. */
     data class Track(val id: Int, val name: String)
 
+    /**
+     * A subtitle file that isn't inside the video: one beside it on the server, or one
+     * Plexodus downloaded because the video had none. [path] is a local copy.
+     */
+    data class ExtSub(val path: String, val name: String, val lang: String, val codec: String)
+
     data class VideoInfo(val codec: String, val width: Int, val height: Int, val fps: Float)
 
     data class Stats(
@@ -55,6 +61,13 @@ interface Engine {
     /** Puts the picture (and subtitles) inside [container]. */
     fun attach(container: FrameLayout)
     fun detach()
+
+    /**
+     * The subtitle files to offer with the video, as extra tracks. Call before [load], or
+     * while playing when more turn up. False means the engine can't swap them in while it
+     * plays (one was taken away): rebuild it and load again.
+     */
+    fun setExternalSubtitles(subs: List<ExtSub>): Boolean
 
     fun load(url: String, startMs: Long)
     fun play()

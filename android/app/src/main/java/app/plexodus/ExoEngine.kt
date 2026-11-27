@@ -241,10 +241,44 @@ class ExoEngine(
         subs = null
     }
 
+    // Subtitle files ride along with the film as extra text tracks. ExoPlayer
+    // takes them when the film is opened, so a change reopens it where it was.
+    private var extSubs: List<Engine.ExtSub> = emptyList()
+    private var loadedUrl: String? = null
+
+    override fun setExternalSubtitles(subs: List<Engine.ExtSub>): Boolean {
+        if (subs == extSubs) return true
+        extSubs = subs
+        val url = loadedUrl ?: return true
+        val playing = player.playWhenReady
+        player.setMediaItem(mediaItem(url), player.currentPosition)
+        player.prepare()
+        player.playWhenReady = playing
+        return true
+    }
+
+    private fun mediaItem(url: String): MediaItem {
+        val configs = extSubs.map { sub ->
+            MediaItem.SubtitleConfiguration.Builder(android.net.Uri.fromFile(java.io.File(sub.path)))
+                .setMimeType(
+                    when (sub.codec) {
+                        "ass", "ssa" -> MimeTypes.TEXT_SSA
+                        "vtt", "webvtt" -> MimeTypes.TEXT_VTT
+                        else -> MimeTypes.APPLICATION_SUBRIP
+                    },
+                )
+                .setLanguage(sub.lang.ifEmpty { null })
+                .setLabel(sub.name)
+                .build()
+        }
+        return MediaItem.Builder().setUri(url).setSubtitleConfigurations(configs).build()
+    }
+
     override fun load(url: String, startMs: Long) {
         announcedVideo = false
         lastLength = -1L
-        player.setMediaItem(MediaItem.fromUri(url), if (startMs > 5_000) startMs else 0L)
+        loadedUrl = url
+        player.setMediaItem(mediaItem(url), if (startMs > 5_000) startMs else 0L)
         player.prepare()
         player.playWhenReady = true
     }

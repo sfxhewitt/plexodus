@@ -480,12 +480,29 @@ class PlayerActivity : Activity() {
         val at = timeMs
         val audio = player.audioTrack
         val spu = player.spuTrack
+        val spuName = player.spuTracks.firstOrNull { it.id == spu && it.id >= 0 }?.name
         player.release { it.run() }
         playing = false
         modeSwitched = true // the display already runs at the film's rate
         createPlayer()
         restoreTracks = Pair(audio, spu)
         load(mediaUrl, at)
+        // Subtitles from a file come back a moment after the film reopens.
+        if (spuName != null && extSubs.any { it.name == spuName }) selectSubtitleWhenReady(spuName, fileId)
+    }
+
+    /** Turns on the subtitle track called [name] once the player lists it (a file's track arrives after the film opens). */
+    private fun selectSubtitleWhenReady(name: String, id: Long, tries: Int = 0) {
+        ui.postDelayed({
+            if (finished || fileId != id) return@postDelayed
+            val t = player.spuTracks.firstOrNull { it.name == name }
+            if (t != null) {
+                if (player.spuTrack != t.id) player.spuTrack = t.id
+                updateTrackButtons()
+            } else if (tries < 8) {
+                selectSubtitleWhenReady(name, id, tries + 1)
+            }
+        }, 1500)
     }
 
     private var restoreTracks: Pair<Int, Int>? = null
@@ -496,9 +513,17 @@ class PlayerActivity : Activity() {
         started = false
         pendingStartMs = if (startMs > 5_000 && !calibrating) startMs else 0L
         lastReport = 0L
+        // Subtitle files for this film (kept across a player rebuild; a new
+        // film starts with none and asks the server).
+        if (extSubsFor != fileId) {
+            extSubs = emptyList()
+            onlineSubs = ""
+        }
+        player.setExternalSubtitles(extSubs)
         // The calibration clip is 10 s; it's restarted at its end (EndReached)
         // rather than with :input-repeat, after which the Cube showed no picture.
         player.load(url, startMs)
+        if (extSubsFor != fileId) fetchExternalSubs(retry = false)
         updateTime()
         // The server looks for recaps (and intros Plex didn't mark) once
         // playback starts; pick up what it finds in the first minutes. The
@@ -513,6 +538,98 @@ class PlayerActivity : Activity() {
     }
 
     private val markerRefresh = Any()
+
+    // ---- subtitle files ----
+
+    /** The film [extSubs] belong to. */
+    private var extSubsFor = -1L
+    private var extSubs: List<Engine.ExtSub> = emptyList()
+    /** Where the server's search for subtitles online stands: "", off, searching, found or none. */
+    private var onlineSubs = ""
+    private var onlineSubsBusy = false
+
+    /**
+     * Subtitles that aren't inside the video: files beside it on the server, and ones the
+     * server downloaded because the video had none in English. The server starts looking as
+     * the film starts, so this asks again until it has finished. [retry] first tells the
+     * server to drop its download and find the next best ("Try other subtitles").
+     */
+    private fun fetchExternalSubs(retry: Boolean) {
+        val id = fileId
+        if (id <= 0 || calibrating || server.isEmpty()) return
+        extSubsFor = id
+        if (retry) onlineSubsBusy = true
+        val headers = mapOf("Cookie" to cookie)
+        Thread {
+            var searched = retry
+            var tries = 0
+            while (!finished && fileId == id) {
+                var state = ""
+                val list = ArrayList<Engine.ExtSub>()
+                try {
+                    val r = if (retry && tries == 0) Http.request("$server/api/subs/$id/online", "POST", "{}", headers, timeoutMs = 60_000)
+                    else Http.request("$server/api/subs/$id", headers = headers, timeoutMs = 60_000)
+                    if (r.code != 200) break
+                    val o = JSONObject(r.body)
+                    state = o.optJSONObject("online")?.optString("state") ?: ""
+                    val tracks = o.optJSONArray("tracks")
+                    val dir = java.io.File(cacheDir, "subs").apply { mkdirs() }
+                    if (tries == 0) dir.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 86_400_000L }?.forEach { it.delete() }
+                    for (i in 0 until (tracks?.length() ?: 0)) {
+                        val t = tracks!!.getJSONObject(i)
+                        if (!t.optBoolean("external") || t.optString("format") == "image" || list.size >= 8) continue
+                        val tid = t.optString("id")
+                        val codec = t.optString("codec").ifEmpty { "srt" }
+                        // The name tells one download from the next, so a replacement is a new file.
+                        val tag = Integer.toHexString((t.optString("fileName") + t.optString("title")).hashCode())
+                        val f = java.io.File(dir, "$id-$tid-$tag.$codec")
+                        if (!f.exists() || f.length() == 0L) {
+                            val b = Http.bytes("$server/api/subs/$id/tracks/$tid?raw=1", headers, timeoutMs = 30_000) ?: continue
+                            f.writeBytes(b)
+                        }
+                        val lang = t.optString("language")
+                        val langName = lang.takeIf { it.isNotEmpty() && it != "und" }
+                            ?.let { java.util.Locale.forLanguageTag(it).getDisplayLanguage(java.util.Locale.ENGLISH) }?.takeIf { it.isNotBlank() }
+                        val title = t.optString("title")
+                        val name = listOfNotNull(langName, title.takeIf { it.isNotEmpty() && it != langName }).joinToString(" · ")
+                            .ifEmpty { t.optString("fileName").ifEmpty { getString(R.string.subs_file) } }
+                        list.add(Engine.ExtSub(f.absolutePath, name, lang, codec))
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w(TAG, "subtitle files: $e")
+                    break
+                }
+                val found = searched && state == "found"
+                ui.post {
+                    if (finished || fileId != id) return@post
+                    onlineSubs = state
+                    if (state != "searching") onlineSubsBusy = false
+                    if (list != extSubs) {
+                        extSubs = list
+                        if (!player.setExternalSubtitles(list)) restartPlayer()
+                        // Asked for other subtitles: show the ones that came back.
+                        if (retry && found) list.lastOrNull()?.let { selectSubtitleWhenReady(it.name, id) }
+                        updateTrackButtons()
+                        ui.postDelayed({
+                            if (finished || fileId != id) return@postDelayed
+                            updateTrackButtons()
+                            // A show whose earlier episodes were watched with downloaded
+                            // subtitles gets them again, now that they are here.
+                            val want = showKey()?.let { Prefs.showTrack(this, it, false) }
+                            if (want != null && player.spuTrack == -1) player.spuTracks.firstOrNull { it.name == want }?.let { player.spuTrack = it.id }
+                        }, 1500)
+                        if (found) Toast.makeText(this, R.string.subs_downloaded, Toast.LENGTH_LONG).show()
+                    } else if (retry && state != "searching") {
+                        Toast.makeText(this, R.string.subs_none_online, Toast.LENGTH_LONG).show()
+                    }
+                }
+                if (state != "searching" || ++tries > 40) break
+                searched = true
+                Thread.sleep(4_000)
+            }
+            ui.post { if (fileId == id) onlineSubsBusy = false }
+        }.start()
+    }
 
     private fun refreshMarkers(id: Long) {
         if (finished || id == 0L || id != itemId || server.isEmpty()) return
@@ -862,7 +979,7 @@ class PlayerActivity : Activity() {
 
     private fun updateTrackButtons() {
         audioButton.visibility = if (player.audioTracks.size > 1) View.VISIBLE else View.GONE
-        subsButton.visibility = if (player.spuTracks.isNotEmpty()) View.VISIBLE else View.GONE
+        subsButton.visibility = if (player.spuTracks.isNotEmpty() || onlineSubs == "none" || onlineSubs == "searching") View.VISIBLE else View.GONE
         // Down from the progress line lands on the first chip, not wherever the thumb is.
         seek.nextFocusDownId = listOf(subsButton, audioButton, syncButton).firstOrNull { it.visibility == View.VISIBLE }?.id ?: View.NO_ID
     }
@@ -964,7 +1081,7 @@ class PlayerActivity : Activity() {
                 }
             })
         }
-        if (spuTracks.isNotEmpty()) {
+        if (spuTracks.isNotEmpty() || onlineSubsBusy || onlineSubs == "none" || onlineSubs == "searching") {
             if (row.childCount > 0) row.addView(View(this), LinearLayout.LayoutParams(dp(14), 1))
             row.addView(column(getString(R.string.subtitles)) { list ->
                 val current = player.spuTrack
@@ -979,6 +1096,7 @@ class PlayerActivity : Activity() {
                     if ((focusSubs || focus == null) && t.id == current) focus = r
                 }
                 list.addView(divider())
+                onlineSubsRow(dialog)?.let { list.addView(it) }
                 val style = SubtitleStyle.load(this)
                 val preset = style.preset()
                 list.addView(linkRow(getString(R.string.sub_style), if (preset >= 0) SubtitleStyle.PRESETS[preset].first else getString(R.string.sub_custom)) {
@@ -1006,6 +1124,21 @@ class PlayerActivity : Activity() {
     }
 
     // ---- Share to someone's Plex Watchlist ----
+
+    /** "Try other subtitles" under downloaded ones, "Find subtitles online" when the search found none. */
+    private fun onlineSubsRow(dialog: Dialog): View? {
+        val label = when {
+            onlineSubsBusy || onlineSubs == "searching" -> return linkRow(getString(R.string.subs_searching), "") {}
+            onlineSubs == "found" -> getString(R.string.subs_try_other)
+            onlineSubs == "none" -> getString(R.string.subs_find_online)
+            else -> return null
+        }
+        return linkRow(label, "") {
+            dialog.dismiss()
+            Toast.makeText(this, R.string.subs_searching, Toast.LENGTH_SHORT).show()
+            fetchExternalSubs(retry = true)
+        }
+    }
 
     private fun canShare() = shareTargets.isNotEmpty() && (fileId > 0 || itemId > 0)
 

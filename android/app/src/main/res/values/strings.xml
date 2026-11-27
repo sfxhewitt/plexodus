@@ -44,6 +44,12 @@
     <string name="share_already">%1$s is already on %2$s\'s Plex watchlist</string>
     <string name="share_failed">Couldn\'t share: %1$s</string>
     <string name="subs_off">Off</string>
+    <string name="subs_file">Subtitle file</string>
+    <string name="subs_downloaded">Subtitles downloaded. Press Down to turn them on.</string>
+    <string name="subs_none_online">No other subtitles found online</string>
+    <string name="subs_searching">Looking for subtitles online…</string>
+    <string name="subs_try_other">Try other subtitles</string>
+    <string name="subs_find_online">Find subtitles online</string>
     <string name="sub_style">Subtitle style</string>
     <string name="sub_custom">Custom</string>
     <string name="sub_sample">Subtitles will look like this.</string>

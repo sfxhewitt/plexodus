@@ -7,6 +7,8 @@ import android.widget.FrameLayout
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
+import org.videolan.libvlc.interfaces.IMedia
+import java.io.File
 import org.videolan.libvlc.util.VLCVideoLayout
 
 /** libVLC behind [Engine]; see Engine for why there are two. [options] are libVLC start-up options. */
@@ -15,6 +17,15 @@ class VlcEngine(context: Context, options: List<String>) : Engine {
     private val player = MediaPlayer(libVlc)
     private var layout: VLCVideoLayout? = null
     private var scaleIndex = 0
+
+    // Subtitle files are "slaves" in libVLC: added once the film is open, each
+    // then shows up as one more track. libVLC names those "Track N", so the
+    // names are kept here, matched to the new track ids in the order added.
+    private var extSubs: List<Engine.ExtSub> = emptyList()
+    private var extAdded = 0
+    private var opened = false
+    private var ownTracks: Set<Int>? = null
+    private val extNames = HashMap<Int, String>()
 
     override val name = "libVLC"
     override val framesOnTime = false
@@ -25,7 +36,11 @@ class VlcEngine(context: Context, options: List<String>) : Engine {
         player.setEventListener { e ->
             val l = listener ?: return@setEventListener
             when (e.type) {
-                MediaPlayer.Event.Playing -> l.onPlaying()
+                MediaPlayer.Event.Playing -> {
+                    opened = true
+                    addExternalSubtitles()
+                    l.onPlaying()
+                }
                 MediaPlayer.Event.Paused -> l.onPaused()
                 MediaPlayer.Event.Buffering -> l.onBuffering(e.buffering)
                 MediaPlayer.Event.TimeChanged -> l.onTime(e.timeChanged)
@@ -51,7 +66,42 @@ class VlcEngine(context: Context, options: List<String>) : Engine {
         layout = null
     }
 
+    override fun setExternalSubtitles(subs: List<Engine.ExtSub>): Boolean {
+        // Tracks can be added to a playing film but not taken away.
+        val grows = subs.size >= extAdded && subs.take(extAdded) == extSubs.take(extAdded)
+        extSubs = subs
+        if (!grows) return false
+        addExternalSubtitles()
+        return true
+    }
+
+    private fun addExternalSubtitles() {
+        if (!opened || extAdded >= extSubs.size) return
+        if (ownTracks == null) ownTracks = player.spuTracks?.map { it.id }?.toSet() ?: emptySet()
+        while (extAdded < extSubs.size) {
+            val sub = extSubs[extAdded++]
+            try {
+                player.addSlave(IMedia.Slave.Type.Subtitle, Uri.fromFile(File(sub.path)), false)
+            } catch (e: Exception) {
+                android.util.Log.w("Plexodus", "couldn't add subtitles ${sub.path}", e)
+            }
+        }
+    }
+
+    /** Gives the tracks that came from subtitle files their names, in the order they were added. */
+    private fun nameExternalTracks(ids: List<Int>) {
+        val own = ownTracks ?: return
+        for (id in ids.filter { it >= 0 && it !in own }.sorted()) {
+            if (id in extNames) continue
+            extNames[id] = extSubs.getOrNull(extNames.size)?.name ?: return
+        }
+    }
+
     override fun load(url: String, startMs: Long) {
+        opened = false
+        extAdded = 0
+        ownTracks = null
+        extNames.clear()
         val media = Media(libVlc, Uri.parse(url))
         media.setHWDecoderEnabled(true, false)
         media.addOption(":network-caching=4000")
@@ -98,7 +148,11 @@ class VlcEngine(context: Context, options: List<String>) : Engine {
         get() = player.audioTrack
         set(v) { player.setAudioTrack(v) }
     override val spuTracks: List<Engine.Track>
-        get() = player.spuTracks?.map { Engine.Track(it.id, it.name) } ?: emptyList()
+        get() {
+            val tracks = player.spuTracks ?: return emptyList()
+            nameExternalTracks(tracks.map { it.id })
+            return tracks.map { Engine.Track(it.id, extNames[it.id] ?: it.name) }
+        }
     override var spuTrack: Int
         get() = player.spuTrack
         set(v) { player.setSpuTrack(v) }
