@@ -52,7 +52,7 @@ function Why({ p }: { p: Pick }) {
 export function SurpriseSheet({ libId, filters, label, resume, onClose }: { libId: string; filters: string; label: string; resume?: boolean; onClose: () => void }) {
   const nav = useNavigate();
   const [msg, say] = useSay();
-  const s = useSurprise(libId, filters, say, resume);
+  const s = useSurprise(libId, filters, say, resume, { poster: "w342", backdrop: "w780" });
   const p = s.cur;
   // Pick another is ready under Enter or Space for every film, to flick through them.
   const another = useRef<HTMLButtonElement>(null);
@@ -135,7 +135,7 @@ export function GenreChips({ genres, prefs, onChange }: { genres: string[]; pref
 export function QuizSheet({ libId, genres, prefs, onPrefs, resume, onClose }: { libId: string; genres: string[]; prefs: GenrePrefs; onPrefs: (g: GenrePrefs) => void; resume?: boolean; onClose: () => void }) {
   const nav = useNavigate();
   const [msg, say] = useSay();
-  const q = useQuiz(libId, resume);
+  const q = useQuiz(libId, resume, { poster: "w342" });
   const done = q.step >= QUIZ.length;
   const step = QUIZ[q.step];
   const dismiss = useCallback((p: Pick, what: "watch" | "seen" | "notint") => {

@@ -1,5 +1,6 @@
 import { createContext, memo, ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { art, Card, episodeLabel } from "../api";
+import { artReady } from "../artPreload";
 import { Check, Play } from "../components/Icons";
 import { ambientPrefs, closeTrailerFull, onTrailer, onTrailerFull, stopTrailer, trailerFull } from "./ambient";
 import { CardMenuOptions, useCardMenu, useLongPress } from "./menu";
@@ -75,19 +76,22 @@ function hue(s: string) {
 }
 
 export function Art({ src, title, className }: { src?: string; title: string; className?: string }) {
-  const [state, setState] = useState<"loading" | "ok" | "err">(src ? "loading" : "err");
+  // A picture fetched ahead (artPreload) is shown at once: no placeholder, no fade.
+  const first = (u?: string) => (!u ? "err" : artReady(u) ? "ok" : "loading");
+  const [state, setState] = useState<"loading" | "ok" | "err">(() => first(src));
   // Reset when the image changes, during render: an effect would run after a
   // cached image's onLoad and hide it again.
   const [shownSrc, setShownSrc] = useState(src);
   if (shownSrc !== src) {
     setShownSrc(src);
-    setState(src ? "loading" : "err");
+    setState(first(src));
   }
+  const now = artReady(src);
   return (
     <div className={`tv-art ${className || ""}`} style={{ "--h": hue(title) } as React.CSSProperties}>
       {state !== "ok" && <div className="tv-art-fallback"><span>{state === "err" ? title : ""}</span></div>}
       {src && state !== "err" && (
-        <img src={src} alt="" loading="lazy" decoding="async" className={state === "ok" ? "in" : ""}
+        <img src={src} alt="" loading={now ? "eager" : "lazy"} decoding={now ? "sync" : "async"} className={state === "ok" ? "in" : ""}
           onLoad={() => setState("ok")} onError={() => setState("err")} />
       )}
     </div>

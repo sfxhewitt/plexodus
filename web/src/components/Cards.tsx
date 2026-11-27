@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { art, Card, episodeLabel } from "../api";
+import { artReady } from "../artPreload";
 import { Check, ChevronLeft, ChevronRight, Play } from "./Icons";
 import { RTBadge } from "../rt";
 
@@ -12,7 +13,9 @@ function hue(s: string) {
 
 /** Image that fades in once loaded and falls back to a generated tile. */
 export function Img({ src, alt, title, className }: { src?: string; alt: string; title: string; className?: string }) {
-  const [state, setState] = useState<"loading" | "ok" | "err">(src ? "loading" : "err");
+  // A picture fetched ahead (artPreload) is shown at once: no placeholder, no fade.
+  const now = artReady(src);
+  const [state, setState] = useState<"loading" | "ok" | "err">(!src ? "err" : now ? "ok" : "loading");
   const h = hue(title);
   return (
     <div className={`img ${className || ""}`} style={{ "--h": h } as React.CSSProperties}>
@@ -22,7 +25,7 @@ export function Img({ src, alt, title, className }: { src?: string; alt: string;
         </div>
       )}
       {src && state !== "err" && (
-        <img src={src} alt={alt} loading="lazy" decoding="async" className={state === "ok" ? "in" : ""}
+        <img src={src} alt={alt} loading={now ? "eager" : "lazy"} decoding={now ? "sync" : "async"} className={state === "ok" ? "in" : ""}
           onLoad={() => setState("ok")} onError={() => setState("err")} />
       )}
     </div>

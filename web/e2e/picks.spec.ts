@@ -373,3 +373,39 @@ test.describe("phone and web library", () => {
     await expect(page.getByRole("button", { name: "More like this" })).toHaveAttribute("aria-pressed", "true");
   });
 });
+
+test("Surprise me: each film appears with its poster already there", async ({ page, openTv }) => {
+  // Every picture takes most of a second, as a poster the server has yet to fetch does.
+  await page.route("**/art/**", async (route) => {
+    await new Promise((r) => setTimeout(r, 700));
+    return route.fallback();
+  });
+  await openTv(`/library/${MOVIES_LIB}`);
+  await waitForFocus(page, /^c\d+$/);
+  // On every frame: is there a film on screen whose poster isn't?
+  await page.evaluate(() => {
+    const w = window as unknown as { bare: string[] };
+    w.bare = [];
+    const look = () => {
+      const pick = document.querySelector(".tv-pick");
+      const title = pick?.querySelector(".tv-detail-title")?.textContent;
+      const img = pick?.querySelector<HTMLImageElement>(".tv-pick-poster img");
+      if (title && !(img && img.classList.contains("in") && img.complete && img.naturalWidth > 0) && !w.bare.includes(title)) w.bare.push(title);
+      requestAnimationFrame(look);
+    };
+    requestAnimationFrame(look);
+  });
+  await page.locator('[data-fk="surprise"]').focus();
+  await page.keyboard.press("Enter");
+  await waitForFocus(page, "pk-next");
+  const title = page.locator(".tv-pick .tv-detail-title");
+  for (let i = 0; i < 4; i++) {
+    const was = await title.innerText();
+    // Long enough to read a title, as someone flicking through does.
+    await page.waitForTimeout(1000);
+    await page.keyboard.press("Enter");
+    await expect(title).not.toHaveText(was);
+  }
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => (window as unknown as { bare: string[] }).bare), "films shown before their poster").toEqual([]);
+});
