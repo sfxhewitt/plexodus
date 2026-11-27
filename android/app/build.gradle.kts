@@ -7,6 +7,8 @@ plugins {
 val versionCodeEnv = System.getenv("PLEXODUS_VERSION_CODE")?.toIntOrNull() ?: 1
 val versionNameEnv = System.getenv("PLEXODUS_VERSION_NAME") ?: "dev"
 
+val onlyAbi = project.findProperty("abi") as String?
+
 android {
     namespace = "app.plexodus"
     compileSdk = 36
@@ -19,11 +21,27 @@ android {
         versionName = versionNameEnv
         // Where the app looks for its own updates (the "latest" release).
         buildConfigField("String", "UPDATE_REPO", "\"${System.getenv("GITHUB_REPOSITORY") ?: "sfxhewitt/plexodus"}\"")
-        ndk {
-            // Phones and tablets (arm64), older phones and Fire TV sticks (armv7), emulators (x86_64).
-            // A test build for one device can pass -Pabi=armeabi-v7a to stay small.
-            val only = project.findProperty("abi") as String?
-            abiFilters += if (only != null) listOf(only) else listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        // A test build for one device can pass -Pabi=armeabi-v7a to stay small.
+        onlyAbi?.let { abi -> ndk { abiFilters += abi } }
+    }
+
+    // One APK per kind of device as well as the all-in-one: the app's updater
+    // downloads only the one for its own chip (Updater.kt), about a third of
+    // the size, which matters on TV boxes with little free storage.
+    //   arm64-v8a: phones, tablets, Shield.  armeabi-v7a: Fire TV, older phones.
+    //   x86_64: emulators.
+    splits {
+        abi {
+            isEnable = onlyAbi == null
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = true
+        }
+    }
+    // Nothing runs 32-bit x86 any more; keep it out of the all-in-one APK and the bundle.
+    packaging {
+        jniLibs {
+            excludes += "lib/x86/**"
         }
     }
 

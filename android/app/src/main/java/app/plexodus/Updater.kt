@@ -10,6 +10,7 @@ import android.content.Intent
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import android.provider.Settings
@@ -35,6 +36,8 @@ import java.security.MessageDigest
  * keeps the server address and sign-in.
  */
 class Updater(private val activity: Activity) {
+    private class NoSpace(message: String) : IOException(message)
+
     class Release(val code: Int, val name: String, val url: String, val size: Long, val sha256: String)
 
     private var dialog: AlertDialog? = null
@@ -199,7 +202,7 @@ class Updater(private val activity: Activity) {
                     Log.w(TAG, "update download failed", e)
                     show(
                         alert().setTitle(R.string.update_title)
-                            .setMessage(activity.getString(R.string.update_failed, e.message ?: e.toString()))
+                            .setMessage(if (e is NoSpace) e.message else activity.getString(R.string.update_failed, e.message ?: e.toString()))
                             .setPositiveButton(R.string.retry) { _, _ -> download(r) }
                             .setNegativeButton(R.string.cancel, null),
                     )
@@ -220,8 +223,13 @@ class Updater(private val activity: Activity) {
         }
         file.delete()
         val dir = file.parentFile ?: activity.cacheDir
-        if (r.size > 0 && dir.usableSpace < r.size + 32L * 1024 * 1024) {
-            throw IOException(activity.getString(R.string.update_no_space, (r.size / 1_000_000)))
+        // Room for the download, for the installer's own copy of it with its
+        // libraries unpacked, and for the reserve Android keeps back: below
+        // that the system installer only says "App not installed".
+        val need = r.size * 3 + SPACE_RESERVE
+        val free = dir.usableSpace
+        if (r.size > 0 && free < need) {
+            throw NoSpace(activity.getString(R.string.update_no_space, need / 1_000_000, free / 1_000_000))
         }
         val part = File(dir, "$APK_NAME.part")
         val digest = MessageDigest.getInstance("SHA-256")
@@ -317,6 +325,8 @@ class Updater(private val activity: Activity) {
         private const val TAG = "PlexodusUpdate"
         private const val KEY_LAST_CHECK = "updateLastCheck"
         private const val CHECK_EVERY_MS = 6L * 60 * 60 * 1000
+        /** Android refuses installs that would leave less than about this free. */
+        private const val SPACE_RESERVE = 500L * 1024 * 1024
         const val APK_NAME = "update.apk"
         const val APK_MIME = "application/vnd.android.package-archive"
         private val MANIFEST_URL =
@@ -350,15 +360,29 @@ class Updater(private val activity: Activity) {
                 timeoutMs = 15_000,
             )
             if (res.code != 200) throw IOException("HTTP ${res.code}")
-            val j = JSONObject(res.body)
+            return parse(res.body, Build.SUPPORTED_ABIS.toList())
+        }
+
+        /**
+         * Reads the release's manifest. It lists one small APK per kind of
+         * chip under "abis" beside the all-in-one; take the one for this
+         * device, which is a third of the download and of the space needed.
+         */
+        fun parse(body: String, deviceAbis: List<String>): Release {
+            val j = JSONObject(body)
+            val code = j.getInt("versionCode")
+            val abis = j.optJSONObject("abis")
+            // Only the device's first ABI: that is the one the installed app runs as.
+            val mine = deviceAbis.firstOrNull()?.let { abis?.optJSONObject(it) }?.takeIf { it.optString("url").isNotEmpty() }
+            val src = mine ?: j
             return Release(
-                code = j.getInt("versionCode"),
-                name = j.optString("versionName", j.getInt("versionCode").toString()),
-                url = j.optString("url").ifEmpty {
+                code = code,
+                name = j.optString("versionName", code.toString()),
+                url = src.optString("url").ifEmpty {
                     "https://github.com/${BuildConfig.UPDATE_REPO}/releases/download/latest/plexodus.apk"
                 },
-                size = j.optLong("size", 0),
-                sha256 = j.optString("sha256", ""),
+                size = src.optLong("size", 0),
+                sha256 = src.optString("sha256", ""),
             )
         }
 

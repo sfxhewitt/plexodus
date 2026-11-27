@@ -128,8 +128,13 @@ jobs:
           # Amazon Appstore (APK), without the self-updater.
           gradle --no-daemon assembleGithubRelease assembleStoreRelease bundleStoreRelease
           mkdir -p ../dist
-          cp app/build/outputs/apk/github/release/app-github-release.apk ../dist/plexodus.apk
-          cp app/build/outputs/apk/store/release/app-store-release.apk ../dist/plexodus-amazon.apk
+          ls -la app/build/outputs/apk/github/release app/build/outputs/apk/store/release
+          # plexodus.apk runs on everything; the per-chip ones are what the
+          # app's own updater downloads (a third of the size).
+          cp app/build/outputs/apk/github/release/app-github-universal-release.apk ../dist/plexodus.apk
+          cp app/build/outputs/apk/github/release/app-github-arm64-v8a-release.apk ../dist/plexodus-arm64-v8a.apk
+          cp app/build/outputs/apk/github/release/app-github-armeabi-v7a-release.apk ../dist/plexodus-armeabi-v7a.apk
+          cp app/build/outputs/apk/store/release/app-store-universal-release.apk ../dist/plexodus-amazon.apk
           cp app/build/outputs/bundle/storeRelease/app-store-release.aab ../dist/plexodus-play.aab
           ls -la ../dist
 
@@ -138,6 +143,8 @@ jobs:
           name: plexodus-android
           path: |
             dist/plexodus.apk
+            dist/plexodus-arm64-v8a.apk
+            dist/plexodus-armeabi-v7a.apk
             dist/plexodus-amazon.apk
             dist/plexodus-play.aab
 
@@ -183,9 +190,14 @@ jobs:
           # Last, once the APK is up: the app reads this to offer updates
           # (android/app/src/main/java/app/plexodus/Updater.kt).
           mkdir -p meta
-          printf '{"versionCode":%s,"versionName":"%s","size":%s,"sha256":"%s","url":"https://github.com/%s/releases/download/latest/plexodus.apk"}\n' \
-            "$GITHUB_RUN_NUMBER" "${GITHUB_REF_NAME}-${GITHUB_SHA::7}" "$(stat -c %s dist/plexodus.apk)" \
-            "$(sha256sum dist/plexodus.apk | cut -d' ' -f1)" "$GITHUB_REPOSITORY" > meta/android-version.json
+          # "abis" lists the smaller per-chip APKs; apps from before they
+          # existed ignore it and take the all-in-one "url".
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/latest"
+          entry() { printf '"url":"%s/%s","size":%s,"sha256":"%s"' "$base" "$1" "$(stat -c %s "dist/$1")" "$(sha256sum "dist/$1" | cut -d' ' -f1)"; }
+          printf '{"versionCode":%s,"versionName":"%s",%s,"abis":{"arm64-v8a":{%s},"armeabi-v7a":{%s}}}\n' \
+            "$GITHUB_RUN_NUMBER" "${GITHUB_REF_NAME}-${GITHUB_SHA::7}" "$(entry plexodus.apk)" \
+            "$(entry plexodus-arm64-v8a.apk)" "$(entry plexodus-armeabi-v7a.apk)" > meta/android-version.json
+          python3 -m json.tool meta/android-version.json >/dev/null
           cat meta/android-version.json
           gh release upload latest meta/android-version.json --clobber
 
