@@ -134,7 +134,7 @@
     <string name="update_continue">Continue</string>
     <string name="update_downloading">Downloading… %1$d%%</string>
     <string name="update_failed">The update didn\'t download: %1$s</string>
-    <string name="update_no_space">There isn\'t enough free space (it needs about %1$d MB).</string>
+    <string name="update_no_space">This device is nearly out of storage, so the update can\'t be installed. It needs about %1$d MB free and there is %2$d MB.\n\nRemove an app you don\'t use, or clear some apps\' caches in the device\'s settings, then try again.</string>
     <string name="update_bad_checksum">The download was damaged or the release changed while it downloaded. Try again.</string>
     <string name="update_bad_apk">The download isn\'t a newer Plexodus app.</string>
 </resources>
