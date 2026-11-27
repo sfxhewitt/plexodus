@@ -387,6 +387,71 @@ func (s *Server) picksOut(r *http.Request, ctx *mood.Ctx, ranked []mood.Ranked) 
 	return out, nil
 }
 
+// The sizes the apps show a pick's pictures at: the TV's
+// poster and backdrop, then the phone's.
+var pickPosterSizes, pickBackdropSizes = []string{"w500", "w342"}, []string{"w1280", "w780"}
+
+// fetchArt makes sure one picture, from TMDB or Plex, is in the local cache.
+func (s *Server) fetchArt(ctx context.Context, path, size string) {
+	switch {
+	case path == "":
+	case strings.HasPrefix(path, "plex:"):
+		s.plexArt(ctx, size, path[5:], false)
+	default:
+		s.art.Get(ctx, size, path)
+	}
+}
+
+// warmPickArt fetches the pictures of suggested films into the local cache
+// before the app asks for them: a pick's poster is otherwise downloaded the
+// moment the film comes on screen, and arrives a second or two after its
+// title. The first `now` picks are waited for (briefly), so the reply is sent
+// with their pictures ready; the rest follow in the background, in the order
+// they will be shown. backdrops is false where only posters are shown.
+func (s *Server) warmPickArt(picks []Pick, now int, backdrops bool) {
+	type job struct{ path, size string }
+	jobs := func(ps []Pick) (out []job) {
+		for _, p := range ps {
+			for _, size := range pickPosterSizes {
+				out = append(out, job{p.Poster, size})
+			}
+			if backdrops {
+				for _, size := range pickBackdropSizes {
+					out = append(out, job{p.Backdrop, size})
+				}
+			}
+		}
+		return out
+	}
+	run := func(js []job) {
+		ctx, cancel := context.WithTimeout(s.baseCtx, 30*time.Second)
+		defer cancel()
+		var wg sync.WaitGroup
+		slots := make(chan struct{}, 6)
+		for _, j := range js {
+			wg.Add(1)
+			slots <- struct{}{}
+			go func() {
+				defer wg.Done()
+				s.fetchArt(ctx, j.path, j.size)
+				<-slots
+			}()
+		}
+		wg.Wait()
+	}
+	now = min(now, len(picks))
+	first := make(chan struct{})
+	go func() {
+		run(jobs(picks[:now]))
+		close(first)
+		run(jobs(picks[now:]))
+	}()
+	select {
+	case <-first:
+	case <-time.After(1200 * time.Millisecond):
+	}
+}
+
 // fresh keeps the films the viewer hasn't seen and that aren't resting or hidden.
 func fresh(films []*mood.Film, state map[int64]pickRow, exclude map[int64]bool) []*mood.Film {
 	now := db.Now()
@@ -434,6 +499,7 @@ func (s *Server) handlePicks(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.warmPickArt(picks, 2, true)
 	// matching - fresh = films left out because they are resting or hidden.
 	writeJSON(w, map[string]any{"picks": picks, "matching": matching, "fresh": len(films)})
 }
@@ -539,6 +605,7 @@ func (s *Server) handleQuiz(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	s.warmPickArt(picks, 3, false)
 	writeJSON(w, map[string]any{"picks": picks, "found": len(cands)})
 }
 

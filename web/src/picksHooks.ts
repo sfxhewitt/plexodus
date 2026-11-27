@@ -2,7 +2,8 @@
 // library pages: what is on screen, and what each button does to it.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { api } from "./api";
+import { api, art } from "./api";
+import { preloadArt, preloadWithin } from "./artPreload";
 import { Pick, picks, QUIZ, QUIZ_SHOWN, QuizAnswers, quizStep } from "./picks";
 
 /** Things changed that grids and Home show (watchlist flags, watched ticks). */
@@ -125,8 +126,17 @@ export type Surprise = {
   notInterested: () => void;
 };
 
+type ArtSize = Parameters<typeof art>[1];
+/** The picture sizes a screen shows picks at, so they can be fetched ahead. */
+export type PickArt = { poster: ArtSize; backdrop?: ArtSize };
+const pickArt = (p: Pick, a: PickArt) => [art(p.poster, a.poster), a.backdrop ? art(p.backdrop, a.backdrop) : undefined];
+/** How long the first picks may wait for their pictures before showing without them. */
+const ART_WAIT = 1500;
+/** How many films ahead have their pictures fetched. */
+const ART_AHEAD = 4;
+
 /** One suggestion at a time from the library as it is filtered. */
-export function useSurprise(libId: string | number, filters: string, say: (msg: string) => void, resume = false): Surprise {
+export function useSurprise(libId: string | number, filters: string, say: (msg: string) => void, resume = false, artSize?: PickArt): Surprise {
   // Back from a pick's page: the same film, with the same ones lined up behind it.
   const [from] = useState(() => (resume ? keptPick("surprise", libId, filters)?.surprise : undefined));
   const [state, setState] = useState<{ loading: boolean; error?: string; queue: Pick[]; matching: number; held: number }>(
@@ -135,7 +145,11 @@ export function useSurprise(libId: string | number, filters: string, say: (msg: 
     if (from) return;
     let alive = true;
     picks.surprise(libId, filters).then(
-      (r) => alive && setState({ loading: false, queue: r.picks, matching: r.matching, held: r.matching - r.fresh }),
+      async (r) => {
+        // The first film appears with its poster, not before it.
+        if (artSize && r.picks[0]) await preloadWithin(pickArt(r.picks[0], artSize), ART_WAIT);
+        if (alive) setState({ loading: false, queue: r.picks, matching: r.matching, held: r.matching - r.fresh });
+      },
       (e: Error) => alive && setState({ loading: false, queue: [], matching: 0, held: 0, error: e.message }),
     );
     return () => {
@@ -143,6 +157,13 @@ export function useSurprise(libId: string | number, filters: string, say: (msg: 
     };
   }, [libId, filters, from]);
   const cur = state.queue[0];
+  // The films behind this one have their pictures fetched now, so "Pick
+  // another" shows the next one whole.
+  const ahead = state.queue.slice(0, 1 + ART_AHEAD);
+  const aheadKey = ahead.map((p) => p.id).join();
+  useEffect(() => {
+    if (artSize) ahead.forEach((p) => pickArt(p, artSize).forEach(preloadArt));
+  }, [aheadKey]);
   // A film counts as suggested (and rests for 30 days) once it is on screen.
   const shown = useRef(new Set<number>(from?.shown));
   useEffect(() => {
@@ -191,7 +212,7 @@ export type Quiz = {
 };
 
 /** The quiz: answers, then three picks that backfill as they are dismissed. */
-export function useQuiz(libId: string | number, resume = false): Quiz {
+export function useQuiz(libId: string | number, resume = false, artSize?: PickArt): Quiz {
   // Back from a pick's page: the same answers and the same picks.
   const [from] = useState(() => (resume ? keptPick("quiz", libId)?.quiz : undefined));
   const [step, setStep] = useState(from?.step ?? 0);
@@ -206,7 +227,11 @@ export function useQuiz(libId: string | number, resume = false): Quiz {
     const mine = ++run.current;
     setRes((r) => ({ ...r, loading: true, error: undefined }));
     picks.quiz(libId, a, gone.current).then(
-      (r) => mine === run.current && setRes({ loading: false, pool: r.picks, found: r.found }),
+      async (r) => {
+        // The three picks appear with their posters, not before them.
+        if (artSize) await preloadWithin(r.picks.slice(0, QUIZ_SHOWN).flatMap((p) => pickArt(p, artSize)), ART_WAIT);
+        if (mine === run.current) setRes({ loading: false, pool: r.picks, found: r.found });
+      },
       (e: Error) => mine === run.current && setRes({ loading: false, pool: [], found: 0, error: e.message }),
     );
   }, [libId]);
@@ -228,6 +253,11 @@ export function useQuiz(libId: string | number, resume = false): Quiz {
   const back = useCallback(() => go(Math.min(step, QUIZ.length) - 1, -1, answers), [step, answers, go]);
 
   const shown = step >= QUIZ.length ? res.pool.slice(0, QUIZ_SHOWN) : [];
+  // The picks that move up when one is dismissed have their posters fetched ahead.
+  const poolKey = res.pool.slice(0, QUIZ_SHOWN + ART_AHEAD).map((p) => p.id).join();
+  useEffect(() => {
+    if (artSize) res.pool.slice(0, QUIZ_SHOWN + ART_AHEAD).forEach((p) => pickArt(p, artSize).forEach(preloadArt));
+  }, [poolKey]);
   const marked = useRef(new Set<number>(from?.marked));
   useEffect(() => {
     const fresh = shown.filter((p) => !marked.current.has(p.id)).map((p) => p.id);

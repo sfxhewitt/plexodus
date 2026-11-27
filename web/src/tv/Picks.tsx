@@ -28,7 +28,7 @@ export function SurpriseOverlay({ libId, filters, label, resume, onClose }: { li
   const nav = useNavigate();
   // Back from the film's page lands on the button that led there.
   const backTo = useRef(resume ? keptPick("surprise", libId, filters)?.focus : undefined);
-  const s = useSurprise(libId, filters, toast, resume);
+  const s = useSurprise(libId, filters, toast, resume, { poster: "w500", backdrop: "w1280" });
   const p = s.cur;
   const cameBack = useRef(p?.id);
   // Each new film starts on Pick another, so OK again and again flicks through
@@ -132,7 +132,7 @@ export function QuizOverlay({ libId, prefs, onPrefs, resume, onClose }: { libId:
   const nav = useNavigate();
   // Back from a film's page lands on the Details button that led there.
   const backTo = useRef(resume ? keptPick("quiz", libId)?.focus : undefined);
-  const q = useQuiz(libId, resume);
+  const q = useQuiz(libId, resume, { poster: "w342" });
   const done = q.step >= QUIZ.length;
   const step = QUIZ[q.step];
   // Back steps back through the questions before it leaves.
