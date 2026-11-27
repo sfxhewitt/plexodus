@@ -5,6 +5,7 @@ import { api, Card } from "../../api";
 import { Check, Compass, Dice, Shuffle, Sliders, SortIcon } from "../../components/Icons";
 import { contentLabel, cycleGenre, FEEL, feelString, feelWord, GenrePrefs, genreMode, moodLabel, parseFeel, picks, PickState, toggleIn } from "../../picks";
 import { QuizOverlay, SurpriseOverlay } from "../Picks";
+import { usePickResume } from "../../picksHooks";
 import { BackdropCtx, Spinner, TvButton, TvCard } from "../components";
 import { focusInitial, focusKey, onBack } from "../focus";
 import { useLibraries, usePageFocus, useRefresh, useToast } from "../hooks";
@@ -273,7 +274,9 @@ export default function LibraryPage() {
   const [panel, setPanel] = useState<string | null>(null);
 
   // "Surprise me" and "Help me choose" (Reel Pick), over a film library.
-  const [picking, setPicking] = useState<"surprise" | "quiz" | null>(null);
+  // Back from a pick's page reopens it as it was left.
+  const pickResume = usePickResume(id, filterQuery(params));
+  const [picking, setPicking] = useState<"surprise" | "quiz" | null>(pickResume.initial);
   // The profile's never-show and must-have genres. Saving them changes what
   // the same address returns, so `ver` goes in the address to refetch.
   const [prefs, setPrefs] = useState<GenrePrefs>({ exclude: [], require: [] });
@@ -427,9 +430,10 @@ export default function LibraryPage() {
       requestAnimationFrame(() => focusKey(was === "quiz" ? "choose" : "surprise") || focusKey("filters"));
       return null;
     });
+    pickResume.end();
     // Watchlist, Seen it and the picks' memory may have changed what the grid shows.
     loaded.delete(key.current);
-  }, []);
+  }, [pickResume.end]);
   const sortChip = si.v === "random" || si.v === "match" ? si.l : si.v === "title" ? (order === "asc" ? "A–Z" : "Z–A") : `${si.l} · ${order === "asc" ? si.asc : si.desc}`;
   const total = state.total;
 
@@ -505,9 +509,9 @@ export default function LibraryPage() {
           prefs={prefs} onPrefs={savePrefs} ver={ver} />
       )}
       {picking === "surprise" && id && (
-        <SurpriseOverlay libId={id} filters={fq} label={params.get("mood") ? moodLabel(params.get("mood")!) : active.length ? "From your filters" : "Surprise me"} onClose={closePicking} />
+        <SurpriseOverlay libId={id} filters={fq} label={params.get("mood") ? moodLabel(params.get("mood")!) : active.length ? "From your filters" : "Surprise me"} resume={pickResume.resume} onClose={closePicking} />
       )}
-      {picking === "quiz" && id && <QuizOverlay libId={id} prefs={prefs} onPrefs={savePrefs} onClose={closePicking} />}
+      {picking === "quiz" && id && <QuizOverlay libId={id} prefs={prefs} onPrefs={savePrefs} resume={pickResume.resume} onClose={closePicking} />}
     </div>
   );
 }

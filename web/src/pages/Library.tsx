@@ -7,6 +7,7 @@ import { activeFilters, filterQuery, FilterSheet } from "../components/LibraryFi
 import { QuizSheet, SurpriseSheet } from "../components/Picks";
 import { useApi } from "../hooks";
 import { cycleGenre, GenrePrefs, picks } from "../picks";
+import { usePickResume } from "../picksHooks";
 
 const PAGE = 120;
 
@@ -24,7 +25,9 @@ export default function Library() {
   const movies = lib?.kind === "movies";
 
   // Reel Pick: the filter sheet, "Surprise me" and "Help me choose".
-  const [sheet, setSheet] = useState<"filters" | "surprise" | "quiz" | null>(null);
+  // Back from a pick's page (or from playing it) reopens it as it was left.
+  const pickResume = usePickResume(id, filterQuery(params));
+  const [sheet, setSheet] = useState<"filters" | "surprise" | "quiz" | null>(pickResume.initial);
   // The profile's never-show and must-have genres. Saving them changes what
   // the same address returns, so `ver` goes in the address to refetch.
   const [prefs, setPrefs] = useState<GenrePrefs>({ exclude: [], require: [] });
@@ -41,11 +44,12 @@ export default function Library() {
   }, []);
   // Watchlist, Seen it and hidden films may have changed what the grid shows.
   const closeSheet = useCallback(() => {
-    setSheet((was) => {
-      if (was === "surprise" || was === "quiz") setVer((v) => v + 1);
-      return null;
-    });
-  }, []);
+    if (sheet === "surprise" || sheet === "quiz") {
+      setVer((v) => v + 1);
+      pickResume.end();
+    }
+    setSheet(null);
+  }, [sheet, pickResume.end]);
 
   const fq = filterQuery(params);
   const pills = activeFilters(params, ["filter"]);
@@ -166,10 +170,10 @@ export default function Library() {
         <FilterSheet libId={id} movies={movies} params={params} prefs={prefs} onPrefs={savePrefs} onClose={closeSheet}
           onApply={(d) => (setParams(d, { replace: true }), setSheet(null))} />
       )}
-      {sheet === "surprise" && id && <SurpriseSheet libId={id} filters={fq} label="Surprise me" onClose={closeSheet} />}
+      {sheet === "surprise" && id && <SurpriseSheet libId={id} filters={fq} label="Surprise me" resume={pickResume.resume} onClose={closeSheet} />}
       {sheet === "quiz" && id && (
         <QuizSheet libId={id} genres={[...new Set([...(genres?.map((g) => g.name) || []), ...prefs.exclude, ...prefs.require])].sort()}
-          prefs={prefs} onPrefs={savePrefs} onClose={closeSheet} />
+          prefs={prefs} onPrefs={savePrefs} resume={pickResume.resume} onClose={closeSheet} />
       )}
     </div>
   );
