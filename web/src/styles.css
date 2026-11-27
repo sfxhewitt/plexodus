@@ -293,7 +293,7 @@ a.row-title:hover svg { opacity: 1; transform: none; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; }
 .modal-foot { display: flex; justify-content: flex-end; }
 .match-inputs { display: flex; gap: 8px; }
-.match-inputs input:first-child { flex: 1; }
+.match-inputs input:first-child { flex: 1; width: 0; min-width: 0; }
 .match-inputs .year { width: 90px; }
 .match-list { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
 .match-row { display: grid; grid-template-columns: 54px 1fr auto; gap: 14px; align-items: center; text-align: left; padding: 8px; border-radius: 12px; border: 0; background: transparent; }
@@ -758,6 +758,10 @@ a.cast-card:hover .cast-photo, a.cast-card:focus-visible .cast-photo { transform
   .tabbar a.active svg { color: var(--teal); }
   .tabbar .np-badge { top: 0; right: calc(50% - 20px); }
   .main { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+  /* iPhone Safari zooms the whole page in when a field with text smaller
+     than 16px is tapped, and leaves it zoomed. Fields are 16px on phones
+     (the profile PIN box keeps its bigger 22px). */
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not(.pf-pin input), select, textarea { font-size: 16px; }
 }
 .cmp-secure { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: -4px 0 14px; }
 .cmp-secure p { margin: 0; flex: 1 1 200px; }
