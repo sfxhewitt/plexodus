@@ -1115,7 +1115,8 @@ func (s *Server) handlePlayerClosed(w http.ResponseWriter, r *http.Request) {
 			Position float64 `json:"position"`
 			Watched  bool    `json:"watched"`
 		} `json:"saved"`
-		Fixed string `json:"fixed"`
+		Fixed  string `json:"fixed"`
+		Missed bool   `json:"missed"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, 400, err.Error())
@@ -1133,6 +1134,8 @@ func (s *Server) handlePlayerClosed(w http.ResponseWriter, r *http.Request) {
 		}
 		line += fmt.Sprintf("; %s reports ok=%d failed=%d skipped=%d started=%v stalled=%v length=%dms time=%dms %q",
 			st.Engine, st.OK, st.Failed, st.Skipped, st.Started, st.Stalled, st.LengthMs, st.TimeMs, note)
+	} else if body.Missed {
+		line += "; the app's close message never reached the page (the page noticed by itself, position unknown)"
 	} else {
 		line += "; no report counts (older app)"
 	}

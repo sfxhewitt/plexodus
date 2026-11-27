@@ -212,10 +212,30 @@ class MainActivity : Activity() {
         }
         if (requestCode != REQ_PLAY) return
         // Tell the page how playback went so it can resume, show "up next", etc.
-        val detail = data?.getStringExtra(PlayerActivity.EXTRA_RESULT) ?: "{}"
-        web.evaluateJavascript(
-            "window.dispatchEvent(new CustomEvent('plexodus:native-ended',{detail:$detail}))", null,
-        )
+        val detail = try {
+            JSONObject(data?.getStringExtra(PlayerActivity.EXTRA_RESULT) ?: "{}")
+        } catch (_: Exception) {
+            JSONObject()
+        }
+        detail.put("seq", System.currentTimeMillis())
+        Log.i("Plexodus", "player result to the page: ${detail.optLong("lastItemId")} at ${detail.optDouble("position")} of ${detail.optDouble("duration")}")
+        tellPlayerClosed(detail.toString())
+    }
+
+    /**
+     * Hands the player's result to the page. This arrives before the WebView
+     * is resumed, and after a long film the page didn't always get it (three
+     * films watched to the end kept "Mark watched" on their page, Cube, Nov
+     * 2026), so it is said again once the page is back on screen; the page
+     * only acts on the first copy it sees.
+     */
+    private fun tellPlayerClosed(detail: String) {
+        val js = "(function(d){if(window.__plexodusEnded===d.seq)return;window.__plexodusEnded=d.seq;" +
+            "window.dispatchEvent(new CustomEvent('plexodus:native-ended',{detail:d}))})($detail)"
+        web.evaluateJavascript(js, null)
+        for (after in longArrayOf(400, 1500, 4000)) {
+            web.postDelayed({ if (!isFinishing && !isDestroyed) web.evaluateJavascript(js, null) }, after)
+        }
     }
 
     /** Methods the web UI can call. Each runs on a WebView thread, so hop to the UI thread. */

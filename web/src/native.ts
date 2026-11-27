@@ -27,6 +27,8 @@ export interface NativeEnded {
   ended: boolean;
   /** How the sitting's progress reports went (newer apps); passed on to the server's log. */
   stats?: Record<string, unknown>;
+  /** The app's message never came; the page noticed the player had closed. Position unknown. */
+  missed?: boolean;
 }
 
 interface Bridge {
@@ -78,4 +80,51 @@ export const nativePlay = (req: NativePlayRequest) => {
   // and jump to the next episode, so only send recaps to apps that know them.
   const markers = nativeFeatures().includes("recap") ? req.markers : req.markers.filter((m) => m.type !== "recap");
   native?.play(JSON.stringify({ ...req, markers }));
+  if (native) playerOpened(req.itemId);
 };
+
+// The app tells the page when its player closes ("plexodus:native-ended").
+// After a long film that message doesn't always arrive (Fire TV Cube, Nov
+// 2026: three films watched to the end kept "Mark watched" on their page
+// although the server had them as watched), so the page also notices by
+// itself: it is hidden while the player covers it, and when it is back on
+// screen, or gets a key press, with no word from the app, it announces the
+// close itself. Pages then refetch, and ask the server whether it was finished.
+let openPlayer: { itemId: number; at: number; hidden: boolean } | null = null;
+let closeTimer: ReturnType<typeof setTimeout> | undefined;
+
+function playerOpened(itemId: number) {
+  clearTimeout(closeTimer);
+  openPlayer = { itemId, at: Date.now(), hidden: document.hidden };
+}
+
+function playerMaybeClosed(input: boolean) {
+  const p = openPlayer;
+  if (!p) return;
+  if (document.hidden) {
+    p.hidden = true;
+    return;
+  }
+  // Not covered yet (the player takes a moment to open), unless the page
+  // was seen hidden, or is being used again.
+  if (!p.hidden && !(input && Date.now() - p.at > 3000)) return;
+  clearTimeout(closeTimer);
+  // Give the app's own message a moment: it knows where playback stopped.
+  closeTimer = setTimeout(() => {
+    if (openPlayer !== p || document.hidden) return;
+    const detail: NativeEnded = { itemId: p.itemId, lastItemId: p.itemId, position: 0, duration: 0, ended: false, missed: true };
+    window.dispatchEvent(new CustomEvent("plexodus:native-ended", { detail }));
+  }, 1500);
+}
+
+if (native) {
+  window.addEventListener("plexodus:native-ended", () => {
+    openPlayer = null;
+    clearTimeout(closeTimer);
+  }, true);
+  document.addEventListener("visibilitychange", () => playerMaybeClosed(false));
+  window.addEventListener("pageshow", () => playerMaybeClosed(false));
+  window.addEventListener("focus", () => playerMaybeClosed(false));
+  window.addEventListener("keydown", () => playerMaybeClosed(true), true);
+  setInterval(() => playerMaybeClosed(false), 2000);
+}
