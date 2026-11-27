@@ -569,7 +569,10 @@ class PlayerActivity : Activity() {
                 try {
                     val r = if (retry && tries == 0) Http.request("$server/api/subs/$id/online", "POST", "{}", headers, timeoutMs = 60_000)
                     else Http.request("$server/api/subs/$id", headers = headers, timeoutMs = 60_000)
-                    if (r.code != 200) break
+                    if (r.code != 200) {
+                        android.util.Log.w(TAG, "subtitle files: server answered ${r.code} for file $id")
+                        break
+                    }
                     val o = JSONObject(r.body)
                     state = o.optJSONObject("online")?.optString("state") ?: ""
                     val tracks = o.optJSONArray("tracks")
