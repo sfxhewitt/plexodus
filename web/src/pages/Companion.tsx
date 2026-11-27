@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, art, type NowPlaying } from "../api";
 import { Sparkle } from "../components/Icons";
 import { canKeepAwake, KeepAwake } from "../keepAwake";
+import { initials } from "../people";
 
 const AWAKE_KEY = "plexodus.scene.keepAwake";
 function awakePref() {
@@ -20,7 +21,16 @@ function savePref(on: boolean) {
   }
 }
 
+/** An actor behind a character a note mentions. */
+interface Face {
+  id?: number;
+  name: string;
+  character?: string;
+  profile?: string;
+}
+
 interface Note {
+  people?: Face[];
   at: number;
   kind: "character" | "context" | "language" | "detail" | "trivia";
   title: string;
@@ -37,6 +47,7 @@ interface CompanionData {
 }
 
 interface Answer {
+  people?: Face[];
   q: string;
   a?: string;
   err?: string;
@@ -50,6 +61,33 @@ const KIND: Record<Note["kind"], string> = {
   detail: "Easy to miss",
   trivia: "Trivia",
 };
+
+/** Who's who: the actor's face and name beside the character they play. */
+function Faces({ people }: { people?: Face[] }) {
+  if (!people?.length) return null;
+  return (
+    <div className="cmp-faces">
+      {people.map((p) => {
+        const body = (
+          <>
+            <span className="cmp-face-photo">
+              {p.profile ? <img src={art(p.profile, "w185")} alt="" loading="lazy" /> : <span>{initials(p.name)}</span>}
+            </span>
+            <span className="cmp-face-text">
+              <span className="c">{p.character || p.name}</span>
+              {p.character && <span className="a">{p.name}</span>}
+            </span>
+          </>
+        );
+        return p.id ? (
+          <Link key={p.name + p.character} to={`/person/${p.id}`} className="cmp-face">{body}</Link>
+        ) : (
+          <span key={p.name + p.character} className="cmp-face">{body}</span>
+        );
+      })}
+    </div>
+  );
+}
 
 function clock(sec: number) {
   const t = Math.max(0, Math.floor(sec));
@@ -190,8 +228,9 @@ export default function Companion() {
     const entry: Answer = { q: question, at: pos };
     setAnswers((cur) => [entry, ...cur]);
     try {
-      const r = await api.post<{ answer: string; at: number }>("/api/companion/ask", { question });
+      const r = await api.post<{ answer: string; at: number; people?: Face[] }>("/api/companion/ask", { question });
       entry.a = r.answer;
+      entry.people = r.people;
       entry.at = r.at;
     } catch (err) {
       entry.err = err instanceof Error ? err.message : String(err);
@@ -275,7 +314,7 @@ export default function Companion() {
         <div key={`a${answers.length - i}`} className="cmp-card cmp-answer">
           <div className="cmp-kind">You asked at {clock(a.at)}</div>
           <div className="cmp-q">{a.q}</div>
-          {a.a ? <p>{a.a}</p> : a.err ? <p className="err">{a.err}</p> : <p className="muted">Thinking…</p>}
+          {a.a ? <><p>{a.a}</p><Faces people={a.people} /></> : a.err ? <p className="err">{a.err}</p> : <p className="muted">Thinking…</p>}
         </div>
       ))}
 
@@ -295,6 +334,7 @@ export default function Companion() {
               <div className="cmp-kind">{KIND[n.kind] || n.kind} · {clock(n.at)}</div>
               <h3>{n.title}</h3>
               <p>{n.text}</p>
+              <Faces people={n.people} />
             </article>
           );
         })}

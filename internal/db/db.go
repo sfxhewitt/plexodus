@@ -169,7 +169,7 @@ func migrate(w *sql.DB) error {
 		{"items", "rt_critic", "INTEGER"},
 		{"items", "rt_audience", "INTEGER"},
 		// Which version of the scene companion wrote a stretch of notes
-		// (1 = from subtitles only, 2 = also shown stills of the picture).
+		// (1 = from subtitles only, 2 = also shown stills, 3 = also names the cast).
 		{"companion_notes", "v", "INTEGER NOT NULL DEFAULT 1"},
 	}
 	for _, c := range columns {

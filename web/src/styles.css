@@ -765,6 +765,14 @@ a.cast-card:hover .cast-photo, a.cast-card:focus-visible .cast-photo { transform
      (the profile PIN box keeps its bigger 22px). */
   input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not(.pf-pin input), select, textarea { font-size: 16px; }
 }
+.cmp-faces { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 12px; }
+.cmp-face { display: flex; align-items: center; gap: 9px; min-width: 0; color: inherit; text-decoration: none; }
+.cmp-face-photo { flex: none; width: 44px; height: 44px; border-radius: 50%; overflow: hidden; background: rgba(255, 255, 255, 0.08);
+  display: grid; place-items: center; font-size: 13px; font-weight: 600; color: var(--muted, #9aa); }
+.cmp-face-photo img { width: 100%; height: 100%; object-fit: cover; object-position: center 20%; display: block; }
+.cmp-face-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.cmp-face-text .c { font-weight: 600; font-size: 14px; }
+.cmp-face-text .a { font-size: 12.5px; opacity: 0.7; }
 .cmp-secure { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: -4px 0 14px; }
 .cmp-secure p { margin: 0; flex: 1 1 200px; }
 /* Watchlist: the title-page toggle and its page. */

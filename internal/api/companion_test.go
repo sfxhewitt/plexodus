@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sfxhewitt/plexodus/internal/config"
+	"github.com/sfxhewitt/plexodus/internal/metadata"
 	"github.com/sfxhewitt/plexodus/internal/subs"
 )
 
@@ -66,10 +67,21 @@ func TestCompanionNotes(t *testing.T) {
 	if _, err := s.db.W.Exec(`INSERT INTO media_files(id, item_id, library_id, path, size, mtime, duration, streams) VALUES (5, 10, 1, ?, 1, 0, 7800, '[]')`, video); err != nil {
 		t.Fatal(err)
 	}
+	// The title's cast, as the title page would have fetched it.
+	s.db.W.Exec(`UPDATE items SET tmdb_id = 1585 WHERE id = 10`)
+	extrasCache.Lock()
+	extrasCache.m[10] = extrasEntry{&metadata.Extras{Cast: []metadata.Person{
+		{ID: 854, Name: "James Stewart", Character: "George Bailey", Profile: "/js.jpg"},
+		{ID: 4070, Name: "Donna Reed", Character: "Mary Hatch", Profile: "/dr.jpg"},
+		{ID: 99, Name: "An Extra", Character: ""},
+	}}, time.Now()}
+	extrasCache.Unlock()
+	t.Cleanup(func() { extrasCache.Lock(); delete(extrasCache.m, 10); extrasCache.Unlock() })
 	var sent map[string]any
+	// Cast 2 = Mary; 7 isn't on the list and the repeat is dropped.
 	s.claude = newTestClaude("sk-test", `{"notes":[
-		{"at":662,"kind":"language","title":"Violent love, 1946 style","text":"Back then it meant ardent wooing."},
-		{"at":900,"kind":"character","title":"Later note","text":"Not reached yet."}]}`, &sent)
+		{"at":662,"kind":"language","title":"Violent love, 1946 style","text":"Mary means ardent wooing.","cast":[2,7,2]},
+		{"at":900,"kind":"character","title":"Later note","text":"Not reached yet.","cast":[]}]}`, &sent)
 
 	// Nothing playing yet.
 	var res companionResp
@@ -93,8 +105,14 @@ func TestCompanionNotes(t *testing.T) {
 	if len(res.Notes) != 1 || res.Notes[0].At != 662 || !res.Grounded {
 		t.Fatalf("notes = %+v (notice %q)", res.Notes, res.Notice)
 	}
+	if p := res.Notes[0].People; len(p) != 1 || p[0].Name != "Donna Reed" || p[0].Character != "Mary Hatch" || p[0].Profile != "/dr.jpg" {
+		t.Errorf("people = %+v", p)
+	}
 	// The prompt carried the subtitle line for this stretch.
 	b, _ := json.Marshal(sent)
+	if !strings.Contains(string(b), "1. George Bailey: played by James Stewart") || !strings.Contains(string(b), "2. Mary Hatch: played by Donna Reed") || strings.Contains(string(b), "An Extra") {
+		t.Errorf("prompt missing the cast: %s", b)
+	}
 	if !strings.Contains(string(b), "making violent love") || !strings.Contains(string(b), "0:10:00 to 0:20:00") {
 		t.Errorf("prompt missing subtitles: %s", b)
 	}

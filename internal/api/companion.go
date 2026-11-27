@@ -17,6 +17,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/v2"
 
 	"github.com/sfxhewitt/plexodus/internal/ask"
+	"github.com/sfxhewitt/plexodus/internal/metadata"
 	"github.com/sfxhewitt/plexodus/internal/probe"
 	"github.com/sfxhewitt/plexodus/internal/subfetch"
 	"github.com/sfxhewitt/plexodus/internal/subs"
@@ -32,9 +33,9 @@ import (
 
 const (
 	// compVersion is stored with each stretch. Stretches written by an
-	// older version (1 = subtitles only, before Claude was shown stills) are
+	// older version (1 = subtitles only, 2 = with stills, 3 = with the actors a note mentions) are
 	// written again when someone next watches them.
-	compVersion = 2
+	compVersion = 3
 	compChunk   = 600 // seconds per stretch of notes
 	// compLead starts writing the next stretch this long before it begins.
 	compLead = 240
@@ -45,6 +46,66 @@ type compNote struct {
 	Kind  string `json:"kind"`
 	Title string `json:"title"`
 	Text  string `json:"text"`
+	// People: the actors behind the characters this note mentions, so a
+	// viewer who can't place a name sees the face.
+	People []metadata.Person `json:"people,omitempty"`
+}
+
+// compCastMax is how many faces one note may carry.
+const compCastMax = 3
+
+// companionCast is the title's top-billed cast (a show's, for an episode);
+// nil when TMDB doesn't know it.
+func (s *Server) companionCast(ctx context.Context, item int64) []metadata.Person {
+	var id, tmdb int64
+	var kind string
+	err := s.db.R.QueryRowContext(ctx, `SELECT COALESCE(sh.id, i.id), COALESCE(sh.kind, i.kind), COALESCE(sh.tmdb_id, i.tmdb_id, 0)
+		FROM items i
+		LEFT JOIN items se ON i.kind = 'episode' AND se.id = i.parent_id
+		LEFT JOIN items sh ON sh.id = se.parent_id
+		WHERE i.id = ?`, item).Scan(&id, &kind, &tmdb)
+	if err != nil || tmdb <= 0 || (kind != "movie" && kind != "show") {
+		return nil
+	}
+	ex := s.extras(ctx, id, kind, tmdb)
+	if ex == nil {
+		return nil
+	}
+	var out []metadata.Person
+	for _, p := range ex.Cast {
+		if strings.TrimSpace(p.Character) != "" && p.Name != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// castPrompt lists the cast for Claude, numbered from 1.
+func castPrompt(cast []metadata.Person) string {
+	if len(cast) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\nCast of this title (number, character, actor):\n")
+	for i, p := range cast {
+		fmt.Fprintf(&b, "%d. %s: played by %s\n", i+1, p.Character, p.Name)
+	}
+	return b.String()
+}
+
+// castPeople turns the numbers Claude gave into cast members, dropping
+// anything that isn't on the list.
+func castPeople(cast []metadata.Person, nums []int) []metadata.Person {
+	var out []metadata.Person
+	seen := map[int]bool{}
+	for _, n := range nums {
+		if n < 1 || n > len(cast) || seen[n] || len(out) == compCastMax {
+			continue
+		}
+		seen[n] = true
+		out = append(out, cast[n-1])
+	}
+	return out
 }
 
 type subLine struct {
@@ -330,6 +391,8 @@ func (s *Server) writeNotes(ctx context.Context, np NowPlaying, file, chunk int6
 		}
 	}
 	b.WriteString(it.describe())
+	cast := s.companionCast(ctx, np.ItemID)
+	b.WriteString(castPrompt(cast))
 	if np.Duration > 0 {
 		fmt.Fprintf(&b, "Running time of this copy: %s\n", clock(np.Duration))
 	}
@@ -396,13 +459,18 @@ func (s *Server) writeNotes(ctx context.Context, np NowPlaying, file, chunk int6
 		return err
 	}
 	var res struct {
-		Notes []compNote `json:"notes"`
+		Notes []struct {
+			compNote
+			Cast []int `json:"cast"`
+		} `json:"notes"`
 	}
 	if err := json.Unmarshal([]byte(raw), &res); err != nil {
 		return fmt.Errorf("unreadable answer from Claude: %w", err)
 	}
-	notes := res.Notes[:0]
-	for _, n := range res.Notes {
+	notes := make([]compNote, 0, len(res.Notes))
+	for _, rn := range res.Notes {
+		n := rn.compNote
+		n.People = castPeople(cast, rn.Cast)
 		n.Title, n.Text = strings.TrimSpace(n.Title), strings.TrimSpace(n.Text)
 		if n.Text == "" {
 			continue
@@ -447,7 +515,8 @@ Rules:
 - Only state facts you are confident are true. Trivia must be real; if unsure, leave it out.
 - Tie every note to a specific moment in the stretch, using the timestamps of the stills and subtitles when given. "at" is the number of seconds into this copy when the note should appear: just after the line or moment it is about.
 - 4 to 8 notes per ten-minute stretch, spread across it. Fewer is fine for quiet stretches or credits; quality over quantity.
-- title: a short hook of at most 8 words. text: 1 to 3 conversational sentences, plain English, no markdown.`
+- title: a short hook of at most 8 words. text: 1 to 3 conversational sentences, plain English, no markdown.
+- cast: when a cast list is given, the numbers of the listed characters this note names or is plainly about (at most 3, most central first), so the viewer can be shown the actor's face. Match by who the character is, not by spelling: a note may use a first name, surname or nickname. Only include a number when you are sure it is that character; a wrong face is worse than none. Use an empty list when the note names nobody on the list or no list is given.`
 
 var notesSchema = map[string]any{
 	"type":                 "object",
@@ -455,12 +524,13 @@ var notesSchema = map[string]any{
 	"required":             []string{"notes"},
 	"properties": map[string]any{
 		"notes": map[string]any{"type": "array", "items": map[string]any{
-			"type": "object", "additionalProperties": false, "required": []string{"at", "kind", "title", "text"},
+			"type": "object", "additionalProperties": false, "required": []string{"at", "kind", "title", "text", "cast"},
 			"properties": map[string]any{
 				"at":    map[string]any{"type": "integer"},
 				"kind":  map[string]any{"type": "string", "enum": []string{"character", "context", "language", "detail", "trivia"}},
 				"title": map[string]any{"type": "string"},
 				"text":  map[string]any{"type": "string"},
+				"cast":  map[string]any{"type": "array", "items": map[string]any{"type": "integer"}},
 			},
 		}},
 	},
@@ -503,6 +573,8 @@ func (s *Server) handleCompanionAsk(w http.ResponseWriter, r *http.Request) {
 	lines, _ := s.subtitleLines(r.Context(), file, 3*time.Second)
 	var b strings.Builder
 	b.WriteString(it.describe())
+	cast := s.companionCast(r.Context(), np.ItemID)
+	b.WriteString(castPrompt(cast))
 	fmt.Fprintf(&b, "\nThe viewer is at %s.\n", clock(np.Position))
 	var dl strings.Builder
 	for _, l := range lines {
@@ -536,19 +608,25 @@ func (s *Server) handleCompanionAsk(w http.ResponseWriter, r *http.Request) {
 	}
 	var res struct {
 		Answer string `json:"answer"`
+		Cast   []int  `json:"cast"`
 	}
 	if json.Unmarshal([]byte(ans), &res) != nil {
 		writeErr(w, 502, "unreadable answer from Claude")
 		return
 	}
-	writeJSON(w, map[string]any{"answer": strings.TrimSpace(res.Answer), "at": int(np.Position)})
+	people := castPeople(cast, res.Cast)
+	if people == nil {
+		people = []metadata.Person{}
+	}
+	writeJSON(w, map[string]any{"answer": strings.TrimSpace(res.Answer), "at": int(np.Position), "people": people})
 }
 
-const companionAskSystem = `You are a second-screen companion for someone watching a film or TV episode. They paused to ask about what's happening. You may be shown stills of what they've just seen: use them (read text in shot, notice who and what is there). Answer like a knowledgeable, warm friend: directly, in 1 to 4 conversational sentences, plain English, no markdown. Explain motivations, context, dated language or references as needed. Never spoil anything after the point they've reached, even if asked what happens next: say you'd rather not spoil it. Only state facts you're confident about.`
+const companionAskSystem = `You are a second-screen companion for someone watching a film or TV episode. They paused to ask about what's happening. You may be shown stills of what they've just seen: use them (read text in shot, notice who and what is there). Answer like a knowledgeable, warm friend: directly, in 1 to 4 conversational sentences, plain English, no markdown. Explain motivations, context, dated language or references as needed. Never spoil anything after the point they've reached, even if asked what happens next: say you'd rather not spoil it. Only state facts you're confident about. cast: when a cast list is given, the numbers of the listed characters your answer names (at most 3), only when you are sure who they are; otherwise an empty list.`
 
 var answerSchema = map[string]any{
-	"type": "object", "additionalProperties": false, "required": []string{"answer"},
-	"properties": map[string]any{"answer": map[string]any{"type": "string"}},
+	"type": "object", "additionalProperties": false, "required": []string{"answer", "cast"},
+	"properties": map[string]any{"answer": map[string]any{"type": "string"},
+		"cast": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}}},
 }
 
 // ---- subtitles ----
