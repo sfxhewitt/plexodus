@@ -603,6 +603,7 @@ type SettingsT = {
   tmdbKeySet: boolean; tmdbKeyMasked: string; tmdbKeyFromEnv: boolean; apiKey: string;
   anthropicKeySet: boolean; anthropicKeyMasked: string; anthropicKeyFromEnv: boolean; askModel: string;
   detectMarkers: boolean;
+  onlineSubtitles?: boolean;
   upNextMinMinutes?: number;
   autoUpdate?: AutoUpdateT;
 };
@@ -762,6 +763,22 @@ function PlaybackSettings() {
             <input type="checkbox" checked={data?.detectMarkers ?? true}
               onChange={async (e) => setData(await api.put<SettingsT>("/api/settings", { detectMarkers: e.target.checked }))} />
             <span><b>Find recaps, intros and credits on first play</b></span>
+          </label>
+        </div>
+      </section>
+      <section className="settings-section">
+        <h2>Subtitles</h2>
+        <div className="card form">
+          <p className="muted small" style={{ margin: 0 }}>
+            When a film or episode has no English subtitles of its own, Plexodus looks for some on OpenSubtitles the first time it is played
+            and picks the ones timed for that copy: by the file's fingerprint where it can, otherwise by frame rate, running time and release name.
+            They appear in the player as <b>Downloaded</b>, with <b>Try another</b> if they are out of time, and are kept on the server, not beside your media.
+            Up to 200 downloads a day, with no account needed.
+          </p>
+          <label className="check">
+            <input type="checkbox" checked={data?.onlineSubtitles ?? true}
+              onChange={async (e) => setData(await api.put<SettingsT>("/api/settings", { onlineSubtitles: e.target.checked }))} />
+            <span><b>Download missing subtitles</b></span>
           </label>
         </div>
       </section>

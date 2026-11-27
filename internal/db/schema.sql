@@ -379,3 +379,21 @@ CREATE TABLE IF NOT EXISTS pick_genres (
     mode    INTEGER NOT NULL,
     PRIMARY KEY (user_id, genre)
 ) WITHOUT ROWID;
+
+-- Subtitles fetched online for a video that came without any in the wanted
+-- language (internal/subfetch). The text is kept in <data>/subs-online; this
+-- remembers what was found, so a video is searched for once, and which
+-- candidates a viewer turned down ("Try another").
+CREATE TABLE IF NOT EXISTS online_subs (
+    file_id    INTEGER NOT NULL REFERENCES media_files(id) ON DELETE CASCADE,
+    lang       TEXT NOT NULL,                 -- ISO 639-2, e.g. eng
+    state      TEXT NOT NULL,                 -- found | none | error
+    sub_id     TEXT,
+    release    TEXT,
+    matched    TEXT,                          -- hash | name
+    rejected   TEXT NOT NULL DEFAULT '[]',    -- JSON array of sub ids turned down
+    size       INTEGER NOT NULL DEFAULT 0,    -- the video's size when searched
+    note       TEXT,
+    checked_at INTEGER NOT NULL,
+    PRIMARY KEY (file_id, lang)
+) WITHOUT ROWID;

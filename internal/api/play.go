@@ -99,6 +99,8 @@ func (s *Server) handlePlay(w http.ResponseWriter, r *http.Request) {
 
 	// Scrub previews, made a few minutes in while the file is in rclone's cache.
 	s.thumbs.Queue(s.baseCtx, fileID, path, f.Duration)
+	// Subtitles from online, if the file has none of its own.
+	s.queueOnlineSubs(fileID)
 
 	name := filepath.Base(path)
 	rel := s.streamPath(fileID, currentUser(r).ID, name)
