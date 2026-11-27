@@ -1,13 +1,13 @@
 // "Surprise me" and "Help me choose" on the TV: Reel Pick's picker and quiz,
 // as full-screen overlays over a film library. The flows live in
 // ../picksHooks; this is how they look and move with a remote.
-import { ReactNode, useCallback, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { api, art } from "../api";
 import { Check, Dice, Info, Play, Plus, Refresh, ThumbDown, ThumbUp, X } from "../components/Icons";
 import { cycleGenre, GenrePrefs, genreMode, Pick, pickMeta, picks, QUIZ } from "../picks";
-import { pickSeen, pickWatchlist, useQuiz, useSurprise } from "../picksHooks";
+import { keptPick, pickSeen, pickWatchlist, parkPick, useQuiz, useSurprise } from "../picksHooks";
 import { Art, Spinner, TvButton } from "./components";
 import { focusInitial, focusKey, onBack } from "./focus";
 import { useToast } from "./hooks";
@@ -23,14 +23,22 @@ function Why({ p }: { p: Pick }) {
 }
 
 /** One suggestion at a time; "Pick another" moves on and counts as a skip. */
-export function SurpriseOverlay({ libId, filters, label, onClose }: { libId: string; filters: string; label: string; onClose: () => void }) {
+export function SurpriseOverlay({ libId, filters, label, resume, onClose }: { libId: string; filters: string; label: string; resume?: boolean; onClose: () => void }) {
   const toast = useToast();
   const nav = useNavigate();
-  const s = useSurprise(libId, filters, toast);
+  // Back from the film's page lands on the button that led there.
+  const backTo = useRef(resume ? keptPick("surprise", libId, filters)?.focus : undefined);
+  const s = useSurprise(libId, filters, toast, resume);
   const p = s.cur;
-  // Each new film starts on Play; the empty state on its only button.
+  const cameBack = useRef(p?.id);
+  // Each new film starts on Pick another, so OK again and again flicks through
+  // them; the empty state starts on its only button.
   useEffect(() => {
-    if (!s.loading) requestAnimationFrame(() => focusInitial(p ? "pk-play" : "pk-close"));
+    if (s.loading) return;
+    // Only for the film that was left; the next one starts on Pick another again.
+    if (p?.id !== cameBack.current) backTo.current = undefined;
+    const fk = backTo.current || (p ? "pk-next" : "pk-close");
+    requestAnimationFrame(() => focusInitial(fk));
   }, [s.loading, p?.id]);
   // A like or dislike shapes later picks; the film stays on screen.
   const [votes, setVotes] = useState<Record<number, number>>({});
@@ -78,10 +86,10 @@ export function SurpriseOverlay({ libId, filters, label, onClose }: { libId: str
               {p.blurb && <p className="tv-overview">{p.blurb}</p>}
               <Why p={p} />
               <div className="tv-actions" data-group="pick-actions" data-remember="false">
-                <TvButton primary autoFocus fk="pk-play" icon={<Play size={24} />}
+                <TvButton autoFocus fk="pk-next" icon={<Dice size={22} />} onClick={s.another}>Pick another</TvButton>
+                <TvButton primary fk="pk-play" icon={<Play size={24} />}
                   onClick={() => playItem(p.id).catch((e: Error) => toast(e.message))}>Play</TvButton>
-                <TvButton fk="pk-next" icon={<Dice size={22} />} onClick={s.another}>Pick another</TvButton>
-                <TvButton fk="pk-details" icon={<Info size={22} />} onClick={() => (onClose(), nav(`/item/${p.id}`))}>Details</TvButton>
+                <TvButton fk="pk-details" icon={<Info size={22} />} onClick={() => (parkPick("pk-details"), nav(`/item/${p.id}`))}>Details</TvButton>
               </div>
               <div className="tv-actions tv-pick-minor" data-group="pick-minor" data-remember="false">
                 <TvButton fk="pk-watch" className="chip" icon={<Plus size={20} />} onClick={() => act("watch")}>Watchlist</TvButton>
@@ -119,18 +127,24 @@ export function GenreChips({ libId, prefs, onChange, fkPrefix = "g" }: { libId: 
 }
 
 /** The quiz, then three picks side by side. */
-export function QuizOverlay({ libId, prefs, onPrefs, onClose }: { libId: string; prefs: GenrePrefs; onPrefs: (g: GenrePrefs) => void; onClose: () => void }) {
+export function QuizOverlay({ libId, prefs, onPrefs, resume, onClose }: { libId: string; prefs: GenrePrefs; onPrefs: (g: GenrePrefs) => void; resume?: boolean; onClose: () => void }) {
   const toast = useToast();
   const nav = useNavigate();
-  const q = useQuiz(libId);
+  // Back from a film's page lands on the Details button that led there.
+  const backTo = useRef(resume ? keptPick("quiz", libId)?.focus : undefined);
+  const q = useQuiz(libId, resume);
   const done = q.step >= QUIZ.length;
   const step = QUIZ[q.step];
   // Back steps back through the questions before it leaves.
   const back = useCallback(() => (q.step > 0 && !done ? q.back() : onClose()), [q.step, done, q.back, onClose]);
   const first = q.shown[0]?.id;
+  const cameBack = useRef(first);
   useEffect(() => {
     if (done && q.loading) return;
-    requestAnimationFrame(() => focusInitial(done ? (first ? `qp-play-${first}` : "qz-restart") : undefined));
+    // Only for the picks that were left; anything new starts on its Play.
+    if (!done || first !== cameBack.current) backTo.current = undefined;
+    const fk = backTo.current || (done ? (first ? `qp-play-${first}` : "qz-restart") : undefined);
+    requestAnimationFrame(() => focusInitial(fk));
   }, [q.step, done, q.loading, first]);
 
   const dismiss = (p: Pick, what: "watch" | "seen" | "notint") => {
@@ -185,7 +199,7 @@ export function QuizOverlay({ libId, prefs, onPrefs, onClose }: { libId: string;
                   <Why p={p} />
                   <div className="tv-quiz-pick-actions">
                     <TvButton primary fk={`qp-play-${p.id}`} icon={<Play size={20} />} onClick={() => playItem(p.id).catch((e: Error) => toast(e.message))}>Play</TvButton>
-                    <TvButton fk={`qp-info-${p.id}`} className="chip" onClick={() => (onClose(), nav(`/item/${p.id}`))}>Details</TvButton>
+                    <TvButton fk={`qp-info-${p.id}`} className="chip" onClick={() => (parkPick(`qp-info-${p.id}`), nav(`/item/${p.id}`))}>Details</TvButton>
                   </div>
                   <div className="tv-quiz-pick-actions">
                     <TvButton fk={`qp-watch-${p.id}`} className="chip" onClick={() => dismiss(p, "watch")}>Watchlist</TvButton>

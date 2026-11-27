@@ -87,35 +87,42 @@ test("Surprise me: one pick at a time, Pick another, Not interested, Back", asyn
   await waitForFocus(page, /^c\d+$/);
   await page.locator('[data-fk="surprise"]').focus();
   await page.keyboard.press("Enter");
-  await waitForFocus(page, "pk-play");
+  // Pick another is first and focused, so OK again and again flicks through films.
+  await waitForFocus(page, "pk-next");
   const title = () => page.locator(".tv-pick .tv-detail-title").innerText();
   const first = await title();
   await expect(page.locator(".tv-pick .tv-eyebrow")).toHaveText(/Laugh · \d+ more lined up/);
   await expect(page.locator(".tv-pick-why")).toContainText("Fits laugh");
   await snap(page, info, "01 surprise");
   // The buttons are one row, with the quieter three below.
-  expect((await press(page, "right")).fk).toBe("pk-next");
+  expect((await press(page, "left")).fk, "nothing sits before Pick another").toBe("pk-next");
+  expect((await press(page, "right")).fk).toBe("pk-play");
   expect((await press(page, "right")).fk).toBe("pk-details");
   expect((await press(page, "down")).fk).toMatch(/^pk-(watch|seen|like|dislike|notint)$/);
   expect((await press(page, "down")).fk, "Down doesn't escape the overlay").toMatch(/^pk-(watch|seen|like|dislike|notint)$/);
   await page.locator('[data-fk="pk-next"]').focus();
   await page.keyboard.press("Enter");
   await expect.poll(title).not.toBe(first);
-  await waitForFocus(page, "pk-play");
+  await waitForFocus(page, "pk-next");
+  // Straight on to a third without moving.
+  const mid = await title();
+  await page.keyboard.press("Enter");
+  await expect.poll(title).not.toBe(mid);
+  await waitForFocus(page, "pk-next");
   const second = await title();
   await page.locator('[data-fk="pk-notint"]').focus();
   await page.keyboard.press("Enter");
   await expect.poll(title).not.toBe(second);
   await expect(page.locator(".tv-toast")).toContainText("hidden for a year");
-  await waitForFocus(page, "pk-play");
+  await waitForFocus(page, "pk-next");
   // Back returns to the button it came from.
   await page.keyboard.press("Escape");
   await waitForFocus(page, "surprise");
   await expect(page.locator(".tv-pick-wrap")).toHaveCount(0);
   // Films already suggested rest: the next surprise starts somewhere new.
   await page.keyboard.press("Enter");
-  await waitForFocus(page, "pk-play");
-  expect([first, second]).not.toContain(await title());
+  await waitForFocus(page, "pk-next");
+  expect([first, mid, second]).not.toContain(await title());
 });
 
 test("Help me choose: the quiz, three picks, dismiss and shuffle", async ({ page, openTv }, info) => {
@@ -174,6 +181,73 @@ test("Help me choose: the quiz, three picks, dismiss and shuffle", async ({ page
   await page.keyboard.press("Escape");
   await waitForFocus(page, "choose");
   await expect(page.locator('[data-fk="pg-Crime"]')).toBeVisible();
+});
+
+test("Back from a pick's page returns to the same picks", async ({ page, openTv }) => {
+  await openTv(`/library/${MOVIES_LIB}`);
+  await waitForFocus(page, /^c\d+$/);
+  // Help me choose: answer the quiz, open the second pick's page, come back.
+  await page.locator('[data-fk="choose"]').focus();
+  await page.keyboard.press("Enter");
+  for (const fk of ["qo-stressed", "qo-match", "qo-solo", "qo-short", "qo-classic"]) {
+    await waitForFocus(page, fk);
+    await page.keyboard.press("Enter");
+  }
+  await page.locator('[data-fk="qz-next"]').focus();
+  await page.keyboard.press("Enter");
+  await waitForFocus(page, "qo-classic");
+  await page.keyboard.press("Enter");
+  await waitForFocus(page, /^qp-play-\d+$/);
+  const titles = () => page.locator(".tv-quiz-pick h3").allInnerTexts();
+  const before = await titles();
+  expect(before).toHaveLength(3);
+  const details = await page.locator(".tv-quiz-pick").nth(1).locator('[data-fk^="qp-info-"]').getAttribute("data-fk");
+  await page.locator(`[data-fk="${details}"]`).focus();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/item\/\d+/);
+  await waitForFocus(page, "play");
+  await expect(page.locator(".tv-quiz")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  // The same three, on the Details button that was pressed: no new draw, no questions.
+  await waitForFocus(page, details!);
+  expect(await titles()).toEqual(before);
+  // And again, after looking at another of them.
+  await page.keyboard.press("Enter");
+  await waitForFocus(page, "play");
+  await page.keyboard.press("Escape");
+  await waitForFocus(page, details!);
+  expect(await titles()).toEqual(before);
+  // Back from the picks then leaves to the library, and it stays left.
+  await page.keyboard.press("Escape");
+  await waitForFocus(page, "choose");
+  await expect(page.locator(".tv-quiz")).toHaveCount(0);
+  // Opening it afresh starts at the first question.
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".tv-quiz .tv-h1")).toHaveText("How are you feeling right now?");
+  await page.keyboard.press("Escape");
+  await waitForFocus(page, "choose");
+
+  // Surprise me: the same film is waiting after a look at its page.
+  await page.locator('[data-fk="surprise"]').focus();
+  await page.keyboard.press("Enter");
+  await waitForFocus(page, "pk-next");
+  await page.keyboard.press("Enter");
+  await waitForFocus(page, "pk-next");
+  const film = await page.locator(".tv-pick .tv-detail-title").innerText();
+  const lined = await page.locator(".tv-pick .tv-eyebrow").textContent();
+  await page.locator('[data-fk="pk-details"]').focus();
+  await page.keyboard.press("Enter");
+  await waitForFocus(page, "play");
+  await page.keyboard.press("Escape");
+  await waitForFocus(page, "pk-details");
+  await expect(page.locator(".tv-pick .tv-detail-title")).toHaveText(film);
+  await expect(page.locator(".tv-pick .tv-eyebrow")).toHaveText(lined!);
+  await page.keyboard.press("Escape");
+  await waitForFocus(page, "surprise");
+  // A reload of the library afterwards doesn't bring the picks back.
+  await page.reload();
+  await waitForFocus(page, /^c\d+$/);
+  await expect(page.locator(".tv-pick-wrap")).toHaveCount(0);
 });
 
 test.describe("phone and web library", () => {
@@ -244,6 +318,48 @@ test.describe("phone and web library", () => {
     await quiz.locator(".pk-result").first().getByRole("button", { name: "Not interested" }).click();
     await expect(quiz.locator(".pk-result")).toHaveCount(3);
     await expect(quiz.locator(".pk-result h4").first()).not.toHaveText(top);
+  });
+
+  test("Back from a pick's page returns to the same picks", async ({ page }) => {
+    await page.goto(`/library/${MOVIES_LIB}?tv=0`);
+    await page.getByRole("button", { name: "Help me choose" }).click();
+    const quiz = page.getByRole("dialog", { name: "Help me choose" });
+    await quiz.getByRole("button", { name: /Stressed/ }).click();
+    await quiz.getByRole("button", { name: /Change my mood/ }).click();
+    await quiz.getByRole("button", { name: /Just me/ }).click();
+    await quiz.getByRole("button", { name: /Doesn't matter/ }).click();
+    await quiz.getByRole("button", { name: /Any era/ }).click();
+    await quiz.getByRole("button", { name: "Next →" }).click();
+    await quiz.getByRole("button", { name: /Either/ }).click();
+    await expect(quiz.locator(".pk-result")).toHaveCount(3);
+    const before = await quiz.locator(".pk-result h4").allInnerTexts();
+    await quiz.locator(".pk-result h4 a").nth(1).click();
+    await expect(page).toHaveURL(/\/item\/\d+/);
+    await expect(page.locator(".pk-mood")).toBeVisible();
+    await page.goBack();
+    await expect(quiz.locator(".pk-result")).toHaveCount(3);
+    expect(await quiz.locator(".pk-result h4").allInnerTexts()).toEqual(before);
+    // Closing it leaves the library; a reload doesn't bring it back.
+    await page.keyboard.press("Escape");
+    await expect(quiz).toBeHidden();
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Help me choose" })).toBeVisible();
+    await expect(quiz).toBeHidden();
+
+    // Surprise me: Pick another comes first and is ready under Enter.
+    await page.getByRole("button", { name: "Surprise me" }).click();
+    const sheet = page.getByRole("dialog", { name: "Surprise me" });
+    await expect(sheet.locator(".pk-actions").first().locator("button").first()).toHaveText(/Pick another/);
+    await expect(sheet.getByRole("button", { name: "Pick another" })).toBeFocused();
+    const one = await sheet.locator(".pk-pick h3").innerText();
+    await page.keyboard.press("Enter");
+    await expect(sheet.locator(".pk-pick h3")).not.toHaveText(one);
+    await expect(sheet.getByRole("button", { name: "Pick another" })).toBeFocused();
+    const film = await sheet.locator(".pk-pick h3").innerText();
+    await sheet.locator(".pk-pick h3 a").click();
+    await expect(page).toHaveURL(/\/item\/\d+/);
+    await page.goBack();
+    await expect(sheet.locator(".pk-pick h3")).toHaveText(film);
   });
 
   test("a film's page shows its mood profile; a show library has no pick buttons", async ({ page }) => {

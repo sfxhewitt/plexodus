@@ -1,10 +1,10 @@
 // "Surprise me" and "Help me choose" on phones and the web: Reel Pick's picker
 // and quiz as sheets over a film library. The flows live in ../picksHooks.
-import { ReactNode, useCallback, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { art } from "../api";
 import { cycleGenre, GenrePrefs, genreMode, ItemMood, Pick, pickMeta, picks, QUIZ } from "../picks";
-import { pickSeen, pickWatchlist, useQuiz, useSurprise } from "../picksHooks";
+import { pickSeen, pickWatchlist, parkPick, useQuiz, useSurprise } from "../picksHooks";
 import { Img } from "./Cards";
 import { Check, Dice, Play, Plus, Refresh, ThumbDown, ThumbUp, X } from "./Icons";
 import "./picks.css";
@@ -49,11 +49,14 @@ function Why({ p }: { p: Pick }) {
   return p.why ? <p className="pk-why"><b>Why this pick</b>{p.why}</p> : null;
 }
 
-export function SurpriseSheet({ libId, filters, label, onClose }: { libId: string; filters: string; label: string; onClose: () => void }) {
+export function SurpriseSheet({ libId, filters, label, resume, onClose }: { libId: string; filters: string; label: string; resume?: boolean; onClose: () => void }) {
   const nav = useNavigate();
   const [msg, say] = useSay();
-  const s = useSurprise(libId, filters, say);
+  const s = useSurprise(libId, filters, say, resume);
   const p = s.cur;
+  // Pick another is ready under Enter or Space for every film, to flick through them.
+  const another = useRef<HTMLButtonElement>(null);
+  useEffect(() => another.current?.focus({ preventScroll: true }), [p?.id]);
   const [votes, setVotes] = useState<Record<number, number>>({});
   const vote = (v: 1 | -1) => {
     if (!p) return;
@@ -86,10 +89,10 @@ export function SurpriseSheet({ libId, filters, label, onClose }: { libId: strin
         <div className="pk-pick" key={p.id}>
           {p.backdrop && <div className="pk-pick-bg" style={{ backgroundImage: `url(${art(p.backdrop, "w780")})` }} />}
           <div className="pk-pick-top">
-            <Link to={`/item/${p.id}`} className="pk-poster"><Img src={art(p.poster, "w342")} alt={p.title} title={p.title} /></Link>
+            <Link to={`/item/${p.id}`} onClick={() => parkPick()} className="pk-poster"><Img src={art(p.poster, "w342")} alt={p.title} title={p.title} /></Link>
             <div className="pk-pick-info">
               <div className="pk-eyebrow">{s.left ? `${s.left} more lined up` : "Last one"}</div>
-              <h3><Link to={`/item/${p.id}`}>{p.title}</Link></h3>
+              <h3><Link to={`/item/${p.id}`} onClick={() => parkPick()}>{p.title}</Link></h3>
               <div className="muted pk-meta">{p.rating ? `★ ${p.rating.toFixed(1)} · ` : ""}{pickMeta(p)}</div>
               <div className="pk-tags">{p.moods.slice(0, 2).map((m) => <span key={m} className="pk-tag">{m}</span>)}</div>
             </div>
@@ -97,8 +100,8 @@ export function SurpriseSheet({ libId, filters, label, onClose }: { libId: strin
           {p.blurb && <p className="pk-blurb">{p.blurb}</p>}
           <Why p={p} />
           <div className="pk-actions">
-            <button className="btn primary" onClick={() => nav(`/play/${p.id}`)}><Play size={18} /> Play</button>
-            <button className="btn glass" onClick={s.another}><Dice size={18} /> Pick another</button>
+            <button ref={another} className="btn glass" onClick={s.another}><Dice size={18} /> Pick another</button>
+            <button className="btn primary" onClick={() => (parkPick(), nav(`/play/${p.id}`))}><Play size={18} /> Play</button>
           </div>
           <div className="pk-actions minor">
             <button className="btn glass sm" onClick={() => act("watch")}><Plus size={16} /> Watchlist</button>
@@ -129,10 +132,10 @@ export function GenreChips({ genres, prefs, onChange }: { genres: string[]; pref
   );
 }
 
-export function QuizSheet({ libId, genres, prefs, onPrefs, onClose }: { libId: string; genres: string[]; prefs: GenrePrefs; onPrefs: (g: GenrePrefs) => void; onClose: () => void }) {
+export function QuizSheet({ libId, genres, prefs, onPrefs, resume, onClose }: { libId: string; genres: string[]; prefs: GenrePrefs; onPrefs: (g: GenrePrefs) => void; resume?: boolean; onClose: () => void }) {
   const nav = useNavigate();
   const [msg, say] = useSay();
-  const q = useQuiz(libId);
+  const q = useQuiz(libId, resume);
   const done = q.step >= QUIZ.length;
   const step = QUIZ[q.step];
   const dismiss = useCallback((p: Pick, what: "watch" | "seen" | "notint") => {
@@ -172,15 +175,15 @@ export function QuizSheet({ libId, genres, prefs, onPrefs, onClose }: { libId: s
           <div className="pk-results">
             {q.shown.map((p, i) => (
               <div key={p.id} className={`pk-result ${i === 0 ? "first" : ""}`}>
-                <Link to={`/item/${p.id}`} className="pk-poster"><Img src={art(p.poster, "w342")} alt={p.title} title={p.title} /></Link>
+                <Link to={`/item/${p.id}`} onClick={() => parkPick()} className="pk-poster"><Img src={art(p.poster, "w342")} alt={p.title} title={p.title} /></Link>
                 <div className="pk-result-info">
                   <div className="pk-eyebrow">{i === 0 ? "Top pick" : "Also great"}</div>
-                  <h4><Link to={`/item/${p.id}`}>{p.title}</Link></h4>
+                  <h4><Link to={`/item/${p.id}`} onClick={() => parkPick()}>{p.title}</Link></h4>
                   <div className="muted pk-meta">{p.rating ? `★ ${p.rating.toFixed(1)} · ` : ""}{pickMeta(p)}</div>
                   {p.blurb && <p className="pk-blurb">{p.blurb}</p>}
                   <Why p={p} />
                   <div className="pk-actions minor">
-                    <button className="btn primary sm" onClick={() => nav(`/play/${p.id}`)}><Play size={16} /> Play</button>
+                    <button className="btn primary sm" onClick={() => (parkPick(), nav(`/play/${p.id}`))}><Play size={16} /> Play</button>
                     <button className="btn glass sm" onClick={() => dismiss(p, "watch")}>Watchlist</button>
                     <button className="btn glass sm" onClick={() => dismiss(p, "seen")}>Seen it</button>
                     <button className="btn glass sm" onClick={() => dismiss(p, "notint")}>Not interested</button>
