@@ -249,7 +249,16 @@ export interface HomeData {
   rows: Row[];
   /** Present when the user has plays this year: Home offers their Wrapped. */
   wrapped?: { year: number; plays: number };
+  /** How many titles the viewer has removed from their suggestions. */
+  removed?: number;
 }
+
+/** "Remove from suggestions": the title stops being suggested on Home. */
+export const suggestions = {
+  hide: (id: number) => api.post(`/api/items/${id}/suggestions/hide`),
+  restore: (id: number) => api.del(`/api/suggestions/hidden/${id}`),
+  restoreAll: () => api.del("/api/suggestions/hidden"),
+};
 
 export interface WrappedTitle {
   card: Card;

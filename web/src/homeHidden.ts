@@ -40,6 +40,20 @@ export function hideOnHome(id: number, keepMs = KEEP_MS) {
   changed(id);
 }
 
+/**
+ * Removed from suggestions: the server leaves it out from now on, so this
+ * only has to cover the Home already on screen (a day is plenty).
+ */
+export const hideSuggestionOnHome = (id: number) => hideOnHome(id, 24 * 3600_000);
+
+/** Everything removed from suggestions was put back: show it all again. */
+export function unhideAllOnHome() {
+  hidden.clear();
+  replaced.clear();
+  save();
+  window.dispatchEvent(new CustomEvent("tv:home-hidden", { detail: 0 }));
+}
+
 /** Marked unwatched again: it may come back. */
 export function unhideOnHome(id: number) {
   forgetFinished(id);

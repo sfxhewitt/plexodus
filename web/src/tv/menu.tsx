@@ -2,13 +2,13 @@
 // do with what's focused, like Plex's and Jellyfin's context menus.
 import { createContext, KeyboardEvent, ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, Card, episodeLabel, Library, setLibraryPrefs, ShareTarget, shareToPlex } from "../api";
+import { api, Card, episodeLabel, Library, setLibraryPrefs, ShareTarget, shareToPlex, suggestions } from "../api";
 import { Check, Eye, Info, Play, Plus, Refresh, Share, Tv, X } from "../components/Icons";
 import { useApi } from "../hooks";
 import { focusables, focusEl, focusInitial, onBack, setFocusFallback, swallowSelectUntilRelease } from "./focus";
 import { useToast } from "./hooks";
 import { playCard, playItem } from "./play";
-import { hideOnHome, unhideOnHome } from "../homeHidden";
+import { hideOnHome, hideSuggestionOnHome, unhideOnHome } from "../homeHidden";
 
 export interface MenuAction {
   key: string;
@@ -182,7 +182,7 @@ export interface CardMenuOptions {
   continueRow?: boolean;
   /** The card is on History, so it can be removed from there. */
   history?: boolean;
-  /** The card is on Home: marking it watched takes it off at once. */
+  /** The card is on Home: it can be removed from suggestions, and marking it watched takes it off at once. */
   home?: boolean;
 }
 
@@ -215,6 +215,15 @@ export function useCardMenu() {
         key: "hide-continue", label: "Remove from Up Next", icon: <X size={22} />, removes: true,
         done: "Removed from Up Next", quiet: true, local: () => hideOnHome(c.id),
         run: () => api.post(`/api/items/${c.id}/continue/hide`),
+      });
+    }
+    if (opts.home) {
+      // Stops the title being suggested: it leaves every row on Home now and
+      // the server keeps it out (Settings > Libraries can bring it back).
+      acts.push({
+        key: "hide-suggest", label: "Remove from suggestions", icon: <X size={22} />, removes: true,
+        done: "Removed. It won't be suggested again.", quiet: true, local: () => hideSuggestionOnHome(c.id),
+        run: () => suggestions.hide(c.id),
       });
     }
     if (opts.history) {

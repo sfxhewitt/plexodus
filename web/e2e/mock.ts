@@ -214,6 +214,8 @@ function detail(c: Card): Detail {
 
 interface UserState {
   hiddenContinue: Set<number>;
+  /** Removed from suggestions, in the order removed. */
+  noSuggest: number[];
   watchlist: number[];
   /** Picks: never-show / must-have genres, and what was suggested, skipped or hidden. */
   genres: { exclude: string[]; require: string[] };
@@ -251,18 +253,19 @@ function history(st: UserState) {
  * Smart rows and the Wrapped tile, added to Home when the page was opened
  * with ?extras=1 (so the other specs keep the plain Home they count rows on).
  */
-function extras(h: HomeData): HomeData {
+function extras(h: HomeData, gone: number[] = []): HomeData {
+  const ok = (c: Card) => !gone.includes(c.id);
   const season = seasons.get(shows[0].id)![0];
   const smart: Row[] = [
     {
       title: "Finish a Season This Weekend", kind: "poster", smart: "season",
       items: [{ ...season, title: shows[0].title, showPoster: shows[0].poster, showBackdrop: shows[0].backdrop, note: "Season 1 · 8 left · 6h 4m" }],
     },
-    { title: `Because You Watched ${movies[0].title}`, kind: "poster", smart: "because", items: movies.slice(30, 44) },
+    { title: `Because You Watched ${movies[0].title}`, kind: "poster", smart: "because", items: movies.slice(30, 44).filter(ok) },
   ];
   const later: Row[] = [
-    { title: "Under 100 Minutes", kind: "poster", smart: "short", items: movies.filter((m) => (m.runtime || 0) <= 100) },
-    { title: "Forgotten Gems", kind: "poster", smart: "gems", items: [...movies.slice(44, 52), shows[5], shows[6]] },
+    { title: "Under 100 Minutes", kind: "poster", smart: "short", items: movies.filter((m) => (m.runtime || 0) <= 100).filter(ok) },
+    { title: "Forgotten Gems", kind: "poster", smart: "gems", items: [...movies.slice(44, 52), shows[5], shows[6]].filter(ok) },
   ];
   return { ...h, rows: [h.rows[0], ...smart, ...h.rows.slice(1), ...later], wrapped: { year: 2026, plays: 812 } };
 }
@@ -284,20 +287,23 @@ export function wrapped(year = 2026): Wrapped {
   };
 }
 
-function home(st: Pick<UserState, "hiddenContinue" | "watchlist"> = { hiddenContinue: new Set(), watchlist: [] }): { hero: Card[]; rows: Row[] } {
+function home(st: Pick<UserState, "hiddenContinue" | "watchlist" | "noSuggest"> = { hiddenContinue: new Set(), watchlist: [], noSuggest: [] }): HomeData {
+  // As on the server: a removed title is in no suggestion (Up Next and the Watchlist keep it).
+  const ok = (c: Card) => !st.noSuggest.includes(c.id);
   const continuing = [...movies, ...allEpisodes].filter((c) => c.position && !st.hiddenContinue.has(c.id));
   const wl = st.watchlist.map((id) => ({ ...byId.get(id)!, watchlisted: true }));
   const onDeck = shows.slice(1, 6).map((s) => episodes.get(seasons.get(s.id)![0].id)![0]);
   return {
-    hero: movies.slice(0, 5),
+    hero: movies.slice(0, 5).filter(ok),
     rows: [
       { title: "Up Next", kind: "landscape", items: continuing },
       ...(wl.length ? [{ title: "Watchlist", kind: "poster" as const, items: wl }] : []),
       { title: "On Deck", kind: "landscape", items: onDeck },
-      { title: "Recently Added Movies", kind: "poster", link: `/library/${MOVIES_LIB}?sort=added`, items: movies.slice(0, 20) },
-      { title: "Recently Added TV", kind: "poster", link: `/library/${SHOWS_LIB}?sort=added`, items: shows },
-      { title: "Top Rated", kind: "poster", items: [...movies].sort((a, b) => (b.rating || 0) - (a.rating || 0)).slice(0, 15) },
+      { title: "Recently Added Movies", kind: "poster", link: `/library/${MOVIES_LIB}?sort=added`, items: movies.slice(0, 20).filter(ok) },
+      { title: "Recently Added TV", kind: "poster", link: `/library/${SHOWS_LIB}?sort=added`, items: shows.filter(ok) },
+      { title: "Top Rated", kind: "poster", items: [...movies].sort((a, b) => (b.rating || 0) - (a.rating || 0)).slice(0, 15).filter(ok) },
     ],
+    ...(st.noSuggest.length ? { removed: st.noSuggest.length } : {}),
   };
 }
 
@@ -446,7 +452,7 @@ addEventListener("message", function (e) {
 
   // Per-test copy: the settings screen changes library choices.
   const libs = libraries.map((l) => ({ ...l, hidden: false, hiddenHome: false }));
-  const st: UserState = { hiddenContinue: new Set(), watchlist: [], genres: { exclude: [], require: [] }, shown: new Set(), hidden: new Set(), skips: new Map(), votes: new Map(), seen: new Set() };
+  const st: UserState = { hiddenContinue: new Set(), noSuggest: [], watchlist: [], genres: { exclude: [], require: [] }, shown: new Set(), hidden: new Set(), skips: new Map(), votes: new Map(), seen: new Set() };
   // The saved genres apply to every library request, as on the server.
   const withPrefs = (q: URLSearchParams) => {
     const p = new URLSearchParams(q);
@@ -516,7 +522,21 @@ addEventListener("message", function (e) {
       Object.assign(l, route.request().postDataJSON());
       return json(route, { ok: true });
     }
-    if (p === "/api/home") return json(route, page.url().includes("extras=1") ? extras(home(st)) : home(st));
+    if (p === "/api/home") return json(route, page.url().includes("extras=1") ? extras(home(st), st.noSuggest) : home(st));
+    if ((mm = p.match(/^\/api\/items\/(\d+)\/suggestions\/hide$/)) && m === "POST") {
+      const id = Number(mm[1]);
+      st.noSuggest = [id, ...st.noSuggest.filter((x) => x !== id)];
+      return json(route, { ok: true, id });
+    }
+    if (p === "/api/suggestions/hidden" && m === "GET") return json(route, { items: st.noSuggest.map((id) => byId.get(id)!) });
+    if (p === "/api/suggestions/hidden" && m === "DELETE") {
+      st.noSuggest = [];
+      return json(route, { ok: true });
+    }
+    if ((mm = p.match(/^\/api\/suggestions\/hidden\/(\d+)$/)) && m === "DELETE") {
+      st.noSuggest = st.noSuggest.filter((x) => x !== Number(mm![1]));
+      return json(route, { ok: true });
+    }
     if (p === "/api/wrapped") return json(route, wrapped(Number(u.searchParams.get("year")) || 2026));
     if ((mm = p.match(/^\/api\/items\/(\d+)\/continue\/hide$/)) && m === "POST") {
       st.hiddenContinue.add(Number(mm[1]));

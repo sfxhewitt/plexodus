@@ -239,6 +239,17 @@ CREATE TABLE IF NOT EXISTS continue_hidden (
     PRIMARY KEY (user_id, item_id)
 );
 
+-- "Remove from suggestions": films and shows a user (or profile) doesn't want
+-- suggested. They stay off Home's suggestion rows, the featured titles at the
+-- top, Recently Added and the screensaver; libraries and search still show
+-- them.
+CREATE TABLE IF NOT EXISTS suggest_hidden (
+    user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id   INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    hidden_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, item_id)
+);
+
 -- Every completed play, for Plexodus Wrapped and "Because you watched".
 -- watch_state only keeps the latest state per item; this keeps each view.
 -- source: plexodus (played here), plex (Plex play history), state (seeded

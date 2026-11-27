@@ -517,7 +517,7 @@ func (s *Server) buildHome(w http.ResponseWriter, r *http.Request) {
 		if l.kind == "shows" {
 			kind = "show"
 		}
-		items, err := s.cards(r, `WHERE i.library_id = ?2 AND i.kind = ?3 ORDER BY i.added_at DESC LIMIT 24`, l.id, kind)
+		items, err := s.cards(r, `WHERE i.library_id = ?2 AND i.kind = ?3`+notRemoved("i.id")+` ORDER BY i.added_at DESC LIMIT 24`, l.id, kind)
 		if err != nil {
 			writeErr(w, 500, err.Error())
 			return
@@ -565,6 +565,11 @@ func (s *Server) buildHome(w http.ResponseWriter, r *http.Request) {
 			tSmart.Round(time.Millisecond), tLibs.Round(time.Millisecond))
 	}
 	resp := map[string]any{"hero": hero, "rows": rows}
+	// How many titles the viewer took off their suggestions, so Home can
+	// offer to bring them back.
+	if n := s.removedSuggestions(ctx, currentUser(r).ID); n > 0 {
+		resp["removed"] = n
+	}
 	if t := s.wrappedTeaser(r); t != nil {
 		resp["wrapped"] = t
 	}

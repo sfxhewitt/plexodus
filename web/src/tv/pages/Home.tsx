@@ -9,7 +9,7 @@ import { ambientPrefs, trailersSupported } from "../ambient";
 import { onPlayBusy, playCard, playItem } from "../play";
 import { TrailerVideo } from "../Trailer";
 import { focusInitial } from "../focus";
-import { homeRows, onHomeStale } from "../../homeHidden";
+import { hiddenOnHome, homeRows, onHomeStale } from "../../homeHidden";
 import { hasRT, RTScores } from "../../rt";
 
 /**
@@ -218,11 +218,13 @@ export default function Home() {
     if (continuing && (c.kind === "episode" || c.kind === "movie") && c.position) play(c);
     else nav(`/item/${c.id}`);
   };
-  const hasHero = data.hero.length > 0;
+  // Something removed from suggestions leaves the featured titles too.
+  const hero = data.hero.filter((c) => !hiddenOnHome(c.id));
+  const hasHero = hero.length > 0;
 
   return (
     <div className={`tv-page tv-home ${hasHero ? "" : "no-hero"}`} data-vscroll="pin" data-pin="2.5rem">
-      {hasHero && <Hero items={data.hero} onPlay={playAny} />}
+      {hasHero && <Hero items={hero} onPlay={playAny} />}
       <div className="tv-home-rows">
         {rows.map((r, ri) => {
           // Apple TV style: wide cards everywhere; posters only when there's no art.
