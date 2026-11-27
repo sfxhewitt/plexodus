@@ -80,6 +80,7 @@ func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner,
 		key = randomHex(32)
 		d.SetSetting(ctx, "stream_sign_key", key)
 	}
+	s.comp.stills = newStillMaker(cfg.FFmpeg)
 	s.claude = ask.NewClaude(s.anthropicKey(ctx), cfg.AskModel)
 	s.detector = detect.New(d, cfg.FFmpeg, cfg.FFprobe)
 	s.plexSync = plex.NewSyncer(d, s.plexClient, func() bool { return s.importer.Status().Running })

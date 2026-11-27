@@ -16,6 +16,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go/v2"
 
+	"github.com/sfxhewitt/plexodus/internal/ask"
 	"github.com/sfxhewitt/plexodus/internal/probe"
 	"github.com/sfxhewitt/plexodus/internal/subs"
 )
@@ -24,12 +25,16 @@ import (
 // playing (from the Now watching tracker) and shows notes about the scene on
 // screen: why a character acts the way they do, context, dated language,
 // trivia, details you'd miss. Claude writes the notes for ten-minute stretches
-// of a title from its subtitles, ahead of time, and they're kept in SQLite so
+// of a title from its subtitles and stills of the picture, ahead of time, and they're kept in SQLite so
 // a stretch is only ever written once. The page shows a note only once
 // playback reaches its moment, so nothing ahead is revealed.
 
 const (
-	compChunk = 600 // seconds per stretch of notes
+	// compVersion is stored with each stretch. Stretches written by an
+	// older version (1 = subtitles only, before Claude was shown stills) are
+	// written again when someone next watches them.
+	compVersion = 2
+	compChunk   = 600 // seconds per stretch of notes
 	// compLead starts writing the next stretch this long before it begins.
 	compLead = 240
 )
@@ -58,6 +63,8 @@ type companion struct {
 	errs     map[int64]string // item -> last generation error
 	subs     map[int64]subEntry
 	subsBusy map[int64]bool
+	// stills grabs frames for Claude to look at; nil = notes from text only.
+	stills *stillMaker
 }
 
 func newCompanion() *companion {
@@ -121,18 +128,19 @@ func (s *Server) handleCompanion(w http.ResponseWriter, r *http.Request) {
 	pos := np.Position
 	cur := int64(pos) / compChunk
 
-	rows, err := s.db.R.QueryContext(r.Context(), `SELECT chunk, grounded, notes FROM companion_notes WHERE item_id = ? AND chunk <= ? ORDER BY chunk`, np.ItemID, cur+1)
+	rows, err := s.db.R.QueryContext(r.Context(), `SELECT chunk, grounded, notes, v FROM companion_notes WHERE item_id = ? AND chunk <= ? ORDER BY chunk`, np.ItemID, cur+1)
 	have := map[int64]bool{}
 	grounded := map[int64]bool{}
+	old := map[int64]bool{} // written by an earlier version
 	if err == nil {
 		for rows.Next() {
 			var c int64
-			var g int
+			var g, v int
 			var js string
-			if rows.Scan(&c, &g, &js) != nil {
+			if rows.Scan(&c, &g, &js, &v) != nil {
 				continue
 			}
-			have[c], grounded[c] = true, g == 1
+			have[c], grounded[c], old[c] = true, g == 1, v < compVersion
 			var ns []compNote
 			json.Unmarshal([]byte(js), &ns)
 			for _, n := range ns {
@@ -150,18 +158,21 @@ func (s *Server) handleCompanion(w http.ResponseWriter, r *http.Request) {
 		file := s.companionFile(r.Context(), raw)
 		if !have[cur] {
 			out.Pending = s.companionGenerate(np, file, cur)
+		} else if old[cur] {
+			// Keep showing the old notes while better ones are written.
+			s.companionGenerate(np, file, cur)
 		}
 		next := cur + 1
 		nextStart := float64(next * compChunk)
 		if (np.Duration <= 0 || nextStart < np.Duration) && nextStart-pos < compLead {
 			// Write the next stretch ahead of time, and rewrite one written
 			// before the subtitles were ready, as long as it hasn't started.
-			if !have[next] || (!grounded[next] && s.companionHasSubs(file)) {
+			if !have[next] || old[next] || (!grounded[next] && s.companionHasSubs(file)) {
 				s.companionGenerate(np, file, next)
 			}
 		}
 		s.comp.mu.Lock()
-		if !out.Pending {
+		if !out.Pending && !have[cur] {
 			out.Pending = s.comp.inflight[[2]int64{np.ItemID, cur}]
 		}
 		if !have[cur] && !out.Pending {
@@ -180,6 +191,15 @@ func (s *Server) companionFile(ctx context.Context, raw npRaw) int64 {
 	var id int64
 	s.db.R.QueryRowContext(ctx, `SELECT id FROM media_files WHERE item_id = ? ORDER BY id LIMIT 1`, raw.item).Scan(&id)
 	return id
+}
+
+// filePath is where a media file lives, "" if unknown.
+func (s *Server) filePath(ctx context.Context, file int64) string {
+	var p string
+	if file != 0 {
+		s.db.R.QueryRowContext(ctx, `SELECT path FROM media_files WHERE id = ?`, file).Scan(&p)
+	}
+	return p
 }
 
 func (s *Server) companionHasSubs(file int64) bool {
@@ -288,33 +308,74 @@ func (s *Server) writeNotes(ctx context.Context, np NowPlaying, file, chunk int6
 		end = np.Duration
 	}
 	// The first stretch of a title waits a little for subtitles that are
-	// still being extracted; later ones are usually ready by then.
+	// still being extracted; later ones are usually ready by then. Stills
+	// are grabbed meanwhile.
 	wait := 25 * time.Second
+	var shots []still
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		shots = s.comp.stills.stills(ctx, s.filePath(ctx, file), stillTimes(start, end), stillBudget)
+	}()
 	lines, _ := s.subtitleLines(ctx, file, wait)
+	<-done
 
 	var b strings.Builder
+	var parts []ask.Part
+	flush := func() {
+		if b.Len() > 0 {
+			parts = append(parts, ask.Part{Text: b.String()})
+			b.Reset()
+		}
+	}
 	b.WriteString(it.describe())
 	if np.Duration > 0 {
 		fmt.Fprintf(&b, "Running time of this copy: %s\n", clock(np.Duration))
 	}
 	fmt.Fprintf(&b, "\nWrite notes for the stretch from %s to %s (that is %d to %d seconds into this copy).\n", clock(start), clock(end), int(start), int(end))
 	grounded := false
-	var dialogue strings.Builder
+	var said []subLine
 	for _, l := range lines {
 		if l.end < start-120 || l.start > end {
 			continue
 		}
-		fmt.Fprintf(&dialogue, "[%s] %s\n", clock(l.start), l.text)
+		said = append(said, l)
 	}
-	if dialogue.Len() > 0 {
+	switch {
+	case len(said) > 0:
 		grounded = true
-		b.WriteString("\nSubtitles from just before and during this stretch, with timestamps in this copy:\n")
-		b.WriteString(dialogue.String())
-	} else if len(lines) > 0 {
+	case len(lines) > 0:
 		b.WriteString("\nThe subtitles have no dialogue in this stretch (it may be a quiet or musical passage, or the end credits).\n")
 		grounded = true
-	} else {
+	case len(shots) > 0:
+		b.WriteString("\nNo subtitles are available for this copy, so rely on the stills and their timestamps to place notes.\n")
+		grounded = true
+	default:
 		b.WriteString("\nNo subtitles are available for this copy, so place notes at your best estimate of when each moment happens, based on your knowledge of the work and typical pacing. Prefer notes that don't depend on split-second timing.\n")
+	}
+	if len(shots) > 0 {
+		fmt.Fprintf(&b, "\nWhat follows is this stretch in order: a still from the picture about every %d seconds, each preceded by its timestamp in this copy", stillEvery)
+		if len(said) > 0 {
+			b.WriteString(", with the subtitle lines spoken in between")
+		}
+		b.WriteString(".\n\n")
+		i := 0
+		for _, sh := range shots {
+			for ; i < len(said) && said[i].start < sh.at; i++ {
+				fmt.Fprintf(&b, "[%s] %s\n", clock(said[i].start), said[i].text)
+			}
+			fmt.Fprintf(&b, "Still at [%s] (%d seconds):\n", clock(sh.at), int(sh.at))
+			flush()
+			parts = append(parts, ask.Part{JPEG: sh.jpeg})
+		}
+		for ; i < len(said); i++ {
+			fmt.Fprintf(&b, "[%s] %s\n", clock(said[i].start), said[i].text)
+		}
+	} else if len(said) > 0 {
+		b.WriteString("\nSubtitles from just before and during this stretch, with timestamps in this copy:\n")
+		for _, l := range said {
+			fmt.Fprintf(&b, "[%s] %s\n", clock(l.start), l.text)
+		}
 	}
 	// Earlier notes, so the same point isn't made twice.
 	var prev string
@@ -328,7 +389,8 @@ func (s *Server) writeNotes(ctx context.Context, np NowPlaying, file, chunk int6
 		}
 	}
 
-	raw, err := s.claude.Complete(ctx, companionSystem, b.String(), notesSchema, anthropic.BetaOutputConfigEffortMedium, 8000, 3*time.Minute)
+	flush()
+	raw, err := s.claude.CompleteParts(ctx, companionSystem, parts, notesSchema, anthropic.BetaOutputConfigEffortMedium, 8000, 3*time.Minute)
 	if err != nil {
 		return err
 	}
@@ -358,11 +420,11 @@ func (s *Server) writeNotes(ctx context.Context, np NowPlaying, file, chunk int6
 	if grounded {
 		g = 1
 	}
-	_, err = s.db.W.ExecContext(ctx, `INSERT INTO companion_notes (item_id, chunk, grounded, notes, created_at) VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT (item_id, chunk) DO UPDATE SET grounded = excluded.grounded, notes = excluded.notes, created_at = excluded.created_at`,
-		np.ItemID, chunk, g, string(js), time.Now().Unix())
+	_, err = s.db.W.ExecContext(ctx, `INSERT INTO companion_notes (item_id, chunk, grounded, notes, created_at, v) VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT (item_id, chunk) DO UPDATE SET grounded = excluded.grounded, notes = excluded.notes, created_at = excluded.created_at, v = excluded.v`,
+		np.ItemID, chunk, g, string(js), time.Now().Unix(), compVersion)
 	if err == nil {
-		log.Printf("companion: wrote %d notes for item %d at %s (subtitles: %v)", len(notes), np.ItemID, clock(start), grounded)
+		log.Printf("companion: wrote %d notes for item %d at %s (subtitle lines: %d, stills: %d)", len(notes), np.ItemID, clock(start), len(said), len(shots))
 	}
 	return err
 }
@@ -373,14 +435,16 @@ Write notes that add what the viewer might not get straight away:
 - character: why someone is acting this way right now (motivation, what they want, what they're hiding, how it connects to their past or to earlier scenes)
 - context: history, culture, places, social norms and events of the time that explain what's happening
 - language: dated slang, idioms, references and phrases whose meaning has shifted (for example, in 1940s films "making love" meant romantic wooing, not sex)
-- detail: small things on screen or in the dialogue that are easy to miss, setups that matter later (without saying how they pay off), symbolism, recurring motifs
+- detail: small things on screen or in the dialogue that are easy to miss: what a newspaper, letter, sign or screen in shot actually says and why it matters, a prop or a face in the background, a look between two people, what a wordless scene is telling us, setups that matter later (without saying how they pay off), symbolism, recurring motifs
 - trivia: genuinely interesting production facts, casting, behind-the-scenes stories, real-world connections
+
+You are usually given stills from the picture as well as the subtitles. Look at them closely: read any text in shot, notice who is there, what they hold, where they are and how the shot is staged, and combine that with what you know about the work. Much of what matters in a film is never said aloud, so stretches with little or no dialogue deserve notes too. The stills are only a sample (one every several seconds), so things happen between them; use your knowledge of the work to fill gaps, and place a note about something visual at the timestamp of the still that shows it.
 
 Rules:
 - Never describe what is plainly on screen ("they sit down and talk"). No play-by-play, no recapping the dialogue.
 - No spoilers. Say nothing about anything after the end of the stretch you are given: no later plot turns, deaths, twists, reveals or endings, and no hints that something is foreshadowing a specific event. Character backstory that the story has already shown or that a viewer at this point would know is fine.
 - Only state facts you are confident are true. Trivia must be real; if unsure, leave it out.
-- Tie every note to a specific moment in the stretch, using the subtitles' timestamps when given. "at" is the number of seconds into this copy when the note should appear: just after the line or moment it is about.
+- Tie every note to a specific moment in the stretch, using the timestamps of the stills and subtitles when given. "at" is the number of seconds into this copy when the note should appear: just after the line or moment it is about.
 - 4 to 8 notes per ten-minute stretch, spread across it. Fewer is fine for quiet stretches or credits; quality over quantity.
 - title: a short hook of at most 8 words. text: 1 to 3 conversational sentences, plain English, no markdown.`
 
@@ -434,7 +498,8 @@ func (s *Server) handleCompanionAsk(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	lines, _ := s.subtitleLines(r.Context(), s.companionFile(r.Context(), raw), 3*time.Second)
+	file := s.companionFile(r.Context(), raw)
+	lines, _ := s.subtitleLines(r.Context(), file, 3*time.Second)
 	var b strings.Builder
 	b.WriteString(it.describe())
 	fmt.Fprintf(&b, "\nThe viewer is at %s.\n", clock(np.Position))
@@ -448,8 +513,22 @@ func (s *Server) handleCompanionAsk(w http.ResponseWriter, r *http.Request) {
 		b.WriteString("Subtitles from the last five minutes:\n")
 		b.WriteString(dl.String())
 	}
-	fmt.Fprintf(&b, "\nTheir question: %s", body.Question)
-	ans, err := s.claude.Complete(r.Context(), companionAskSystem, b.String(), answerSchema, anthropic.BetaOutputConfigEffortLow, 3000, 90*time.Second)
+	// What they're looking at: the last minute or so of the picture.
+	parts := []ask.Part{{Text: b.String()}}
+	var at []float64
+	for _, back := range []float64{60, 40, 25, 12, 2} {
+		if t := np.Position - back; t >= 0 {
+			at = append(at, t)
+		}
+	}
+	if shots := s.comp.stills.stills(r.Context(), s.filePath(r.Context(), file), at, 12*time.Second); len(shots) > 0 {
+		parts = append(parts, ask.Part{Text: "\nStills from the last minute of the picture, oldest first (the last is what's on screen now):\n"})
+		for _, sh := range shots {
+			parts = append(parts, ask.Part{Text: fmt.Sprintf("[%s]", clock(sh.at))}, ask.Part{JPEG: sh.jpeg})
+		}
+	}
+	parts = append(parts, ask.Part{Text: fmt.Sprintf("\nTheir question: %s", body.Question)})
+	ans, err := s.claude.CompleteParts(r.Context(), companionAskSystem, parts, answerSchema, anthropic.BetaOutputConfigEffortLow, 3000, 90*time.Second)
 	if err != nil {
 		writeErr(w, 502, err.Error())
 		return
@@ -464,7 +543,7 @@ func (s *Server) handleCompanionAsk(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"answer": strings.TrimSpace(res.Answer), "at": int(np.Position)})
 }
 
-const companionAskSystem = `You are a second-screen companion for someone watching a film or TV episode. They paused to ask about what's happening. Answer like a knowledgeable, warm friend: directly, in 1 to 4 conversational sentences, plain English, no markdown. Explain motivations, context, dated language or references as needed. Never spoil anything after the point they've reached, even if asked what happens next: say you'd rather not spoil it. Only state facts you're confident about.`
+const companionAskSystem = `You are a second-screen companion for someone watching a film or TV episode. They paused to ask about what's happening. You may be shown stills of what they've just seen: use them (read text in shot, notice who and what is there). Answer like a knowledgeable, warm friend: directly, in 1 to 4 conversational sentences, plain English, no markdown. Explain motivations, context, dated language or references as needed. Never spoil anything after the point they've reached, even if asked what happens next: say you'd rather not spoil it. Only state facts you're confident about.`
 
 var answerSchema = map[string]any{
 	"type": "object", "additionalProperties": false, "required": []string{"answer"},

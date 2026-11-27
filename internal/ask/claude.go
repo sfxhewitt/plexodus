@@ -2,6 +2,7 @@ package ask
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -198,10 +199,30 @@ var querySchema = map[string]any{
 	},
 }
 
+// Part is one piece of a request: text, or a JPEG picture.
+type Part struct {
+	Text string
+	JPEG []byte
+}
+
 // Complete runs one structured-output request for other features (the scene
 // companion) with the same key, model and concurrency limit as search. The
 // answer is the raw JSON text matching schema.
 func (c *Claude) Complete(ctx context.Context, system, user string, schema map[string]any, effort anthropic.BetaOutputConfigEffort, maxTokens int64, timeout time.Duration) (string, error) {
+	return c.CompleteParts(ctx, system, []Part{{Text: user}}, schema, effort, maxTokens, timeout)
+}
+
+// CompleteParts is Complete for a request that mixes text and pictures.
+func (c *Claude) CompleteParts(ctx context.Context, system string, parts []Part, schema map[string]any, effort anthropic.BetaOutputConfigEffort, maxTokens int64, timeout time.Duration) (string, error) {
+	blocks := make([]anthropic.BetaContentBlockParamUnion, 0, len(parts))
+	for _, p := range parts {
+		if len(p.JPEG) > 0 {
+			blocks = append(blocks, anthropic.NewBetaImageBlock(anthropic.BetaBase64ImageSourceParam{
+				Data: base64.StdEncoding.EncodeToString(p.JPEG), MediaType: anthropic.BetaBase64ImageSourceMediaTypeImageJPEG}))
+		} else if p.Text != "" {
+			blocks = append(blocks, anthropic.NewBetaTextBlock(p.Text))
+		}
+	}
 	c.mu.Lock()
 	client, enabled := c.client, c.key != ""
 	c.mu.Unlock()
@@ -220,7 +241,7 @@ func (c *Claude) Complete(ctx context.Context, system, user string, schema map[s
 		Model:     anthropic.Model(c.model),
 		MaxTokens: maxTokens,
 		System:    []anthropic.BetaTextBlockParam{{Text: system}},
-		Messages:  []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(user))},
+		Messages:  []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(blocks...)},
 		OutputConfig: anthropic.BetaOutputConfigParam{
 			Effort: effort,
 			Format: anthropic.BetaJSONOutputFormatParam{Schema: schema},
