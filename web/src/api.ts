@@ -512,6 +512,16 @@ export interface PlexSyncStatus {
     error?: string;
     collectionsAt?: string;
     collectionsTookSeconds?: number;
+    /** The last copy of the owner's Plex Watchlist. */
+    watchlist?: {
+      at?: number;
+      onPlex: number;
+      copied: number;
+      added: number;
+      /** On the Plex Watchlist but not in the library yet. */
+      waiting?: string[];
+      error?: string;
+    };
   };
 }
 

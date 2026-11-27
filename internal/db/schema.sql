@@ -230,6 +230,23 @@ CREATE TABLE IF NOT EXISTS watchlist (
     PRIMARY KEY (user_id, item_id)
 );
 
+-- The owner's Plex Watchlist as last read from plex.tv, for copying into
+-- watchlist. item_id is the library title it was matched to: NULL while the
+-- title isn't in the library yet. Once matched it is never copied again, so
+-- removing it from the watchlist here sticks.
+CREATE TABLE IF NOT EXISTS plex_watchlist (
+    user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    plex_key  TEXT NOT NULL,               -- Discover id (last part of the plex:// guid)
+    kind      TEXT NOT NULL,               -- movie | show
+    title     TEXT NOT NULL,
+    year      INTEGER,
+    ids       TEXT,                        -- "tmdb://949 imdb://tt0113277"; NULL = not asked yet
+    item_id   INTEGER REFERENCES items(id) ON DELETE SET NULL,
+    looked_at INTEGER NOT NULL DEFAULT 0,  -- when the Plex server was last asked for it
+    pos       INTEGER NOT NULL DEFAULT 0,  -- place on the Plex list, newest first
+    PRIMARY KEY (user_id, plex_key)
+);
+
 -- "Remove from Continue Watching": the item (a film or episode) or show stays
 -- off the row until it's watched again after hidden_at.
 CREATE TABLE IF NOT EXISTS continue_hidden (

@@ -120,6 +120,8 @@ type ExtrasStatus struct {
 	Error           string    `json:"error,omitempty"`
 	CollectionsAt   time.Time `json:"collectionsAt,omitempty"`
 	CollectionsTook int64     `json:"collectionsTookSeconds,omitempty"`
+	// The last copy of the owner's Plex Watchlist; nil before the first.
+	Watchlist *WatchlistStatus `json:"watchlist,omitempty"`
 }
 
 // SyncIntervals are the choices offered for how often to check Plex.
@@ -150,6 +152,14 @@ type Syncer struct {
 	// Rematched is called after a title is re-matched from Plex, with its
 	// new TMDB id (0 if Plex has none), to fill in what Plex doesn't carry.
 	Rematched func(ctx context.Context, itemID int64, kind string, tmdbID int64)
+
+	// Account identifies this server to plex.tv; with it set, the owner's
+	// Plex Watchlist is copied too (see watchlist.go).
+	Account func(ctx context.Context) Account
+	// WatchlistChanged is called after titles from the Plex Watchlist are
+	// added to a user's watchlist.
+	WatchlistChanged func(uid int64)
+	watchlistNow     bool // a sync was asked for by hand: copy the Watchlist now
 }
 
 func NewSyncer(d *db.DB, client func(context.Context) (*Client, PathMap), busy func() bool) *Syncer {
@@ -204,6 +214,7 @@ func (s *Syncer) Status(ctx context.Context) SyncStatus {
 	if t, _ := strconv.ParseInt(s.db.Setting(ctx, "plex_collections_checked"), 10, 64); t > 0 {
 		st.Extras.CollectionsAt = time.Unix(t, 0)
 	}
+	st.Extras.Watchlist = s.WatchlistStatus(ctx)
 	return st
 }
 
@@ -211,6 +222,7 @@ func (s *Syncer) Status(ctx context.Context) SyncStatus {
 func (s *Syncer) Kick() bool {
 	s.mu.Lock()
 	running := s.status.Running
+	s.watchlistNow = true
 	s.mu.Unlock()
 	if running {
 		return false
@@ -340,6 +352,12 @@ func (s *Syncer) runExtras(ctx context.Context) {
 		failed = append(failed, err.Error())
 	}
 
+	if s.watchlistDue(ctx) {
+		s.setPhase("your Plex Watchlist")
+		wctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		s.syncWatchlist(wctx, c, pm)
+		cancel()
+	}
 	if s.markersDue(ctx) {
 		s.setPhase("intro and credits markers")
 		mctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
