@@ -117,6 +117,9 @@ func (s *Server) extras(ctx context.Context, id int64, kind string, tmdb int64) 
 	if hit && time.Since(e.at) < extrasTTL {
 		return e.e
 	}
+	if s.agent == nil {
+		return nil
+	}
 	t := s.agent.TMDB()
 	if !t.Enabled() {
 		return nil
