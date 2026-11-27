@@ -415,12 +415,40 @@ function PlexSync() {
           )}
           {ex?.error && <span className="err-inline"> · last attempt failed: {ex.error} (retrying within the hour)</span>}
         </div>
+        {ex?.watchlist && <PlexWatchlistLine wl={ex.watchlist} />}
         {error && <div className="err">{error}</div>}
         <div className="form-actions">
           <button className="btn glass" onClick={run} disabled={busy || data.status.running}>Sync from Plex now</button>
         </div>
       </div>
     </section>
+  );
+}
+
+/** What the copy of the Plex Watchlist last did, with the titles still to arrive. */
+function PlexWatchlistLine({ wl }: { wl: NonNullable<PlexT["sync"]["extras"]["watchlist"]> }) {
+  const missing = Math.max(0, wl.onPlex - wl.copied);
+  const waiting = wl.waiting ?? [];
+  return (
+    <div className="muted small">
+      {wl.error && !wl.onPlex ? (
+        <span className="err-inline">Your Plex Watchlist couldn't be copied: {wl.error}</span>
+      ) : (
+        <>
+          Your Plex Watchlist is copied to your watchlist here every 15 minutes: {wl.copied.toLocaleString()} of{" "}
+          {wl.onPlex.toLocaleString()} {wl.onPlex === 1 ? "title" : "titles"} found in your library
+          {missing > 0 && `; ${missing.toLocaleString()} ${missing === 1 ? "isn't" : "aren't"} in your library yet and will be added when ${missing === 1 ? "it arrives" : "they arrive"}`}.
+          {wl.error && <span className="err-inline"> · last attempt failed: {wl.error}</span>}
+          {waiting.length > 0 && (
+            <details style={{ marginTop: 4 }}>
+              <summary>Not in your library yet</summary>
+              {waiting.join(" · ")}
+              {missing > waiting.length && ` · and ${(missing - waiting.length).toLocaleString()} more`}
+            </details>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
