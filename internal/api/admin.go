@@ -401,6 +401,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		"detectMarkers":       s.detector.Enabled(r.Context()),
 		"autoUpdate":          s.autoUpdateSettings(r.Context()),
 		"upNextMinMinutes":    s.upNextMinMinutes(r.Context()),
+		"onlineSubtitles":     s.onlineSubsEnabled(r.Context()),
 	})
 }
 
@@ -413,6 +414,7 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		AutoUpdate   *bool   `json:"autoUpdate"`
 		UpdateNow    bool    `json:"updateNow"`
 		UpNextMin    *int    `json:"upNextMinMinutes"`
+		OnlineSubs   *bool   `json:"onlineSubtitles"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, 400, err.Error())
@@ -438,6 +440,13 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 			v = "off"
 		}
 		s.db.SetSetting(r.Context(), detect.SettingKey, v)
+	}
+	if body.OnlineSubs != nil {
+		v := "on"
+		if !*body.OnlineSubs {
+			v = "off"
+		}
+		s.db.SetSetting(r.Context(), onlineSubsKey, v)
 	}
 	if body.UpNextMin != nil {
 		if *body.UpNextMin < 0 || *body.UpNextMin > 120 {

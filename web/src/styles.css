@@ -442,6 +442,8 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; bo
 .sub-tag { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 5px; background: rgba(255, 255, 255, 0.08); color: #cfd3e3; }
 .sub-note { display: flex; align-items: center; gap: 8px; padding: 4px 4px 0; }
 .sub-err { color: #fca5a5; font-size: 13px; }
+.sub-link { padding: 0; background: none; border: 0; color: var(--teal); font: inherit; font-weight: 600; cursor: pointer; }
+.sub-link:hover { text-decoration: underline; }
 .sub-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .sub-row input[type="range"] { flex: 1; min-width: 120px; }
 .sub-l { width: 52px; font-size: 13px; color: var(--muted); }

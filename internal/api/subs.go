@@ -64,16 +64,17 @@ func embeddedTracks(ss []probe.Stream) ([]subs.Track, []subs.EmbeddedStream) {
 }
 
 func (s *Server) handleSubtitleTracks(w http.ResponseWriter, r *http.Request) {
-	_, path, ss, ok := s.subFile(w, r)
+	fileID, path, ss, ok := s.subFile(w, r)
 	if !ok {
 		return
 	}
 	tracks, _ := embeddedTracks(ss)
 	tracks = append(tracks, subs.Sidecars(path)...)
+	tracks, online := s.withOnline(r.Context(), fileID, tracks)
 	if tracks == nil {
 		tracks = []subs.Track{}
 	}
-	writeJSON(w, map[string]any{"tracks": tracks, "ffmpeg": s.subs.Available()})
+	writeJSON(w, map[string]any{"tracks": tracks, "ffmpeg": s.subs.Available(), "online": online})
 }
 
 func (s *Server) handleSubtitleTrack(w http.ResponseWriter, r *http.Request) {
@@ -82,9 +83,21 @@ func (s *Server) handleSubtitleTrack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimSuffix(r.PathValue("track"), ".ass")
+	// raw=1 hands the TV app a file track the way it is (SRT stays SRT, so
+	// the viewer's subtitle style applies); the browser always gets ASS.
+	raw := r.URL.Query().Get("raw") == "1"
 	var body []byte
 	var err error
 	switch {
+	case id == onlineTrackID:
+		body, err = s.onlineSRT(r.Context(), fileID)
+		if err != nil {
+			writeErr(w, 404, "no such subtitle track")
+			return
+		}
+		if !raw {
+			body, err = s.subs.TextToASS(r.Context(), body, "srt", "downloaded subtitles")
+		}
 	case strings.HasPrefix(id, "s"):
 		idx, perr := strconv.Atoi(id[1:])
 		tracks, es := embeddedTracks(ss)
@@ -119,7 +132,11 @@ func (s *Server) handleSubtitleTrack(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 404, "no such subtitle track")
 			return
 		}
-		body, err = s.subs.Sidecar(r.Context(), path, *t)
+		if raw {
+			body, err = s.subs.SidecarRaw(path, *t)
+		} else {
+			body, err = s.subs.Sidecar(r.Context(), path, *t)
+		}
 	default:
 		writeErr(w, 404, "no such subtitle track")
 		return

@@ -45,6 +45,7 @@ type Server struct {
 	prober   *probe.Worker
 	streams  *stream.Manager
 	subs     *subs.Manager
+	online   *onlineSubs
 	importer *plex.Importer
 	plexSync *plex.Syncer
 	claude   *ask.Claude
@@ -74,6 +75,7 @@ func New(ctx context.Context, cfg *config.Config, d *db.DB, sc *scanner.Scanner,
 	s := &Server{cfg: cfg, db: d, auth: auth.New(d), scanner: sc, agent: agent, art: art, prober: prober, streams: streams,
 		importer: plex.NewImporter(d), web: web, baseCtx: ctx, plexArtInflight: map[string]*artFetch{}, nowPlaying: newNowPlaying(), comp: newCompanion(), tunnel: newTunnel(cfg.DataDir), directory: newDirectory(),
 		subs:   subs.New(cfg.FFmpeg, cfg.FFprobe, filepath.Join(cfg.DataDir, "subs")),
+		online: newOnlineSubs(cfg.DataDir),
 		thumbs: thumbs.New(cfg.FFmpeg, filepath.Join(cfg.DataDir, "thumbs"))}
 	key := d.Setting(ctx, "stream_sign_key")
 	if key == "" {
@@ -216,6 +218,7 @@ func (s *Server) Handler() http.Handler {
 	user("GET /api/files/{id}/thumbs/{n}", s.handleThumbSheet)
 	user("GET /api/screensaver", s.handleScreensaver)
 	user("GET /api/subs/{fileId}", s.handleSubtitleTracks)
+	user("POST /api/subs/{fileId}/online", s.handleOnlineSubs)
 	user("GET /api/subs/{fileId}/tracks/{track}", s.handleSubtitleTrack)
 	user("GET /api/subs/{fileId}/fonts", s.handleSubtitleFonts)
 	user("GET /api/subs/{fileId}/fonts/{font}", s.handleSubtitleFont)

@@ -7,7 +7,7 @@ import { Back, Copy, External, Forward, Fullscreen, Mute, Pause, Play, Rewind, S
 import { native, NativeEnded, nativePlay } from "../native";
 import {
   backgrounds, BackgroundKey, colors, ColorKey, fetchTrack, langOf, LoadedTrack, loadDelay, loadPrefs, pickTrack, saveDelay, savePrefs,
-  sizes, SizeKey, SubPrefs, clampPos, describePos, SubRenderer, SubTrack, trackLabel, trackTags,
+  sizes, SizeKey, SubPrefs, clampPos, describePos, OnlineSubs, SubRenderer, SubTrack, trackLabel, trackTags,
 } from "../subtitles";
 
 // Plexodus never re-encodes video. The browser gets the file as it is when
@@ -172,6 +172,8 @@ export default function Player() {
   // Subtitles (see ../subtitles.ts).
   const [subTracks, setSubTracks] = useState<SubTrack[]>([]);
   const [subTrack, setSubTrack] = useState<SubTrack>();
+  const [subOnline, setSubOnline] = useState<OnlineSubs>();
+  const [subOnlineBusy, setSubOnlineBusy] = useState(false);
   const [subLoaded, setSubLoaded] = useState<LoadedTrack & { id: string }>();
   const [subState, setSubState] = useState<{ loading?: boolean; error?: string }>({});
   const [subPrefs, setSubPrefsState] = useState<SubPrefs>(loadPrefs);
@@ -243,6 +245,7 @@ export default function Player() {
     setHlsPlan(undefined);
     setSubTracks([]);
     setSubTrack(undefined);
+    setSubOnline(undefined);
     setSubLoaded(undefined);
     setSubState({});
     hasPlayed.current = false;
@@ -387,16 +390,25 @@ export default function Player() {
     if (!playable || !fileId || !info) return;
     let cancelled = false;
     setSubDelayState(loadDelay(fileId));
-    api.get<{ tracks: SubTrack[] }>(`/api/subs/${fileId}`).then((d) => {
-      if (cancelled) return;
-      setSubTracks(d.tracks);
-      const audio = (info.file.streams || []).filter((s) => s.type === "audio");
-      const a = audio.find((s) => s.default) || audio[0];
-      const t = pickTrack(d.tracks, loadPrefs(), a?.language, info.file.size || 0);
-      if (t) setSubTrack(t);
-    }, () => {});
+    let timer: ReturnType<typeof setTimeout>;
+    const audio = (info.file.streams || []).filter((s) => s.type === "audio");
+    const a = audio.find((s) => s.default) || audio[0];
+    // A video with no subtitles of its own gets some from online: the server
+    // starts looking as playback starts, so ask again until it has finished.
+    const load = (tries: number) =>
+      api.get<{ tracks: SubTrack[]; online?: OnlineSubs }>(`/api/subs/${fileId}`).then((d) => {
+        if (cancelled) return;
+        setSubTracks(d.tracks);
+        setSubOnline(d.online);
+        const t = pickTrack(d.tracks, loadPrefs(), a?.language, info.file.size || 0);
+        if (t) setSubTrack((cur) => cur || t);
+        if (d.online?.state === "searching" && tries < 30) timer = setTimeout(() => load(tries + 1), 3000);
+        else if (tries > 0 && d.online?.state === "found") showToast("Subtitles downloaded");
+      }, () => {});
+    load(0);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [playable, fileId]);
 
@@ -478,6 +490,25 @@ export default function Player() {
     const d = Math.round((subDelay + by) * 10) / 10;
     setSubDelay(d);
     showToast(`Subtitle delay ${fmtDelay(d)}`);
+  };
+  // "Try another" / "Look again": the server drops its download and finds
+  // the next best match.
+  const retryOnlineSubs = async () => {
+    if (!fileId || subOnlineBusy) return;
+    setSubOnlineBusy(true);
+    const wasOnline = subTrack?.online;
+    if (wasOnline) setSubTrack(undefined);
+    try {
+      const d = await api.post<{ tracks: SubTrack[]; online?: OnlineSubs }>(`/api/subs/${fileId}/online`);
+      setSubTracks(d.tracks);
+      setSubOnline(d.online);
+      const t = d.tracks.find((x) => x.online);
+      // A new object each time, so the new file is fetched and shown.
+      if (t && (wasOnline || !subTrack)) setSubTrack({ ...t });
+    } catch {
+      setSubOnline({ state: "none", note: "Couldn't look for subtitles just now" });
+    }
+    setSubOnlineBusy(false);
   };
   const toggleSubs = () => {
     if (subTrack) {
@@ -1108,6 +1139,7 @@ export default function Player() {
               {subMenu && (
                 <SubtitleMenu
                   tracks={subTracks} current={subTrack} state={subState} prefs={subPrefs} delay={subDelay}
+                  online={subOnline} onlineBusy={subOnlineBusy} onOnline={retryOnlineSubs}
                   onPick={chooseSub} onPrefs={setSubPrefs} onDelay={setSubDelay} onClose={() => setSubMenu(false)}
                   audioOffset={audioOffset} onAudioOffset={(ms) => setAudioOffset(ms)}
                 />
@@ -1137,6 +1169,9 @@ function SubtitleMenu(props: {
   state: { loading?: boolean; error?: string };
   prefs: SubPrefs;
   delay: number;
+  online?: OnlineSubs;
+  onlineBusy: boolean;
+  onOnline: () => void;
   onPick: (t?: SubTrack) => void;
   onPrefs: (p: Partial<SubPrefs>) => void;
   onDelay: (d: number) => void;
@@ -1144,7 +1179,7 @@ function SubtitleMenu(props: {
   audioOffset: number;
   onAudioOffset: (ms: number) => void;
 }) {
-  const { tracks, current, state, prefs, delay, onPick, onPrefs, onDelay, audioOffset, onAudioOffset } = props;
+  const { tracks, current, state, prefs, delay, online, onlineBusy, onOnline, onPick, onPrefs, onDelay, audioOffset, onAudioOffset } = props;
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onDown = (e: PointerEvent) => {
@@ -1172,8 +1207,22 @@ function SubtitleMenu(props: {
             </span>
           </button>
         ))}
-        {!tracks.length && <div className="muted small sub-note">This video has no subtitles.</div>}
-        {state.loading && <div className="muted small sub-note"><span className="spinner sm" /> Loading subtitles… the first time, the server reads the whole file once.</div>}
+        {!tracks.length && !online?.state && <div className="muted small sub-note">This video has no subtitles.</div>}
+        {(online?.state === "searching" || onlineBusy) && <div className="muted small sub-note"><span className="spinner sm" /> Looking for subtitles online…</div>}
+        {!onlineBusy && online?.state === "found" && (
+          <div className="muted small sub-note">
+            <span>
+              {online.matched === "hash" ? "Downloaded for this exact copy." : "Downloaded to match this copy."}{" "}
+              Wrong or out of time? <button className="sub-link" onClick={onOnline}>Try another</button>
+            </span>
+          </div>
+        )}
+        {!onlineBusy && online?.state === "none" && (
+          <div className="muted small sub-note">
+            <span>{online.note || "No subtitles found online for this video."} <button className="sub-link" onClick={onOnline}>Look again</button></span>
+          </div>
+        )}
+        {state.loading && !current?.online && <div className="muted small sub-note"><span className="spinner sm" /> Loading subtitles… the first time, the server reads the whole file once.</div>}
         {state.error && <div className="sub-note sub-err">{state.error}</div>}
       </div>
 

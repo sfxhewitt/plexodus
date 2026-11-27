@@ -17,6 +17,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/v2"
 
 	"github.com/sfxhewitt/plexodus/internal/probe"
+	"github.com/sfxhewitt/plexodus/internal/subfetch"
 	"github.com/sfxhewitt/plexodus/internal/subs"
 )
 
@@ -502,6 +503,22 @@ func (s *Server) subtitleLines(ctx context.Context, file int64, wait time.Durati
 	tracks, es := embeddedTracks(ss)
 	tracks = append(subs.Sidecars(path), tracks...)
 	t := pickTrack(tracks)
+	if t == nil || !hasText(tracks, s.onlineSubsLang(ctx)) {
+		// Nothing readable in the file: use subtitles found online (the
+		// search starts when playback does).
+		if body, err := s.onlineSRT(ctx, file); err == nil {
+			var lines []subLine
+			for _, c := range subfetch.ParseSRT(string(body)) {
+				lines = append(lines, subLine{start: c.Start, end: c.End, text: strings.Join(strings.Fields(htmlTags.ReplaceAllString(c.Text, "")), " ")})
+			}
+			if len(lines) > 0 {
+				s.comp.mu.Lock()
+				s.comp.subs[file] = subEntry{lines: lines, track: onlineTrackID, at: time.Now()}
+				s.comp.mu.Unlock()
+				return lines, nil
+			}
+		}
+	}
 	if t == nil {
 		s.comp.mu.Lock()
 		s.comp.subs[file] = subEntry{at: time.Now()}
@@ -578,6 +595,15 @@ func pickTrack(tracks []subs.Track) *subs.Track {
 }
 
 var assTags = regexp.MustCompile(`\{[^}]*\}`)
+var htmlTags = regexp.MustCompile(`</?[a-zA-Z][^>]*>|\{[^}]*\}`)
+
+// forgetSubs drops what is remembered about a file's subtitles, so newly
+// downloaded ones are picked up.
+func (c *companion) forgetSubs(file int64) {
+	c.mu.Lock()
+	delete(c.subs, file)
+	c.mu.Unlock()
+}
 
 // parseASS pulls timed dialogue out of an ASS script.
 func parseASS(s string) []subLine {

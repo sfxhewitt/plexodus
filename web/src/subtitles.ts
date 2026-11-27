@@ -14,7 +14,17 @@ export interface SubTrack {
   default?: boolean;
   forced?: boolean;
   external?: boolean;
+  // Downloaded by the server because the video had none of its own.
+  online?: boolean;
   fileName?: string;
+}
+
+// Where the server's search for subtitles online stands.
+export interface OnlineSubs {
+  state: "" | "off" | "searching" | "found" | "none";
+  matched?: "hash" | "name";
+  release?: string;
+  note?: string;
 }
 
 export interface SubPrefs {
@@ -148,7 +158,7 @@ export function trackLabel(t: SubTrack, all: SubTrack[]) {
     }
   }
   const parts = [name, t.title && t.title !== name ? t.title : ""].filter(Boolean);
-  if (!parts.length) parts.push(t.external ? t.fileName || "External" : `Track ${all.indexOf(t) + 1}`);
+  if (!parts.length) parts.push(t.online ? "Downloaded" : t.external ? t.fileName || "External" : `Track ${all.indexOf(t) + 1}`);
   return parts.join(" · ");
 }
 
@@ -157,7 +167,8 @@ export function trackTags(t: SubTrack) {
   if (t.format === "ass") tags.push("Styled");
   else if (t.format === "text") tags.push(({ subrip: "SRT", srt: "SRT", vtt: "VTT", webvtt: "VTT" } as Record<string, string>)[t.codec] || "Text");
   if (t.forced) tags.push("Forced");
-  if (t.external) tags.push("File");
+  if (t.online) tags.push("Online");
+  else if (t.external) tags.push("File");
   return tags;
 }
 

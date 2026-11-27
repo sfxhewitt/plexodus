@@ -44,6 +44,8 @@ type Track struct {
 	Default  bool   `json:"default,omitempty"`
 	Forced   bool   `json:"forced,omitempty"`
 	External bool   `json:"external,omitempty"`
+	// Online marks subtitles Plexodus downloaded because the video had none.
+	Online   bool   `json:"online,omitempty"`
 	FileName string `json:"fileName,omitempty"`
 }
 
@@ -375,8 +377,8 @@ func lastLine(s string, err error) string {
 	return s
 }
 
-// Sidecar returns a sidecar subtitle file as ASS.
-func (m *Manager) Sidecar(ctx context.Context, path string, t Track) ([]byte, error) {
+// SidecarRaw returns a sidecar subtitle file as it is, as UTF-8.
+func (m *Manager) SidecarRaw(path string, t Track) ([]byte, error) {
 	p := filepath.Join(filepath.Dir(path), t.FileName)
 	f, err := os.Open(p)
 	if err != nil {
@@ -388,24 +390,34 @@ func (m *Manager) Sidecar(ctx context.Context, path string, t Track) ([]byte, er
 		return nil, err
 	}
 	b = bytes.TrimPrefix(b, []byte("\xef\xbb\xbf"))
-	if t.Format == "ass" {
-		if !utf8.Valid(b) {
-			b = latin1(b)
-		}
-		return b, nil
+	if !utf8.Valid(b) {
+		b = latin1(b)
 	}
-	if !m.Available() {
-		return nil, errors.New("ffmpeg is not installed on the server, so SRT subtitles can't be converted")
+	return b, nil
+}
+
+// Sidecar returns a sidecar subtitle file as ASS.
+func (m *Manager) Sidecar(ctx context.Context, path string, t Track) ([]byte, error) {
+	b, err := m.SidecarRaw(path, t)
+	if err != nil {
+		return nil, err
+	}
+	if t.Format == "ass" {
+		return b, nil
 	}
 	format := "srt"
 	if t.Codec == "vtt" {
 		format = "webvtt"
 	}
-	args := []string{"-nostdin", "-hide_banner", "-v", "error"}
-	if !utf8.Valid(b) {
-		args = append(args, "-sub_charenc", "CP1252")
+	return m.TextToASS(ctx, b, format, t.FileName)
+}
+
+// TextToASS converts UTF-8 SRT or WebVTT text to ASS.
+func (m *Manager) TextToASS(ctx context.Context, b []byte, format, name string) ([]byte, error) {
+	if !m.Available() {
+		return nil, errors.New("ffmpeg is not installed on the server, so SRT subtitles can't be converted")
 	}
-	args = append(args, "-f", format, "-i", "pipe:0", "-c:s", "ass", "-f", "ass", "pipe:1")
+	args := []string{"-nostdin", "-hide_banner", "-v", "error", "-f", format, "-i", "pipe:0", "-c:s", "ass", "-f", "ass", "pipe:1"}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, m.ffmpeg, args...)
@@ -413,7 +425,7 @@ func (m *Manager) Sidecar(ctx context.Context, path string, t Track) ([]byte, er
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("couldn't convert %s: %s", filepath.Base(p), lastLine(stderr.String(), err))
+		return nil, fmt.Errorf("couldn't convert %s: %s", filepath.Base(name), lastLine(stderr.String(), err))
 	}
 	return stdout.Bytes(), nil
 }
