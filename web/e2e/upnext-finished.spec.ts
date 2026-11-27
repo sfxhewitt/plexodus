@@ -181,3 +181,34 @@ test("the page saves a finished film itself when the player's reports never arri
   expect(logs[0].fixed).toBe("marked it watched");
   expect(logs[0].stats?.failed).toBe(12);
 });
+
+test("the title page catches up when the app never says the player closed", async ({ page, openTv }) => {
+  await page.addInitScript(tvBox);
+  const film = ids.movie + 3;
+  await openTv(`/item/${film}`);
+  await waitForFocus(page);
+  const item = await page.evaluate((id) => fetch(`/api/items/${id}`).then((r) => r.json()), film);
+  let watched = false;
+  await page.route(`**/api/items/${film}`, (route) =>
+    watched ? route.fulfill({ json: { ...item, watched: true, position: 0 } }) : route.fallback());
+  const logs: { missed?: boolean }[] = [];
+  await page.route("**/api/player/closed", (route) => {
+    logs.push(route.request().postDataJSON());
+    return route.fulfill({ json: { ok: true } });
+  });
+  const watchedBtn = page.locator('[data-fk="watched"]');
+  await expect(watchedBtn).toHaveText(/Mark watched/);
+  await page.locator('[data-fk="play"]').focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __played?: { itemId: number } }).__played?.itemId)).toBe(film);
+  // The film is watched to the end; the server has it, but the app's
+  // "player closed" message never reaches the page.
+  watched = true;
+  await page.waitForTimeout(3200);
+  await expect(watchedBtn, "nothing yet: the page can't tell").toHaveText(/Mark watched/);
+  // Back on the page, the first key press is enough.
+  await page.keyboard.press("ArrowRight");
+  await expect(watchedBtn).toHaveText(/Mark unwatched/, { timeout: 4000 });
+  await expect.poll(() => logs.length).toBe(1);
+  expect(logs[0].missed).toBe(true);
+});
